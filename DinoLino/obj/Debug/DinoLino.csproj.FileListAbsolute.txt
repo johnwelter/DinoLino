@@ -14,3 +14,19 @@ c:\users\john welter\documents\visual studio 2015\Projects\DinoLino\DinoLino\obj
 c:\users\john welter\documents\visual studio 2015\Projects\DinoLino\DinoLino\obj\Debug\DinoLino.pdb
 c:\users\john welter\documents\visual studio 2015\Projects\DinoLino\DinoLino\obj\Debug\Dictionary1.baml
 C:\Users\John Welter\Documents\Visual Studio 2015\Projects\DinoLino\DinoLino\obj\Debug\DinoLino.csproj.CoreCompileInputs.cache
+Z:\Programming\DinoLino\DinoLino\bin\Debug\DinoLino.exe.config
+Z:\Programming\DinoLino\DinoLino\bin\Debug\DinoLino.exe
+Z:\Programming\DinoLino\DinoLino\bin\Debug\DinoLino.pdb
+Z:\Programming\DinoLino\DinoLino\obj\Debug\DinoLino.csproj.AssemblyReference.cache
+Z:\Programming\DinoLino\DinoLino\obj\Debug\MainWindow.g.cs
+Z:\Programming\DinoLino\DinoLino\obj\Debug\App.g.cs
+Z:\Programming\DinoLino\DinoLino\obj\Debug\DinoLino_MarkupCompile.cache
+Z:\Programming\DinoLino\DinoLino\obj\Debug\DinoLino_MarkupCompile.lref
+Z:\Programming\DinoLino\DinoLino\obj\Debug\Dictionary1.baml
+Z:\Programming\DinoLino\DinoLino\obj\Debug\MainWindow.baml
+Z:\Programming\DinoLino\DinoLino\obj\Debug\DinoLino.g.resources
+Z:\Programming\DinoLino\DinoLino\obj\Debug\DinoLino.Properties.Resources.resources
+Z:\Programming\DinoLino\DinoLino\obj\Debug\DinoLino.csproj.GenerateResource.cache
+Z:\Programming\DinoLino\DinoLino\obj\Debug\DinoLino.csproj.CoreCompileInputs.cache
+Z:\Programming\DinoLino\DinoLino\obj\Debug\DinoLino.exe
+Z:\Programming\DinoLino\DinoLino\obj\Debug\DinoLino.pdb
