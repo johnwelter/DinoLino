@@ -11,8 +11,8 @@
 
   <Grid>
 
-    <Button x:Name="openImage" Content="Open" HorizontalAlignment="Left" Height="36" Margin="43,39,0,0" VerticalAlignment="Top" Width="147" Click="openImageButton"/>
-    <Button x:Name="fullresetCanvas" Content="Clear All" HorizontalAlignment="Left" Height="36" Margin="43,120,0,0" VerticalAlignment="Top" Width="147" Click="fullresetCanvas_Click"/>
+    <Button x:Name="openImage" Content="Open" HorizontalAlignment="Left" Height="36" Margin="43,39,0,0" VerticalAlignment="Top" Width="147" Click="OpenImageButton"/>
+    <Button x:Name="fullresetCanvas" Content="Clear All" HorizontalAlignment="Left" Height="36" Margin="43,120,0,0" VerticalAlignment="Top" Width="147" Click="FullresetCanvas_Click"/>
     <Label x:Name="angleOut" Content="NA" HorizontalAlignment="Left" Height="48" Margin="43,211,0,0" VerticalAlignment="Top" Width="175" FontSize="16"/>
     <Label x:Name="angleOutLabel" Content="ANGLE" HorizontalAlignment="Left" Height="48" Margin="43,175,0,0" VerticalAlignment="Top" Width="175" FontWeight="Bold" FontSize="18"/>
     <Grid Margin="240,10,287.5,49.5" Background="Black">
@@ -25,19 +25,19 @@
 
       <ScrollViewer Foreground="Black" BorderBrush="Black" BorderThickness="2">
 
-        <Canvas Width="554" Height="504" MouseMove="mouseFollow" MouseDown="mouseClick"  x:Name ="LineHold" Background="Black" />
+        <Canvas Width="554" Height="504" MouseMove="MouseFollow" MouseDown="MouseClick"  x:Name ="LineHold" Background="Black" />
 
       </ScrollViewer>
 
 
     </Grid>
-    <Button x:Name="openImage_Copy" Content="Reset" HorizontalAlignment="Left" Height="36" Margin="43,80,0,0" VerticalAlignment="Top" Width="147" Click="clearCanvas"/>
+    <Button x:Name="openImage_Copy" Content="Reset" HorizontalAlignment="Left" Height="36" Margin="43,80,0,0" VerticalAlignment="Top" Width="147" Click="ClearCanvas"/>
     <Label x:Name="averageOut" Content="NA" HorizontalAlignment="Left" Height="48" Margin="43,333,0,0" VerticalAlignment="Top" Width="175" FontSize="16"/>
     <Label x:Name="averageLabel" Content="Average of &#xA;Attempts" HorizontalAlignment="Left" Height="73" Margin="43,268,0,0" VerticalAlignment="Top" Width="175" FontWeight="Bold" FontSize="18"/>
     <Label x:Name="confidenceLabel" Content="Confidence" HorizontalAlignment="Left" Height="96" Margin="43,382,0,0" VerticalAlignment="Top" Width="175" FontWeight="Bold" FontSize="18"/>
     <Label x:Name="confidenceOut" Content="NA" HorizontalAlignment="Left" Height="48" Margin="43,437,0,0" VerticalAlignment="Top" Width="175" FontSize="16"/>
     <Label x:Name="angleOutLabel_Copy" Content="Created By&#xA;John Welter&#xA;Savannah Cobb&#xA;&#xA;Version 2.0&#xA;&#xA;Copyright 2018" HorizontalAlignment="Left" Height="308" Margin="832,126,0,0" VerticalAlignment="Top" Width="175" FontWeight="Bold" FontSize="20"/>
     <Label x:Name="angleOutLabel_Copy1" Content="DINO-LINO" HorizontalAlignment="Left" Height="105" Margin="778,46,0,0" VerticalAlignment="Top" Width="268" FontWeight="Bold" FontSize="48"/>
-        <ComboBox x:Name="combobox1" HorizontalAlignment="Left" Height="32" Margin="162,381,0,0" VerticalAlignment="Top" Width="56" SelectionChanged="combobox1_SelectionChanged" IsEditable="True"/>
+        <ComboBox x:Name="combobox1" HorizontalAlignment="Left" Height="32" Margin="162,381,0,0" VerticalAlignment="Top" Width="56" SelectionChanged="Combobox1_SelectionChanged" IsEditable="True"/>
     </Grid>
 </Window>
