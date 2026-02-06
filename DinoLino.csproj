@@ -59,6 +59,8 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Compile Include="DataTypes\DataTypes.cs" />
+    <Compile Include="Utilities\CanvasUtils.cs" />
     <Compile Include="Utilities\Stats.cs" />
     <Page Include="Dictionary1.xaml">
       <SubType>Designer</SubType>

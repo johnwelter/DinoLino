@@ -16,6 +16,7 @@ using System.Windows.Shapes;
 using System.IO;
 using Microsoft.Win32;
 using DinoLino.Utilities;
+using DinoLino.DataTypes;
 
 namespace DinoLino
 {
@@ -29,17 +30,17 @@ namespace DinoLino
         public Line currentLine = null;
         public double currentSlope;
 
-        public Point A;
-        public Point B;
-        public Point C;
-        public Point D;
-        public Point X;
-        public Point E;
+        public Vector2 Point1;
+        public Vector2 Point2;
+        public Vector2 Midpoint;
+        public Vector2 Orthoganal;
+        public Vector2 Point3;
+        public Vector2 Intersection;
 
-        public Point AX;
-        public Point BX;
+        public Vector2 Point13Mid;
+        public Vector2 Point23Mid;
 
-        public Ellipse El;
+        public Ellipse DotCursor;
         public double angle;
         public int tries;
         public double averageTotal;
@@ -53,32 +54,30 @@ namespace DinoLino
         public MainWindow()
         {
             InitializeComponent();
-            El = new Ellipse();
-            El.Stroke = Brushes.White;
-            El.StrokeThickness = 2;
-            El.Height = 10;
-            El.Width = 10;
-            LineHold.Children.Add(El);
-            Canvas.SetLeft(El, 0);
-            Canvas.SetRight(El, 1);
+            DotCursor = new Ellipse();
+            DotCursor.Stroke = Brushes.White;
+            DotCursor.StrokeThickness = 2;
+            DotCursor.Height = 10;
+            DotCursor.Width = 10;
+            WorkCanvas.Children.Add(DotCursor);
+            DotCursor.SetPosition(0, 0);
             angles = new List<double>();
             for(int i = 0; i < 99; i++)
             {
-                combobox1.Items.Add($"{i + 1}%");
+                ConfidenceSelection.Items.Add($"{i + 1}%");
             }
-            combobox1.SelectedIndex = 0;
+            ConfidenceSelection.SelectedIndex = 0;
         }
 
 
         private void ResetCanvas()
         {
 
-            LineHold.Children.Clear();
-            LineHold.Children.Add(El);
-            Canvas.SetLeft(El, 0);
-            Canvas.SetRight(El, 1);
+            WorkCanvas.Children.Clear();
+            WorkCanvas.Children.Add(DotCursor);
+            DotCursor.SetPosition(0, 0);
 
-            if (pointIndex == 4)
+            if (pointIndex == 3)
             {
                 previousAverage = average;
                 averageTotal += angle;
@@ -105,7 +104,7 @@ namespace DinoLino
 
             deviation = Math.Sqrt(determinant / tries);
 
-            onemargin = Stats.ZTable[combobox1.SelectedIndex] * Math.Abs(deviation / Math.Sqrt(tries));
+            onemargin = Stats.ZTable[ConfidenceSelection.SelectedIndex] * Math.Abs(deviation / Math.Sqrt(tries));
 
             averageOut.Content = average;
             confidenceOut.Content = average.ToString() + "±" + onemargin.ToString();
@@ -125,7 +124,7 @@ namespace DinoLino
                 ImageBrush ib = new ImageBrush();
                 ib.ImageSource = new BitmapImage(new Uri(openFileDialog.FileName, UriKind.Relative));
                 ib.Stretch = Stretch.Uniform;
-                LineHold.Background = ib;
+                WorkCanvas.Background = ib;
             }
 
             ResetCanvas();
@@ -142,8 +141,8 @@ namespace DinoLino
 
         private void CalculateAngle()
         {
-            Vector vA = new Vector(E.X - A.X, E.Y - A.Y);
-            Vector vB = new Vector(E.X - B.X, E.Y - B.Y);
+            Vector vA = new Vector(Intersection.X - Point1.X, Intersection.Y - Point1.Y);
+            Vector vB = new Vector(Intersection.X - Point2.X, Intersection.Y - Point2.Y);
 
             angle = Math.Abs(Vector.AngleBetween(vA, vB));
             angleOut.Content = angle;
@@ -151,116 +150,74 @@ namespace DinoLino
 
         private void MouseClick(object sender, RoutedEventArgs e)
         {
-            Point P;
-            Point Mid;
-            Line L;
+            Vector2 mousePos = new Vector2(Mouse.GetPosition(WorkCanvas));
             switch (pointIndex)
             {
                 case 0:
 
-                    P = Mouse.GetPosition(LineHold);
-                    L = new Line();
-                    L.X1 = P.X;
-                    L.Y1 = P.Y;
-                    L.X2 = P.X;
-                    L.Y2 = P.Y;
-                    A = new Point(P.X, P.Y);
-                    L.Stroke = Brushes.OrangeRed;
-                    L.StrokeThickness = 2;
-                    LineHold.Children.Add(L);
-                    currentLine = L;
+                    Point1 = new Vector2(mousePos.X, mousePos.Y);
+                    currentLine = AddLine(mousePos, mousePos);
                     pointIndex++;
                     break;
 
                 case 1:
-                    P = Mouse.GetPosition(LineHold);
-                    currentLine.X2 = P.X;
-                    currentLine.Y2 = P.Y;
-                    B = new Point(P.X, P.Y);
-                    L = new Line();
-                    Mid = new Point((currentLine.X1 + currentLine.X2) / 2, (currentLine.Y1 + currentLine.Y2) / 2);
-                    L.X1 = Mid.X;
-                    L.Y1 = Mid.Y;
-                    L.X2 = Mid.X;
-                    L.Y2 = Mid.Y;
-                    C = new Point(Mid.X, Mid.Y);
-                    L.Stroke = Brushes.OrangeRed;
-                    L.StrokeThickness = 2;
-                    LineHold.Children.Add(L);
-                    currentSlope = ((currentLine.Y2 - currentLine.Y1) / (currentLine.X2 - currentLine.X1));
-                    currentLine = L;
+
+                    currentLine.X2 = mousePos.X;
+                    currentLine.Y2 = mousePos.Y;
+                    Point2 = new Vector2(mousePos.X, mousePos.Y);
+                    Midpoint = (Point1 + Point2) * 0.5;
+                    currentLine = AddLine(Midpoint, Midpoint);
+
+                    // make the orthoganal
+                    Vector3 p1 = new Vector3(Point1.X, Point1.Y, 1);
+                    Vector3 p2 = new Vector3(Point2.X, Point2.Y, 1);
+                    Orthoganal = (p1 ^ p2).ToVector2();
+                    Orthoganal.Normalize();
+
                     pointIndex++;
                     break;
                 case 2:
-                    D = new Point(currentLine.X2, currentLine.Y2);
+
+                    Point3 = new Vector2(currentLine.X2, currentLine.Y2);
+
+                    AddLine(Point1, Point3);
+                    AddLine(Point2, Point3);
+
+                    //midpoints for those lines
+                    Point13Mid = (Point1 + Point3) * 0.5;
+                    Point23Mid = (Point2 + Point3) * 0.5;
+
+                    //generate the orthogonal lines, and find their intersection point
+
+                    Vector2 Ray13 = (new Vector3(Point1.X, Point1.Y, 1) ^ new Vector3(Point3.X, Point3.Y, 1)).ToVector2();
+                    Ray13.Normalize();
+
+                    Vector2 Ray23 = (new Vector3(Point2.X, Point2.Y, 1) ^ new Vector3(Point3.X, Point3.Y, 1)).ToVector2();
+                    Ray23.Normalize();
+
+                    Vector2 diff = Point23Mid - Point13Mid;
+                    double dx = Point23Mid.X - Point13Mid.X;
+                    double dy = Point23Mid.Y - Point13Mid.Y;
+                    double det = Ray23 ^ Ray13;
+
+                    if(det <= 0.00001)
+                    {
+                        //don't allow 0 height, just ignore the click and try again
+                        break;
+                    }
+
+                    double u = (dy * Ray23.X - dx * Ray23.Y) / det;
+
+                    Vector2 offset = Ray13 * u;
+
+                    Intersection = Point13Mid + offset;
+                    
                     currentLine = null;
-                    pointIndex++;
 
-                    L = new Line();
-                    L.Stroke = Brushes.OrangeRed;
-                    L.StrokeThickness = 2;
-                    L.X1 = A.X;
-                    L.Y1 = A.Y;
-                    L.X2 = X.X;
-                    L.Y2 = X.Y;
-                    LineHold.Children.Add(L);
-
-                    L = new Line();
-                    L.Stroke = Brushes.OrangeRed;
-                    L.StrokeThickness = 2;
-                    L.X1 = B.X;
-                    L.Y1 = B.Y;
-                    L.X2 = X.X;
-                    L.Y2 = X.Y;
-                    LineHold.Children.Add(L);
-
-                    AX = new Point((A.X + X.X) / 2, (A.Y + X.Y) / 2);
-                    BX = new Point((B.X + X.X) / 2, (B.Y + X.Y) / 2);
-
-                    double mA = (X.Y - C.Y) / (X.X - C.X);
-                    double mB = (X.Y - AX.Y) / (X.X - AX.X);
-                    mB = -1 / mB;
-
-                    double bA = X.Y - (mA * X.X);
-                    double bB = AX.Y - (mB * AX.X);
-
-                    E.X = (bB - bA) / (mA - mB);
-                    E.Y = mB * (E.X) + bB;
-
-                    L = new Line();
-                    L.Stroke = Brushes.OrangeRed;
-                    L.StrokeThickness = 2;
-                    L.X1 = AX.X;
-                    L.Y1 = AX.Y;
-                    L.X2 = E.X;
-                    L.Y2 = E.Y;
-                    LineHold.Children.Add(L);
-
-                    L = new Line();
-                    L.Stroke = Brushes.OrangeRed;
-                    L.StrokeThickness = 2;
-                    L.X1 = BX.X;
-                    L.Y1 = BX.Y;
-                    L.X2 = E.X;
-                    L.Y2 = E.Y;
-                    LineHold.Children.Add(L);
-
-                    L = new Line();
-                    L.Stroke = Brushes.OrangeRed;
-                    L.StrokeThickness = 2;
-                    L.X1 = A.X;
-                    L.Y1 = A.Y;
-                    L.X2 = E.X;
-                    L.Y2 = E.Y;
-                    LineHold.Children.Add(L);
-                    L = new Line();
-                    L.Stroke = Brushes.OrangeRed;
-                    L.StrokeThickness = 2;
-                    L.X1 = B.X;
-                    L.Y1 = B.Y;
-                    L.X2 = E.X;
-                    L.Y2 = E.Y;
-                    LineHold.Children.Add(L);
+                    AddLine(Point13Mid, Intersection);
+                    AddLine(Point23Mid, Intersection);
+                    AddLine(Point1, Intersection);
+                    AddLine(Point2, Intersection);
 
                     CalculateAngle();
 
@@ -272,43 +229,35 @@ namespace DinoLino
         private void MouseFollow(object sender, MouseEventArgs e)
         {
 
-            Point P = Mouse.GetPosition(LineHold);
+            Point mousePos = Mouse.GetPosition(WorkCanvas);
 
             switch (pointIndex)
             {
                 case 0:
-                    Canvas.SetLeft(El, P.X - 5);
-                    Canvas.SetTop(El, P.Y - 5);
+                    DotCursor.SetPosition(mousePos.X - 5, mousePos.Y - 5);
+
                     break;
                 case 1:
-                    Canvas.SetLeft(El, P.X - 5);
-                    Canvas.SetTop(El, P.Y - 5);
-                    currentLine.X2 = P.X;
-                    currentLine.Y2 = P.Y;
+                    DotCursor.SetPosition(mousePos.X - 5, mousePos.Y - 5);
+                    currentLine.X2 = mousePos.X;
+                    currentLine.Y2 = mousePos.Y;
                     break;
 
                 case 2:
 
-                    if (Math.Abs(currentSlope) == 0)
-                    {
-                        currentLine.Y2 = P.Y;
-                        Canvas.SetTop(El, P.Y - 5);
+                    // we want to lock everything to a given 2D vector
+                    // origin at the Midpoint, project down and across
+                    // we can do this by making a 2D vector of the mouse position, and dotting it to get the new magnitude
+                    // add normalized direction + scale to midpoint to get new point
 
-                    }
+                    Vector2 toMouse = new Vector2(mousePos.X - Midpoint.X, mousePos.Y - Midpoint.Y);
+                    double newMag = Orthoganal | toMouse;
 
-                    else
-                    {
-                        //have rise, need run
-                        //need inverse slope
+                    Vector2 newDist = Orthoganal * newMag;
 
-                        currentLine.X2 = currentLine.X1 + (-currentSlope * (P.Y - currentLine.Y1));
-                        currentLine.Y2 = P.Y;
-                        Canvas.SetLeft(El, currentLine.X2 - 5);
-                        Canvas.SetTop(El, P.Y - 5);
-                        X.X = (C.X + (-currentSlope * (P.Y - currentLine.Y1)));
-                        X.Y = P.Y;
-
-                    }
+                    currentLine.X2 = Midpoint.X + newDist.X;
+                    currentLine.Y2 = Midpoint.Y + newDist.Y;
+                    DotCursor.SetPosition(currentLine.X2 - 5, currentLine.Y2 - 5);
 
                     break;
             }
@@ -317,10 +266,10 @@ namespace DinoLino
 
         private void FullresetCanvas_Click(object sender, RoutedEventArgs e)
         {
-            LineHold.Children.Clear();
-            LineHold.Children.Add(El);
-            Canvas.SetLeft(El, 0);
-            Canvas.SetRight(El, 1);
+            WorkCanvas.Children.Clear();
+            WorkCanvas.Children.Add(DotCursor);
+            Canvas.SetLeft(DotCursor, 0);
+            Canvas.SetRight(DotCursor, 1);
             angles.Clear();
 
             angle = 0;
@@ -340,6 +289,19 @@ namespace DinoLino
         private void Combobox1_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             RefreshConfidence();
+        }
+
+        private Line AddLine(Vector2 a, Vector2 b)
+        {
+            Line L = new();
+            L.Stroke = Brushes.OrangeRed;
+            L.StrokeThickness = 2;
+            L.X1 = a.X;
+            L.Y1 = a.Y;
+            L.X2 = b.X;
+            L.Y2 = b.Y;
+            WorkCanvas.Children.Add(L);
+            return L;
         }
     }
 }

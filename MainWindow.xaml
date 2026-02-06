@@ -25,7 +25,7 @@
 
       <ScrollViewer Foreground="Black" BorderBrush="Black" BorderThickness="2">
 
-        <Canvas Width="554" Height="504" MouseMove="MouseFollow" MouseDown="MouseClick"  x:Name ="LineHold" Background="Black" />
+        <Canvas Width="554" Height="504" MouseMove="MouseFollow" MouseDown="MouseClick"  x:Name ="WorkCanvas" Background="Black" />
 
       </ScrollViewer>
 
@@ -38,6 +38,6 @@
     <Label x:Name="confidenceOut" Content="NA" HorizontalAlignment="Left" Height="48" Margin="43,437,0,0" VerticalAlignment="Top" Width="175" FontSize="16"/>
     <Label x:Name="angleOutLabel_Copy" Content="Created By&#xA;John Welter&#xA;Savannah Cobb&#xA;&#xA;Version 2.0&#xA;&#xA;Copyright 2018" HorizontalAlignment="Left" Height="308" Margin="832,126,0,0" VerticalAlignment="Top" Width="175" FontWeight="Bold" FontSize="20"/>
     <Label x:Name="angleOutLabel_Copy1" Content="DINO-LINO" HorizontalAlignment="Left" Height="105" Margin="778,46,0,0" VerticalAlignment="Top" Width="268" FontWeight="Bold" FontSize="48"/>
-        <ComboBox x:Name="combobox1" HorizontalAlignment="Left" Height="32" Margin="162,381,0,0" VerticalAlignment="Top" Width="56" SelectionChanged="Combobox1_SelectionChanged" IsEditable="True"/>
+        <ComboBox x:Name="ConfidenceSelection" HorizontalAlignment="Left" Height="32" Margin="162,381,0,0" VerticalAlignment="Top" Width="56" SelectionChanged="Combobox1_SelectionChanged" IsEditable="True"/>
     </Grid>
 </Window>
