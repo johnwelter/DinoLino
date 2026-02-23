@@ -13,12 +13,12 @@
 
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
-                <MenuItem Header="_Open Image" Click="OpenImage_UICall"/>
+                <MenuItem Header="_Open Image" Click="Menu_OpenImage"/>
             </MenuItem>
             <MenuItem Header="_Edit">
             </MenuItem>
             <MenuItem Header="_Help">
-                <MenuItem Header="_About" Click="About_UICall"/>
+                <MenuItem Header="_About" Click="Menu_About"/>
             </MenuItem>
         </Menu>
         
@@ -41,7 +41,7 @@
                         </Style>
                     </StackPanel.Resources>
 
-                    <Button x:Name="UI_AAClearButton" Content="Clear" VerticalAlignment="Top" Click="ClearCanvas_UICall"/>
+                    <Button x:Name="UI_AAClearButton" Content="Clear" VerticalAlignment="Top" Click="WorkSpace_Clear"/>
                 </StackPanel>
                 <StackPanel x:Name="UI_AngleAnalyticsOutputs" Grid.Row="1">
                     <StackPanel x:Name="UI_AAAngleOutput" Orientation="Horizontal" >
@@ -50,25 +50,16 @@
                     </StackPanel>
                 </StackPanel>
             </StackPanel>
-            
-            <ScrollViewer x:Name="UI_WorkScrollViewer" Grid.Column="1">
-                <Canvas x:Name="UI_WorkCanvas" MouseMove="WorkCanvasMouseMove_UICall" MouseDown="WorkCanvasClicked_UICall" Background="#FF888888"/>
-            </ScrollViewer>
 
-            <!-- the idea eventually will be make the image zoomable - need to do more research on that
-            
-            <Grid x:Name="UI_WorkArea" Grid.Column="1">
-                <ScrollViewer x:Name="UI_WorkScrollViewer" Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                    <Canvas x:Name="UI_WorkCanvas">
-                        <Viewbox x:Name="UI_WorkViewBox" MouseMove="WorkCanvasMouseMove_UICall" MouseDown="WorkCanvasClicked_UICall">
-                            <Image x:Name="UI_WorkImage"></Image>
-                        </Viewbox>
-                    </Canvas>
-                </ScrollViewer>
+            <Grid x:Name="UI_WorkSpace" Grid.Column="1" ClipToBounds="True">
+                <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseWheel="WorkSpace_ScrollZoom">
+                    <Border x:Name ="UI_WorkBorder" BorderBrush="White" BorderThickness="3" Panel.ZIndex="10" Width="{Binding ActualWidth, ElementName=UI_WorkImage, Mode=OneWay}" Height="{Binding ActualHeight, ElementName=UI_WorkImage, Mode=OneWay}">
+                        <Canvas x:Name="UI_WorkCanvas"/>
+                    </Border>
+                    <Canvas x:Name="UI_WorkBackground" Background="Gray" />
+                    <Image x:Name="UI_WorkImage"/>
+                </Grid>
             </Grid>
-            
-            -->
-            
         </Grid>
     </DockPanel>
 </Window>
