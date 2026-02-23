@@ -26,96 +26,65 @@ namespace DinoLino
     public partial class MainWindow : Window
     {
 
-        public int pointIndex = 0;
-        public Line currentLine = null;
-        public double currentSlope;
-
-        public Vector2 Point1;
-        public Vector2 Point2;
+#region Angle Analytics Variables
+        
+        // Angle Analytics 
+        
+        public Ellipse UI_DotCursor;
+        
+        public int CurrentPointIndex = 0;
+        public Line CurrentUILine = null;
+        
+        public Vector2 PointA;
+        public Vector2 PointB;
         public Vector2 Midpoint;
         public Vector2 Orthoganal;
-        public Vector2 Point3;
+        public Vector2 PointC;
         public Vector2 Intersection;
 
-        public Vector2 Point13Mid;
-        public Vector2 Point23Mid;
+        public Vector2 ACMid;
+        public Vector2 BCMid;
 
-        public Ellipse DotCursor;
-        public double angle;
-        public int tries;
-        public double averageTotal;
-        public double average;
-        public double previousAverage;
+        public double AngleResult;
 
-        public double confidence;
-
-        public List<double> angles;
+#endregion
 
         public MainWindow()
         {
             InitializeComponent();
-            DotCursor = new Ellipse();
-            DotCursor.Stroke = Brushes.White;
-            DotCursor.StrokeThickness = 2;
-            DotCursor.Height = 10;
-            DotCursor.Width = 10;
-            WorkCanvas.Children.Add(DotCursor);
-            DotCursor.SetPosition(0, 0);
-            angles = new List<double>();
-            for(int i = 0; i < 99; i++)
-            {
-                ConfidenceSelection.Items.Add($"{i + 1}%");
-            }
-            ConfidenceSelection.SelectedIndex = 0;
+
+            // Create cursor for following mouse during angle analytics
+            UI_DotCursor = new Ellipse();
+            UI_DotCursor.Stroke = Brushes.White;
+            UI_DotCursor.StrokeThickness = 2;
+            UI_DotCursor.Height = 10;
+            UI_DotCursor.Width = 10;
+
+            ResetAnalytics();
         }
 
 
-        private void ResetCanvas()
+        private void ResetAnalytics()
         {
-
-            WorkCanvas.Children.Clear();
-            WorkCanvas.Children.Add(DotCursor);
-            DotCursor.SetPosition(0, 0);
-
-            if (pointIndex == 3)
-            {
-                previousAverage = average;
-                averageTotal += angle;
-                tries++;
-                average = averageTotal / tries;
-                angles.Add(angle);
-                RefreshConfidence();
-            }
-
-            pointIndex = 0;
-
+            UI_WorkCanvas.Children.Add(UI_DotCursor);
+            UI_DotCursor.SetPosition(0, 0);
+            AngleResult = 0;
+            UI_AAAngleOutputValue.Content = "0";
+            CurrentPointIndex = 0;
         }
 
-        public void RefreshConfidence()
+        private void ClearCanvas()
         {
-            double determinant = 0;
-            double deviation = 0;
-            double onemargin = 0;
-
-            foreach (double F in angles)
-            {
-                determinant += Math.Pow(F - average, 2);
-            }
-
-            deviation = Math.Sqrt(determinant / tries);
-
-            onemargin = Stats.ZTable[ConfidenceSelection.SelectedIndex] * Math.Abs(deviation / Math.Sqrt(tries));
-
-            averageOut.Content = average;
-            confidenceOut.Content = average.ToString() + "±" + onemargin.ToString();
+            UI_WorkCanvas.Children.Clear();
+            ResetAnalytics();
         }
 
-        private void ClearCanvas(object sender, RoutedEventArgs e)
+        private void ClearCanvas_UICall(object sender, RoutedEventArgs e)
         {
-            ResetCanvas();
+            ClearCanvas();
         }
 
-        private void OpenImageButton(object sender, RoutedEventArgs e)
+        private void OpenImage_UICall(object sender, RoutedEventArgs e)
         {
             OpenFileDialog openFileDialog = new OpenFileDialog();
 
@@ -124,80 +93,71 @@ namespace DinoLino
                 ImageBrush ib = new ImageBrush();
                 ib.ImageSource = new BitmapImage(new Uri(openFileDialog.FileName, UriKind.Relative));
                 ib.Stretch = Stretch.Uniform;
-                WorkCanvas.Background = ib;
+                UI_WorkCanvas.Background = ib;
             }
 
-            ResetCanvas();
-            angle = 0;
-            average = 0;
-            previousAverage = 0;
-            averageTotal = 0;
-            tries = 0;
-
-            angleOut.Content = "0";
-            averageOut.Content = "0";
-            confidenceOut.Content = "0";
+            ClearCanvas();
         }
 
         private void CalculateAngle()
         {
-            Vector vA = new Vector(Intersection.X - Point1.X, Intersection.Y - Point1.Y);
-            Vector vB = new Vector(Intersection.X - Point2.X, Intersection.Y - Point2.Y);
+            Vector vA = new Vector(Intersection.X - PointA.X, Intersection.Y - PointA.Y);
+            Vector vB = new Vector(Intersection.X - PointB.X, Intersection.Y - PointB.Y);
 
-            angle = Math.Abs(Vector.AngleBetween(vA, vB));
-            angleOut.Content = angle;
+            AngleResult = Math.Abs(Vector.AngleBetween(vA, vB));
+            UI_AAAngleOutputValue.Content = AngleResult;
         }
 
-        private void MouseClick(object sender, RoutedEventArgs e)
+        private void WorkCanvasClicked_UICall(object sender, MouseButtonEventArgs e)
         {
-            Vector2 mousePos = new Vector2(Mouse.GetPosition(WorkCanvas));
-            switch (pointIndex)
+            Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
+            switch (CurrentPointIndex)
             {
                 case 0:
 
-                    Point1 = new Vector2(mousePos.X, mousePos.Y);
-                    currentLine = AddLine(mousePos, mousePos);
-                    pointIndex++;
+                    PointA = new Vector2(mousePos.X, mousePos.Y);
+                    CurrentUILine = AddLine(mousePos, mousePos);
+                    CurrentPointIndex++;
                     break;
 
                 case 1:
 
-                    currentLine.X2 = mousePos.X;
-                    currentLine.Y2 = mousePos.Y;
-                    Point2 = new Vector2(mousePos.X, mousePos.Y);
-                    Midpoint = (Point1 + Point2) * 0.5;
-                    currentLine = AddLine(Midpoint, Midpoint);
+                    CurrentUILine.X2 = mousePos.X;
+                    CurrentUILine.Y2 = mousePos.Y;
+                    PointB = new Vector2(mousePos.X, mousePos.Y);
+                    Midpoint = (PointA + PointB) * 0.5;
+                    CurrentUILine = AddLine(Midpoint, Midpoint);
 
                     // make the orthoganal
-                    Vector3 p1 = new Vector3(Point1.X, Point1.Y, 1);
-                    Vector3 p2 = new Vector3(Point2.X, Point2.Y, 1);
+                    Vector3 p1 = new Vector3(PointA.X, PointA.Y, 1);
+                    Vector3 p2 = new Vector3(PointB.X, PointB.Y, 1);
                     Orthoganal = (p1 ^ p2).ToVector2();
                     Orthoganal.Normalize();
 
-                    pointIndex++;
+                    CurrentPointIndex++;
                     break;
                 case 2:
 
-                    Point3 = new Vector2(currentLine.X2, currentLine.Y2);
+                    PointC = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
 
-                    AddLine(Point1, Point3);
-                    AddLine(Point2, Point3);
+                    AddLine(PointA, PointC);
+                    AddLine(PointB, PointC);
 
                     //midpoints for those lines
-                    Point13Mid = (Point1 + Point3) * 0.5;
-                    Point23Mid = (Point2 + Point3) * 0.5;
+                    ACMid = (PointA + PointC) * 0.5;
+                    BCMid = (PointB + PointC) * 0.5;
 
                     //generate the orthogonal lines, and find their intersection point
 
-                    Vector2 Ray13 = (new Vector3(Point1.X, Point1.Y, 1) ^ new Vector3(Point3.X, Point3.Y, 1)).ToVector2();
+                    Vector2 Ray13 = (new Vector3(PointA.X, PointA.Y, 1) ^ new Vector3(PointC.X, PointC.Y, 1)).ToVector2();
                     Ray13.Normalize();
 
-                    Vector2 Ray23 = (new Vector3(Point2.X, Point2.Y, 1) ^ new Vector3(Point3.X, Point3.Y, 1)).ToVector2();
+                    Vector2 Ray23 = (new Vector3(PointB.X, PointB.Y, 1) ^ new Vector3(PointC.X, PointC.Y, 1)).ToVector2();
                     Ray23.Normalize();
 
-                    Vector2 diff = Point23Mid - Point13Mid;
-                    double dx = Point23Mid.X - Point13Mid.X;
-                    double dy = Point23Mid.Y - Point13Mid.Y;
+                    Vector2 diff = BCMid - ACMid;
+                    double dx = BCMid.X - ACMid.X;
+                    double dy = BCMid.Y - ACMid.Y;
                     double det = Ray23 ^ Ray13;
 
                     if(det <= 0.00001)
@@ -210,37 +170,36 @@ namespace DinoLino
 
                     Vector2 offset = Ray13 * u;
 
-                    Intersection = Point13Mid + offset;
+                    Intersection = ACMid + offset;
                     
-                    currentLine = null;
+                    CurrentUILine = null;
 
-                    AddLine(Point13Mid, Intersection);
-                    AddLine(Point23Mid, Intersection);
-                    AddLine(Point1, Intersection);
-                    AddLine(Point2, Intersection);
+                    AddLine(ACMid, Intersection);
+                    AddLine(BCMid, Intersection);
+                    AddLine(PointA, Intersection);
+                    AddLine(PointB, Intersection);
 
                     CalculateAngle();
 
-                    pointIndex++;
+                    CurrentPointIndex++;
 
                     break;
             }
         }
-        private void MouseFollow(object sender, MouseEventArgs e)
+        private void WorkCanvasMouseMove_UICall(object sender, MouseEventArgs e)
         {
+            Point mousePos = Mouse.GetPosition(UI_WorkCanvas);
 
-            Point mousePos = Mouse.GetPosition(WorkCanvas);
-
-            switch (pointIndex)
+            switch (CurrentPointIndex)
             {
                 case 0:
-                    DotCursor.SetPosition(mousePos.X - 5, mousePos.Y - 5);
+                    UI_DotCursor.SetPosition(mousePos.X - 5, mousePos.Y - 5);
 
                     break;
                 case 1:
-                    DotCursor.SetPosition(mousePos.X - 5, mousePos.Y - 5);
-                    currentLine.X2 = mousePos.X;
-                    currentLine.Y2 = mousePos.Y;
+                    UI_DotCursor.SetPosition(mousePos.X - 5, mousePos.Y - 5);
+                    CurrentUILine.X2 = mousePos.X;
+                    CurrentUILine.Y2 = mousePos.Y;
                     break;
 
                 case 2:
@@ -255,40 +214,13 @@ namespace DinoLino
 
                     Vector2 newDist = Orthoganal * newMag;
 
-                    currentLine.X2 = Midpoint.X + newDist.X;
-                    currentLine.Y2 = Midpoint.Y + newDist.Y;
-                    DotCursor.SetPosition(currentLine.X2 - 5, currentLine.Y2 - 5);
+                    CurrentUILine.X2 = Midpoint.X + newDist.X;
+                    CurrentUILine.Y2 = Midpoint.Y + newDist.Y;
+                    UI_DotCursor.SetPosition(CurrentUILine.X2 - 5, CurrentUILine.Y2 - 5);
 
                     break;
             }
 
-        }
-
-        private void FullresetCanvas_Click(object sender, RoutedEventArgs e)
-        {
-            WorkCanvas.Children.Clear();
-            WorkCanvas.Children.Add(DotCursor);
-            Canvas.SetLeft(DotCursor, 0);
-            Canvas.SetRight(DotCursor, 1);
-            angles.Clear();
-
-            angle = 0;
-            average = 0;
-            previousAverage = 0;
-            averageTotal = 0;
-            tries = 0;
-            confidence = 0;
-
-            angleOut.Content = "0";
-            averageOut.Content = "0";
-            confidenceOut.Content = "N/A";
-
-            pointIndex = 0;
-        }
-
-        private void Combobox1_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            RefreshConfidence();
         }
 
         private Line AddLine(Vector2 a, Vector2 b)
@@ -300,8 +232,14 @@ namespace DinoLino
             L.Y1 = a.Y;
             L.X2 = b.X;
             L.Y2 = b.Y;
-            WorkCanvas.Children.Add(L);
+            UI_WorkCanvas.Children.Add(L);
             return L;
+        }
+
+        private void About_UICall(object sender, RoutedEventArgs e)
+        {
+            AboutWindow about = new AboutWindow();
+            about.ShowDialog();
         }
     }
 }

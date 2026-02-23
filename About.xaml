@@ -1,0 +1,29 @@
+﻿<Window x:Class="DinoLino.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:DinoLino"
+        mc:Ignorable="d"
+        Title="About" Height="224" Width="323"
+        ResizeMode="NoResize">
+    <Grid>
+        <StackPanel>
+            <Grid>
+                <Label Content="DinoLino" HorizontalAlignment="Left" FontWeight="Bold" FontSize="30" VerticalContentAlignment="Bottom"/>
+                <Label Content="V 0.1.0" HorizontalAlignment="Right" VerticalContentAlignment="Bottom" HorizontalContentAlignment="Right"/>
+            </Grid>
+            <Line x:Name="line" Stroke="#FF585858" X2="{Binding ActualWidth, ElementName=line, Mode=OneWay}" />
+            <Grid>
+                <StackPanel Margin="10,10,10,10">
+                    <Label Content="Catfort Software c 2018 - 2026" FontWeight="Bold"/>
+                    <Label Content="Contributers:" HorizontalAlignment="Center"/>
+                    <Label Content="John Welter"/>
+                    <Label Content="Savannah Cobb"/>
+
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+
+    </Grid>
+</Window>
