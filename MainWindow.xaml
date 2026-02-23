@@ -52,10 +52,11 @@
             </StackPanel>
             
             <ScrollViewer x:Name="UI_WorkScrollViewer" Grid.Column="1">
-                <Canvas x:Name="UI_WorkCanvas" MouseMove="WorkCanvasMouseMove_UICall" MouseDown="WorkCanvasClicked_UICall"/>
+                <Canvas x:Name="UI_WorkCanvas" MouseMove="WorkCanvasMouseMove_UICall" MouseDown="WorkCanvasClicked_UICall" Background="#FF888888"/>
             </ScrollViewer>
 
-            <!--
+            <!-- the idea eventually will be make the image zoomable - need to do more research on that
+            
             <Grid x:Name="UI_WorkArea" Grid.Column="1">
                 <ScrollViewer x:Name="UI_WorkScrollViewer" Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                     <Canvas x:Name="UI_WorkCanvas">
@@ -65,6 +66,7 @@
                     </Canvas>
                 </ScrollViewer>
             </Grid>
+            
             -->
             
         </Grid>
