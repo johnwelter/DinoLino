@@ -182,7 +182,7 @@ namespace DinoLino
                     double dy = BCMid.Y - ACMid.Y;
                     double det = Ray23 ^ Ray13;
 
-                    if(det <= 0.00001)
+                    if(Math.Abs(det) <= 0.00001)
                     {
                         //don't allow 0 height, just ignore the click and try again
                         break;
