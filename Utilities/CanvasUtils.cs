@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -18,30 +19,79 @@ namespace DinoLino.Utilities
             Canvas.SetTop(element, y);
             Canvas.SetRight(element, 1);
         }
-
-        // Source - https://stackoverflow.com/a/6782715
-        // Posted by Wiesław Šoltés, modified by community. See post 'Timeline' for change history
-        // Retrieved 2026-02-23, License - CC BY-SA 4.0
+        public static void InitializeGroupTransform(this UIElement element, Point origin)
+        {
+            TransformGroup group = new TransformGroup();
+            ScaleTransform scaleTransform = new ScaleTransform();
+            group.Children.Add(scaleTransform);
+            TranslateTransform translateTransform = new TranslateTransform();
+            group.Children.Add(translateTransform);
+            element.RenderTransform = group;
+            element.RenderTransformOrigin = origin;
+        }
         public static TranslateTransform GetTranslateTransform(this UIElement element)
         {
             return (TranslateTransform)((TransformGroup)element.RenderTransform).Children.First(tr => tr is TranslateTransform);
         }
 
-        public static ScaleTransform GetScaleTransform(UIElement element)
+        public static ScaleTransform GetScaleTransform(this UIElement element)
         {
             return (ScaleTransform)((TransformGroup)element.RenderTransform).Children.First(tr => tr is ScaleTransform);
         }
+
+        public static void ZoomElement(this UIElement element, double delta, Point relativeTo)
+        {
+            var st = CanvasUtils.GetScaleTransform(element);
+            var tt = CanvasUtils.GetTranslateTransform(element);
+
+            double zoom = delta > 0 ? .2 : -.2;
+            if (!(delta > 0) && (st.ScaleX < .4 || st.ScaleY < .4))
+                return;
+
+            double absoluteX;
+            double absoluteY;
+
+            absoluteX = relativeTo.X * st.ScaleX + tt.X;
+            absoluteY = relativeTo.Y * st.ScaleY + tt.Y;
+
+            st.ScaleX += zoom;
+            st.ScaleY += zoom;
+
+            tt.X = absoluteX - relativeTo.X * st.ScaleX;
+            tt.Y = absoluteY - relativeTo.Y * st.ScaleY;
+
+        }
+
+        public static void CopyTransforms(this UIElement element, UIElement fromElement)
+        {
+            var st = CanvasUtils.GetScaleTransform(element);
+            var tt = CanvasUtils.GetTranslateTransform(element);
+
+            var fst = CanvasUtils.GetScaleTransform(fromElement);
+            var ftt = CanvasUtils.GetTranslateTransform(fromElement);
+
+            st.ScaleX = fst.ScaleX;
+            st.ScaleY = fst.ScaleY;
+
+            tt.X = ftt.X;
+            tt.Y = ftt.Y;
+
+        }
+
+
+
     }
 }
-
-
-
 
 //using System.Linq;
 //using System.Windows;
 //using System.Windows.Controls;
 //using System.Windows.Input;
 //using System.Windows.Media;
+
+// Source - https://stackoverflow.com/a/6782715
+// Posted by Wiesław Šoltés, modified by community. See post 'Timeline' for change history
+// Retrieved 2026-02-23, License - CC BY-SA 4.0
 
 //namespace PanAndZoom
 //{

@@ -61,6 +61,8 @@
     </ApplicationDefinition>
     <Compile Include="DataTypes\DataTypes.cs" />
     <Compile Include="Utilities\CanvasUtils.cs" />
+    <Compile Include="Utilities\Modes\CurvatureMode.cs" />
+    <Compile Include="Utilities\Modes\WorkMode.cs" />
     <Compile Include="Utilities\Stats.cs" />
     <Compile Include="About.xaml.cs">
       <DependentUpon>About.xaml</DependentUpon>
@@ -115,6 +117,9 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="TestImages\test.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Icons\" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

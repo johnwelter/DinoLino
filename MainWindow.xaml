@@ -11,6 +11,14 @@
 
     <DockPanel>
 
+        <!-- 
+            Menu Bar 
+            - File
+                - Open Image:   opens a selected image
+            - Edit
+            - Help
+                - About:        opens about window
+        -->
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
                 <MenuItem Header="_Open Image" Click="Menu_OpenImage"/>
@@ -22,35 +30,79 @@
             </MenuItem>
         </Menu>
         
-        <Grid x:Name="UI_WindowGrid">
+        <!-- 
+            Main Program Window
+            - Controls Panel
+                - Global Controls
+                - Mode tabs
+                    - Curvatrue mode
+                        - Curvature Mode controls
+                        - Curvature Mode outputs
+                            - Curvature angle output
+                    - Angle mode
+                    - Draw mode
+            - Work Space
+        -->
+        
+        <Grid x:Name="UI_MainWindow">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="1*"/>
-                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="0.5*"/>
+                <ColumnDefinition Width="2.5*"/>
             </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="1*"/>
-            </Grid.RowDefinitions>
 
-            <StackPanel x:Name="UI_AngleAnalyticsControls" Grid.Column="0">
-                <StackPanel x:Name="UI_AngleAnalyticsButtons" Grid.Row="0" Margin="10,16,10,20">
-
+            <!-- Controls Panel: toolbars and outputs for different controls and modes-->
+            <StackPanel x:Name="UI_ControlPanel" Grid.Column="0">
+                
+                <!-- Controls that aren't dependent on mode type  -->
+                <StackPanel x:Name="UI_GlobalControls">
                     <StackPanel.Resources>
                         <Style TargetType="{x:Type Button}">
-                            <Setter Property="Margin" Value="36,10,36,0"/>
+                            <Setter Property="Margin" Value="36,10,36,10"/>
                             <Setter Property="Height" Value="36"/>
                         </Style>
                     </StackPanel.Resources>
 
+                    <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
                     <Button x:Name="UI_AAClearButton" Content="Clear" VerticalAlignment="Top" Click="WorkSpace_Clear"/>
+                
                 </StackPanel>
-                <StackPanel x:Name="UI_AngleAnalyticsOutputs" Grid.Row="1">
-                    <StackPanel x:Name="UI_AAAngleOutput" Orientation="Horizontal" >
-                        <Label x:Name="UI_AAAngleOutputLabel" Content="ANGLE:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
-                        <Label x:Name="UI_AAAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
-                    </StackPanel>
-                </StackPanel>
-            </StackPanel>
+                
+                <!-- Mode tabs -->
+                <TabControl x:Name="UI_ControlTabs" Margin="0,10,0,10">
+                    
+                    <!-- curvature mode controls and outputs-->
+                    <TabItem Header="Curvature">
+                        <StackPanel x:Name="UI_CurvatureControls">
+                            
+                            <!-- tools/buttons specific to the curvature mode go here, though I'm not sure there are any needed -->
+                            <StackPanel x:Name="UI_CurvatureButtons" Grid.Row="0" Margin="10,16,10,20">
+                                <StackPanel.Resources>
+                                    <Style TargetType="{x:Type Button}">
+                                        <Setter Property="Margin" Value="36,10,36,0"/>
+                                        <Setter Property="Height" Value="36"/>
+                                    </Style>
+                                </StackPanel.Resources>
 
+                            </StackPanel>
+                            <StackPanel x:Name="UI_CurvatureOutputs" Grid.Row="1">
+                                <StackPanel x:Name="UI_CurveAngleOutput" Orientation="Horizontal" >
+                                    <Label x:Name="UI_CurveAngleOutputLabel" Content="ANGLE:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_CurveAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </TabItem>
+                    <!-- angle mode controls and outputs-->
+                    <TabItem Header="Angle">
+                        
+                    </TabItem>
+                    <!-- draw mode controls and outputs-->
+                    <TabItem Header="Draw">
+                        
+                    </TabItem>
+                </TabControl>
+            </StackPanel>
+            
             <Grid x:Name="UI_WorkSpace" Grid.Column="1" ClipToBounds="True">
                 <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseWheel="WorkSpace_ScrollZoom">
                     <Border x:Name ="UI_WorkBorder" BorderBrush="White" BorderThickness="3" Panel.ZIndex="10" Width="{Binding ActualWidth, ElementName=UI_WorkImage, Mode=OneWay}" Height="{Binding ActualHeight, ElementName=UI_WorkImage, Mode=OneWay}">
