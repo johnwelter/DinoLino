@@ -107,6 +107,14 @@ namespace DinoLino.DataTypes
         public static Vector2 operator *(Vector2 a, double b) => new Vector2(a.x * b, a.y * b);
         public static Vector2 operator *(Vector2 a, Vector2 b) => new Vector2(a.x * b.x, a.y * b.y);
 
+        public static double AngleBetween(Vector2 a, Vector2 b)
+        {
+            //same as the windows one for now, just want to ewmove the need for a different Vector class 
+            double cross = a ^ b;
+            double dot = a | b;
+            return Math.Atan2(cross, dot) * (180.0/Math.PI); 
+
+        }
         public void Normalize()
         {
             Scale(1 / Magnitude());

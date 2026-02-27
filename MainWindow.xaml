@@ -63,7 +63,7 @@
                     </StackPanel.Resources>
 
                     <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
-                    <Button x:Name="UI_AAClearButton" Content="Clear" VerticalAlignment="Top" Click="WorkSpace_Clear"/>
+                    <Button x:Name="UI_AAClearButton" Content="Clear" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
                 
                 </StackPanel>
                 
@@ -85,10 +85,13 @@
 
                             </StackPanel>
                             <StackPanel x:Name="UI_CurvatureOutputs" Grid.Row="1">
+
+                                <!-- NOTE: This stack panel can be duplicated to add more results. just remember to give them new names!-->
                                 <StackPanel x:Name="UI_CurveAngleOutput" Orientation="Horizontal" >
                                     <Label x:Name="UI_CurveAngleOutputLabel" Content="ANGLE:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
                                     <Label x:Name="UI_CurveAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
+                                
                             </StackPanel>
                         </StackPanel>
                     </TabItem>

@@ -39,10 +39,23 @@ namespace DinoLino.Utilities
             return (ScaleTransform)((TransformGroup)element.RenderTransform).Children.First(tr => tr is ScaleTransform);
         }
 
+        public static void ResetZoom(this UIElement element)
+        {
+            // reset zoom
+            var st = GetScaleTransform(element);
+            st.ScaleX = 1.0;
+            st.ScaleY = 1.0;
+
+            // reset pan
+            var tt = GetTranslateTransform(element);
+            tt.X = 0.0;
+            tt.Y = 0.0;
+        }
+
         public static void ZoomElement(this UIElement element, double delta, Point relativeTo)
         {
-            var st = CanvasUtils.GetScaleTransform(element);
-            var tt = CanvasUtils.GetTranslateTransform(element);
+            var st = GetScaleTransform(element);
+            var tt = GetTranslateTransform(element);
 
             double zoom = delta > 0 ? .2 : -.2;
             if (!(delta > 0) && (st.ScaleX < .4 || st.ScaleY < .4))
@@ -64,11 +77,11 @@ namespace DinoLino.Utilities
 
         public static void CopyTransforms(this UIElement element, UIElement fromElement)
         {
-            var st = CanvasUtils.GetScaleTransform(element);
-            var tt = CanvasUtils.GetTranslateTransform(element);
+            var st = GetScaleTransform(element);
+            var tt = GetTranslateTransform(element);
 
-            var fst = CanvasUtils.GetScaleTransform(fromElement);
-            var ftt = CanvasUtils.GetTranslateTransform(fromElement);
+            var fst = GetScaleTransform(fromElement);
+            var ftt = GetTranslateTransform(fromElement);
 
             st.ScaleX = fst.ScaleX;
             st.ScaleY = fst.ScaleY;
