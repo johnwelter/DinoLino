@@ -39,15 +39,26 @@ namespace DinoLino.Utilities.Modes
 
         // Bindable results of curvature calculation
 
-        // private/public pair used to handle propogation of results to UI bindings
+        // private/public pair used to handle propagation of results to UI bindings
         private double _angleResult;
         public double AngleResult
         {
             get { return _angleResult; }
-            set 
-            { 
+            set
+            {
                 _angleResult = value;
                 OnPropertyChanged(nameof(AngleResult));
+            }
+        }
+
+        private double _aspectRatioResult;
+        public double AspectRatioResult
+        {
+            get { return _aspectRatioResult; }
+            set
+            {
+                _aspectRatioResult = value;
+                OnPropertyChanged(nameof(AspectRatioResult));
             }
         }
 
@@ -188,18 +199,36 @@ namespace DinoLino.Utilities.Modes
         }
 
         public void CalculateAndUpdateResults()
-        {
-            Vector2 vA = Intersection - PointA;
-            Vector2 vB = Intersection - PointB;
+{
+    Vector2 vA = Intersection - PointA;
+    Vector2 vB = Intersection - PointB;
 
-            AngleResult = Math.Abs(Vector2.AngleBetween(vA, vB));
+    AngleResult = Math.Round(Math.Abs(Vector2.AngleBetween(vA, vB)), 2);
+
+            // -----------------------------
+            // Aspect Ratio calculation
+            // -----------------------------
+
+            double chordLength = (PointB - PointA).Magnitude();
+
+            // bisector = midpoint → C
+            double bisectorLength = (PointC - Midpoint).Magnitude();
+
+            AspectRatioResult = bisectorLength > 0.00001
+                ? Math.Round(chordLength / bisectorLength, 2)
+                : 0;
+
         }
 
-        public void BindCurvatureResults(Label angleOutput)
+        public void BindCurvatureResults(Label angleOutput, Label aspectRatioOutput)
         {
             Binding angleBind = new Binding(nameof(AngleResult));
             angleOutput.SetBinding(Label.ContentProperty, angleBind);
             angleOutput.DataContext = this;
+
+            Binding ratioBind = new Binding(nameof(AspectRatioResult));
+            aspectRatioOutput.SetBinding(Label.ContentProperty, ratioBind);
+            aspectRatioOutput.DataContext = this;
         }
 
     }

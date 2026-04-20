@@ -54,7 +54,7 @@ namespace DinoLino
 
             // Initiate curvature mode and make appropriate bindings
             CurvatureMode = new();
-            CurvatureMode.BindCurvatureResults(UI_CurveAngleOutputValue);
+            CurvatureMode.BindCurvatureResults(UI_CurveAngleOutputValue, UI_AspectRatioOutputValue);
 
             // Set the current work mode to update
             CurrentWorkMode = CurvatureMode;

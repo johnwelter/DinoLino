@@ -88,8 +88,22 @@
 
                                 <!-- NOTE: This stack panel can be duplicated to add more results. just remember to give them new names!-->
                                 <StackPanel x:Name="UI_CurveAngleOutput" Orientation="Horizontal" >
-                                    <Label x:Name="UI_CurveAngleOutputLabel" Content="ANGLE:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_CurveAngleOutputLabel" Content="Angle:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
                                     <Label x:Name="UI_CurveAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
+                                <StackPanel x:Name="UI_AspectRatioOutput" Orientation="Horizontal">
+                                    <Label x:Name="UI_AspectRatioOutputLabel"
+                                           Content="Aspect Ratio:"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Bottom"
+                                           FontWeight="Bold"
+                                           FontSize="18"/>
+                                    <Label x:Name="UI_AspectRatioOutputValue"
+                                           Content="NA"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Bottom"
+                                           Width="175"
+                                           FontSize="16"/>
                                 </StackPanel>
                                 
                             </StackPanel>
