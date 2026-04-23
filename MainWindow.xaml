@@ -92,18 +92,8 @@
                                     <Label x:Name="UI_CurveAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
                                 <StackPanel x:Name="UI_AspectRatioOutput" Orientation="Horizontal">
-                                    <Label x:Name="UI_AspectRatioOutputLabel"
-                                           Content="Aspect Ratio:"
-                                           HorizontalAlignment="Left"
-                                           VerticalAlignment="Bottom"
-                                           FontWeight="Bold"
-                                           FontSize="18"/>
-                                    <Label x:Name="UI_AspectRatioOutputValue"
-                                           Content="NA"
-                                           HorizontalAlignment="Left"
-                                           VerticalAlignment="Bottom"
-                                           Width="175"
-                                           FontSize="16"/>
+                                    <Label x:Name="UI_AspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_AspectRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
                                 
                             </StackPanel>
@@ -111,7 +101,30 @@
                     </TabItem>
                     <!-- angle mode controls and outputs-->
                     <TabItem Header="Angle">
-                        
+                        <StackPanel x:Name="UI_AngleControls">
+                            <StackPanel x:Name="UI_AngleButtons" Grid.Row="0" Margin="10,16,10,20">
+                                <StackPanel.Resources>
+                                    <Style TargetType="{x:Type Button}">
+                                        <Setter Property="Margin" Value="36,10,36,0"/>
+                                        <Setter Property="Height" Value="36"/>
+                                    </Style>
+                                </StackPanel.Resources>
+                            </StackPanel>
+                            <StackPanel x:Name="UI_TriAngleOutputs" Grid.Row="1">
+                                <StackPanel x:Name="UI_TriAngleOutput1" Orientation="Horizontal" >
+                                    <Label x:Name="UI_TriAngleOutputLabel1" Content="Angle 1:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_TriAngleOutputValue1" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
+                                <StackPanel x:Name="UI_TriAngleOutput2" Orientation="Horizontal" >
+                                    <Label x:Name="UI_TriAngleOutputLabel2" Content="Angle 2:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_TriAngleOutputValue2" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
+                                <StackPanel x:Name="UI_TriAngleOutput3" Orientation="Horizontal" >
+                                    <Label x:Name="UI_TriAngleOutputLabel3" Content="Angle 3:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_TriAngleOutputValue3" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
                     </TabItem>
                     <!-- draw mode controls and outputs-->
                     <TabItem Header="Draw">

@@ -70,6 +70,7 @@ namespace DinoLino.Utilities.Modes
             base.Reset();
             AngleResult = 0;
             CurrentStep = 0;
+            AspectRatioResult = 0;
             CurrentUILine = null;
         }
 
@@ -199,40 +200,40 @@ namespace DinoLino.Utilities.Modes
         }
 
         public void CalculateAndUpdateResults()
-{
-    Vector2 vA = Intersection - PointA;
-    Vector2 vB = Intersection - PointB;
-
-    AngleResult = Math.Round(Math.Abs(Vector2.AngleBetween(vA, vB)), 2);
-
-            // -----------------------------
-            // Aspect Ratio calculation
-            // -----------------------------
-
-            double chordLength = (PointB - PointA).Magnitude();
-
-            // bisector = midpoint → C
-            double bisectorLength = (PointC - Midpoint).Magnitude();
-
-            AspectRatioResult = bisectorLength > 0.00001
-                ? Math.Round(chordLength / bisectorLength, 2)
-                : 0;
-
-        }
-
-        public void BindCurvatureResults(Label angleOutput, Label aspectRatioOutput)
         {
-            Binding angleBind = new Binding(nameof(AngleResult));
-            angleOutput.SetBinding(Label.ContentProperty, angleBind);
-            angleOutput.DataContext = this;
+            Vector2 vA = Intersection - PointA;
+            Vector2 vB = Intersection - PointB;
 
-            Binding ratioBind = new Binding(nameof(AspectRatioResult));
-            aspectRatioOutput.SetBinding(Label.ContentProperty, ratioBind);
-            aspectRatioOutput.DataContext = this;
+            AngleResult = Math.Round(Math.Abs(Vector2.AngleBetween(vA, vB)), 2);
+
+                    // -----------------------------
+                    // Aspect Ratio calculation
+                    // -----------------------------
+
+                    double chordLength = (PointB - PointA).Magnitude();
+
+                    // bisector = midpoint → C
+                    double bisectorLength = (PointC - Midpoint).Magnitude();
+
+                    AspectRatioResult = bisectorLength > 0.00001
+                        ? Math.Round(chordLength / bisectorLength, 2)
+                        : 0;
+
+                }
+
+                public void BindCurvatureResults(Label angleOutput, Label aspectRatioOutput)
+                {
+                    Binding angleBind = new Binding(nameof(AngleResult));
+                    angleOutput.SetBinding(Label.ContentProperty, angleBind);
+                    angleOutput.DataContext = this;
+
+                    Binding ratioBind = new Binding(nameof(AspectRatioResult));
+                    aspectRatioOutput.SetBinding(Label.ContentProperty, ratioBind);
+                    aspectRatioOutput.DataContext = this;
+                }
+
+            }
+
+
+
         }
-
-    }
-
-
-
-}

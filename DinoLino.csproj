@@ -61,6 +61,7 @@
     </ApplicationDefinition>
     <Compile Include="DataTypes\DataTypes.cs" />
     <Compile Include="Utilities\CanvasUtils.cs" />
+    <Compile Include="Utilities\Modes\AngleMode.cs" />
     <Compile Include="Utilities\Modes\CurvatureMode.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
     <Compile Include="Utilities\Stats.cs" />
