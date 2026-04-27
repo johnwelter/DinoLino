@@ -128,6 +128,10 @@ namespace DinoLino
             about.ShowDialog();
         }
 
+        private void Menu_Undo (object sender, RoutedEventArgs e)
+        {
+
+        }
         #endregion
 
         #region Global Toolbar Functions
@@ -135,9 +139,13 @@ namespace DinoLino
         {
             ClearWorkspace();
         }
+
+        private void ControlTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+        }
         #endregion
 
-        #region Work Space UI Functions
+            #region Work Space UI Functions
 
         private void WorkSpace_Click(object sender, MouseButtonEventArgs e)
         {
@@ -162,6 +170,23 @@ namespace DinoLino
         private void WorkSpace_ScrollZoom(object sender, MouseWheelEventArgs e)
         {
             UpdateWorkSpaceZoom(e.Delta, e.GetPosition(UI_WorkImage));
+        }
+
+        // TODO: the following are placeholders to prevent build errors. Need to write functions
+        private void Rectangle_Checked(object sender, RoutedEventArgs e)
+        {
+        }
+        private void Circle_Checked(object sender, RoutedEventArgs e)
+        {
+        }
+        private void Ellipse_Checked(object sender, RoutedEventArgs e)
+        {
+        }
+        private void Square_Checked(object sender, RoutedEventArgs e)
+        {
+        }
+        private void Bisector_Checked(object sender, RoutedEventArgs e)
+        {
         }
         #endregion
     }

@@ -16,6 +16,7 @@
             - File
                 - Open Image:   opens a selected image
             - Edit
+                - Undo:         undoes last action
             - Help
                 - About:        opens about window
         -->
@@ -24,12 +25,13 @@
                 <MenuItem Header="_Open Image" Click="Menu_OpenImage"/>
             </MenuItem>
             <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" Click="Menu_Undo"/> 
             </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="_About" Click="Menu_About"/>
             </MenuItem>
         </Menu>
-        
+
         <!-- 
             Main Program Window
             - Controls Panel
@@ -43,7 +45,7 @@
                     - Draw mode
             - Work Space
         -->
-        
+
         <Grid x:Name="UI_MainWindow">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="0.5*"/>
@@ -52,7 +54,7 @@
 
             <!-- Controls Panel: toolbars and outputs for different controls and modes-->
             <StackPanel x:Name="UI_ControlPanel" Grid.Column="0">
-                
+
                 <!-- Controls that aren't dependent on mode type  -->
                 <StackPanel x:Name="UI_GlobalControls">
                     <StackPanel.Resources>
@@ -64,19 +66,19 @@
 
                     <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
                     <Button x:Name="UI_AAClearButton" Content="Clear" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
-                
+
                 </StackPanel>
-                
+
                 <!-- Mode tabs -->
                 <TabControl x:Name="UI_ControlTabs" Margin="0,10,0,10"
                             SelectionChanged="ControlTabs_SelectionChanged">
-                    
+
                     <!-- curvature mode controls and outputs-->
                     <TabItem Header="Curvature">
                         <StackPanel x:Name="UI_CurvatureControls">
-                            
+
                             <!-- tools/buttons specific to the curvature mode go here, though I'm not sure there are any needed -->
-                            <StackPanel x:Name="UI_CurvatureButtons" Grid.Row="0" Margin="10,16,10,20">
+                            <StackPanel x:Name="UI_CurvatureButtons" Grid.Row="0" Margin="10,0,10,20">
                                 <StackPanel.Resources>
                                     <Style TargetType="{x:Type Button}">
                                         <Setter Property="Margin" Value="36,10,36,0"/>
@@ -96,14 +98,14 @@
                                     <Label x:Name="UI_AspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
                                     <Label x:Name="UI_AspectRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
-                                
+
                             </StackPanel>
                         </StackPanel>
                     </TabItem>
                     <!-- angle mode controls and outputs-->
                     <TabItem Header="Angle">
                         <StackPanel x:Name="UI_AngleControls">
-                            <StackPanel x:Name="UI_AngleButtons" Grid.Row="0" Margin="10,16,10,20">
+                            <StackPanel x:Name="UI_AngleButtons" Grid.Row="0" Margin="10,0,10,20">
                                 <StackPanel.Resources>
                                     <Style TargetType="{x:Type Button}">
                                         <Setter Property="Margin" Value="36,10,36,0"/>
@@ -129,11 +131,32 @@
                     </TabItem>
                     <!-- draw mode controls and outputs-->
                     <TabItem Header="Draw">
-                        
+                        <StackPanel x:Name="UI_DrawControls" Grid.Row="1" Margin="0,0,10,20">
+                            <TextBlock Grid.Row="0" Text="Shapes" FontSize="18" FontWeight="Bold" Margin="10,16,10,10"/>
+                            <StackPanel Margin="20,0,0,0">
+                                <CheckBox Content="Rectangle" x:Name="UI_DrawRectangle" Checked="Rectangle_Checked" Height="25" FontSize="16"/>
+                                <CheckBox Content="Square" x:Name="UI_DrawSquare" Checked="Square_Checked" Height="25" FontSize="16"/>
+                                <CheckBox Content="Ellipse" x:Name="UI_DrawEllipse" Checked="Ellipse_Checked" Height="25" FontSize="16"/>
+                                <CheckBox Content="Circle" x:Name="UI_DrawCircle" Checked="Circle_Checked" Height="25" FontSize="16"/>
+                            </StackPanel>
+                            <CheckBox Content="Chord Bisector" x:Name="UI_DrawBisector" Checked="Bisector_Checked" Height="25" FontSize="18" FontWeight="Bold"/>
+                            <StackPanel Margin="15,0,0,0" Orientation="Horizontal">
+                                <TextBlock Text="Intersection" FontSize="16" Height="25" Margin="5,0,0,0"/>
+                                <TextBox x:Name="UI_IntersectionValue" Width="27" Height="24" FontSize="14" Margin="25,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Margin="15,0,0,0" Orientation="Horizontal">
+                                <TextBlock Text="Bisector Angle" FontSize="16" Height="25" Margin="5,0,0,0"/>
+                                <TextBox x:Name="UI_BisAngleValue" Width="27" Height="24" FontSize="14" Margin="7,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel x:Name="UI_DrawAspectRatioOutput" Orientation="Horizontal">
+                                <Label x:Name="UI_DrawAspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                <Label x:Name="UI_DrawAspectRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                            </StackPanel>
+                        </StackPanel>
                     </TabItem>
                 </TabControl>
             </StackPanel>
-            
+
             <Grid x:Name="UI_WorkSpace" Grid.Column="1" ClipToBounds="True">
                 <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseWheel="WorkSpace_ScrollZoom">
                     <Border x:Name ="UI_WorkBorder" BorderBrush="White" BorderThickness="3" Panel.ZIndex="10" Width="{Binding ActualWidth, ElementName=UI_WorkImage, Mode=OneWay}" Height="{Binding ActualHeight, ElementName=UI_WorkImage, Mode=OneWay}">
