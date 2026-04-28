@@ -134,12 +134,13 @@
                         <StackPanel x:Name="UI_DrawControls" Grid.Row="1" Margin="0,0,10,20">
                             <TextBlock Grid.Row="0" Text="Shapes" FontSize="18" FontWeight="Bold" Margin="10,16,10,10"/>
                             <StackPanel Margin="20,0,0,0">
-                                <CheckBox Content="Rectangle" x:Name="UI_DrawRectangle" Checked="Rectangle_Checked" Height="25" FontSize="16"/>
-                                <CheckBox Content="Square" x:Name="UI_DrawSquare" Checked="Square_Checked" Height="25" FontSize="16"/>
-                                <CheckBox Content="Ellipse" x:Name="UI_DrawEllipse" Checked="Ellipse_Checked" Height="25" FontSize="16"/>
-                                <CheckBox Content="Circle" x:Name="UI_DrawCircle" Checked="Circle_Checked" Height="25" FontSize="16"/>
+                                <RadioButton Content="Rectangle" GroupName="Draw" x:Name="UI_DrawRectangle" Checked="Rectangle_Checked" Height="25" FontSize="16"/>
+                                <RadioButton Content="Square" GroupName="Draw" x:Name="UI_DrawSquare" Checked="Square_Checked" Height="25" FontSize="16"/>
+                                <RadioButton Content="Ellipse" GroupName="Draw" x:Name="UI_DrawEllipse" Checked="Ellipse_Checked" Height="25" FontSize="16"/>
+                                <RadioButton Content="Circle" GroupName="Draw" x:Name="UI_DrawCircle" Checked="Circle_Checked" Height="25" FontSize="16"/>
                             </StackPanel>
-                            <CheckBox Content="Chord Bisector" x:Name="UI_DrawBisector" Checked="Bisector_Checked" Height="25" FontSize="18" FontWeight="Bold"/>
+                            <RadioButton Content="Line" GroupName="Draw" x:Name="UI_DrawLine" Checked="Line_Checked" Height="25" FontSize="18" FontWeight="Bold"/>
+                            <RadioButton Content="Chord Bisector" GroupName="Draw" x:Name="UI_DrawBisector" Checked="Bisector_Checked" Height="25" FontSize="18" FontWeight="Bold"/>
                             <StackPanel Margin="15,0,0,0" Orientation="Horizontal">
                                 <TextBlock Text="Intersection" FontSize="16" Height="25" Margin="5,0,0,0"/>
                                 <TextBox x:Name="UI_IntersectionValue" Width="27" Height="24" FontSize="14" Margin="25,0,0,0"/>

@@ -188,6 +188,9 @@ namespace DinoLino
         private void Bisector_Checked(object sender, RoutedEventArgs e)
         {
         }
+        private void Line_Checked(object sender, RoutedEventArgs e)
+        {
+        }
         #endregion
     }
 }
