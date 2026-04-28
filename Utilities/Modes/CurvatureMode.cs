@@ -6,19 +6,22 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Media;
-using System.Windows.Shapes;
 using System.Windows.Controls;
-using System.Xml.Serialization;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Shapes;
+using System.Xml.Serialization;
 
 namespace DinoLino.Utilities.Modes
 {
-
     public class CurvatureMode : WorkMode
     {
-        
+        // Tracking 3-click groups 
+        private List<List<UIElement>> History = new List<List<UIElement>>();
+        private List<UIElement> CurrentOperation = new List<UIElement>();
+
         // Current state of the curvature drawing mode
         public int CurrentStep = 0;
 
@@ -62,6 +65,17 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
+        // Undo function to remove lines from the last curvature operation (3 clicks worth)
+        public List<UIElement> Undo()
+        {
+            if (History.Count == 0)
+                return null;
+
+            var lastOperation = History.Last();
+            History.RemoveAt(History.Count - 1);
+
+            return lastOperation;
+        }
 
         // ---------- CURVATURE MODE ---------------- //
 
@@ -100,6 +114,7 @@ namespace DinoLino.Utilities.Modes
                     CurrentUILine.Y2 = Midpoint.Y + newDist.Y;
                     modifiedPos = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
                     break;
+
             }
             return modifiedPos;
         }
@@ -114,6 +129,7 @@ namespace DinoLino.Utilities.Modes
                     PointA = new Vector2(mousePos.X, mousePos.Y);
                     CurrentUILine = MakeLine(mousePos, mousePos);
                     outputElements.Add(CurrentUILine);
+                    CurrentOperation.Add(CurrentUILine);
                     CurrentStep++;
                     break;
 
@@ -125,6 +141,7 @@ namespace DinoLino.Utilities.Modes
                     Midpoint = (PointA + PointB) * 0.5;
                     CurrentUILine = MakeLine(Midpoint, Midpoint);
                     outputElements.Add(CurrentUILine);
+                    CurrentOperation.Add(CurrentUILine);
 
                     // make the orthoganal
                     Vector3 p1 = new Vector3(PointA.X, PointA.Y, 1);
@@ -139,8 +156,14 @@ namespace DinoLino.Utilities.Modes
 
                     PointC = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
 
-                    outputElements.Add(MakeLine(PointA, PointC));
-                    outputElements.Add(MakeLine(PointB, PointC));
+                    var line1 = MakeLine(PointA, PointC);
+                    var line2 = MakeLine(PointB, PointC);
+
+                    outputElements.Add(line1);
+                    outputElements.Add(line2);
+
+                    CurrentOperation.Add(line1);
+                    CurrentOperation.Add(line2);
 
                     //midpoints for those lines
                     ACMid = (PointA + PointC) * 0.5;
@@ -173,15 +196,37 @@ namespace DinoLino.Utilities.Modes
 
                     CurrentUILine = null;
 
-                    outputElements.Add(MakeLine(ACMid, Intersection));
-                    outputElements.Add(MakeLine(BCMid, Intersection));
-                    outputElements.Add(MakeLine(PointA, Intersection));
-                    outputElements.Add(MakeLine(PointB, Intersection));
+                    var line3 = MakeLine(ACMid, Intersection);
+                    var line4 = MakeLine(BCMid, Intersection);
+                    var line5 = MakeLine(PointA, Intersection);
+                    var line6 = MakeLine(PointB, Intersection);
+
+                    outputElements.Add(line3);
+                    outputElements.Add(line4);
+                    outputElements.Add(line5);
+                    outputElements.Add(line6);
+
+                    CurrentOperation.Add(line3);
+                    CurrentOperation.Add(line4);
+                    CurrentOperation.Add(line5);
+                    CurrentOperation.Add(line6);
 
                     CalculateAndUpdateResults();
 
                     CurrentStep++;
 
+                    History.Add(new List<UIElement>(CurrentOperation));
+                    CurrentOperation.Clear();
+
+                    break;
+                case 3:
+                    Reset();
+                    // reuse this click as the first step
+                    PointA = new Vector2(mousePos.X, mousePos.Y);
+                    CurrentUILine = MakeLine(mousePos, mousePos);
+                    outputElements.Add(CurrentUILine);
+                    CurrentOperation.Add(CurrentUILine);
+                    CurrentStep = 1;
                     break;
             }
             return outputElements;

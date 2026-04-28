@@ -45,6 +45,9 @@ namespace DinoLino
         {
             InitializeComponent();
 
+            // Keyboard shortcuts
+            this.KeyDown += MainWindow_KeyDown;
+
             // TODO: it feels like work modes should control their own 
             // UI instead of having them predefined and hooked up through here - but that's a later fix. We'll want
             // to double check making separate work modes is even what we want in the first place.
@@ -105,6 +108,27 @@ namespace DinoLino
             UI_WorkBorder.CopyTransforms(UI_WorkImage);
         }
 
+        // Keyboard shortcuts
+        private void MainWindow_KeyDown(object sender, KeyEventArgs e)
+        {
+            // Ctrl + R to reset workspace
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R)
+            {
+                ClearWorkspace();
+            }
+            // Ctrl + F to open image
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
+            {
+                Menu_OpenImage(this, new RoutedEventArgs());
+                e.Handled = true;
+            }
+            // Ctrl + Z to undo
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Z)
+            {
+                Menu_Undo(this, new RoutedEventArgs());
+                e.Handled = true;
+            }
+        }
         #endregion
 
         #region Menu Bar functions
@@ -128,9 +152,17 @@ namespace DinoLino
             about.ShowDialog();
         }
 
-        private void Menu_Undo (object sender, RoutedEventArgs e)
+        private void Menu_Undo(object sender, RoutedEventArgs e)
         {
+            var elementsToRemove = CurvatureMode.Undo();
 
+            if (elementsToRemove != null)
+            {
+                foreach (var el in elementsToRemove)
+                {
+                    UI_WorkCanvas.Children.Remove(el);
+                }
+            }
         }
         #endregion
 
