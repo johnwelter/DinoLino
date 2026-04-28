@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace DinoLino.Utilities.Modes
 {
-    internal class AngleMode
-    {
+    public class GetAngleMode : WorkMode
+    { // Temporary to make sure things compile
     }
 }

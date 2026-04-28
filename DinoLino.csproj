@@ -61,8 +61,9 @@
     </ApplicationDefinition>
     <Compile Include="DataTypes\DataTypes.cs" />
     <Compile Include="Utilities\CanvasUtils.cs" />
-    <Compile Include="Utilities\Modes\AngleMode.cs" />
+    <Compile Include="Utilities\Modes\GetAngleMode.cs" />
     <Compile Include="Utilities\Modes\CurvatureMode.cs" />
+    <Compile Include="Utilities\Modes\UndoResult.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
     <Compile Include="Utilities\Stats.cs" />
     <Compile Include="About.xaml.cs">

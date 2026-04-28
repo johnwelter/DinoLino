@@ -23,6 +23,17 @@ namespace DinoLino.Utilities.Modes
         {
             DrawnElements.Clear();
         }
+        // moving to WorkMode so this is a global tool usable across modes
+        public virtual UndoResult Undo()
+        {
+            return null;
+        }
+        // moving to WorkMode so this is a global tool usable across modes
+        public virtual UndoResult Redo()
+        {
+            return null;
+        }
+
         protected virtual void OnPropertyChanged(string name) 
         {
             if (PropertyChanged != null)

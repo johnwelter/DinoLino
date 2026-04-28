@@ -111,8 +111,8 @@ namespace DinoLino
         // Keyboard shortcuts
         private void MainWindow_KeyDown(object sender, KeyEventArgs e)
         {
-            // Ctrl + R to reset workspace
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R)
+            // Ctrl + C to reset workspace
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
             {
                 ClearWorkspace();
             }
@@ -127,6 +127,11 @@ namespace DinoLino
             {
                 Menu_Undo(this, new RoutedEventArgs());
                 e.Handled = true;
+            }
+            // Ctrl + R to redo
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R)
+            {
+                Menu_Redo(null, null);
             }
         }
         #endregion
@@ -152,15 +157,30 @@ namespace DinoLino
             about.ShowDialog();
         }
 
+        // Undo function
         private void Menu_Undo(object sender, RoutedEventArgs e)
         {
-            var elementsToRemove = CurvatureMode.Undo();
+            var result = CurrentWorkMode.Undo();
 
-            if (elementsToRemove != null)
+            if (result == null) return;
             {
-                foreach (var el in elementsToRemove)
+                foreach (var el in result.Elements)
                 {
                     UI_WorkCanvas.Children.Remove(el);
+                }
+            }
+        }
+
+        // Redo function
+        private void Menu_Redo(object sender, RoutedEventArgs e)
+        {
+            var result = CurrentWorkMode.Redo();
+
+            if (result == null) return;
+            {
+                foreach (var el in result.Elements)
+                {
+                    UI_WorkCanvas.Children.Add(el);
                 }
             }
         }

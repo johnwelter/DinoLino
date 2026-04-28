@@ -18,8 +18,19 @@ namespace DinoLino.Utilities.Modes
 {
     public class CurvatureMode : WorkMode
     {
-        // Tracking 3-click groups 
-        private List<List<UIElement>> History = new List<List<UIElement>>();
+        // stores lines, angle, aspect ratio
+        public class CurvatureOperation
+        {
+            public List<UIElement> Elements { get; set; }
+            public double Angle { get; set; }
+            public double AspectRatio { get; set; }
+        }
+
+        //  storing undo/redo history
+        private List<CurvatureOperation> History = new List<CurvatureOperation>();
+        private List<CurvatureOperation> RedoStack = new List<CurvatureOperation>();
+
+        // Tracking 3-click line groups 
         private List<UIElement> CurrentOperation = new List<UIElement>();
 
         // Current state of the curvature drawing mode
@@ -66,7 +77,7 @@ namespace DinoLino.Utilities.Modes
         }
 
         // Undo function to remove lines from the last curvature operation (3 clicks worth)
-        public List<UIElement> Undo()
+        public override UndoResult Undo()
         {
             if (History.Count == 0)
                 return null;
@@ -74,7 +85,52 @@ namespace DinoLino.Utilities.Modes
             var lastOperation = History.Last();
             History.RemoveAt(History.Count - 1);
 
-            return lastOperation;
+            // store it for redo
+            RedoStack.Add(lastOperation);
+
+            // restore previous values or reset if none left
+            if (History.Count > 0)
+            {
+                var prev = History.Last();
+                AngleResult = prev.Angle;
+                AspectRatioResult = prev.AspectRatio;
+            }
+            else
+            {
+                AngleResult = 0;
+                AspectRatioResult = 0;
+            }
+
+            return new UndoResult
+            {
+                Elements = lastOperation.Elements,
+                Angle = AngleResult,
+                AspectRatio = AspectRatioResult
+            };
+        }
+
+        // Redo function to add back lines that were removed by undo (3 clicks worth)
+        public override UndoResult Redo()
+        {
+            if (RedoStack.Count == 0)
+                return null;
+
+            var operation = RedoStack.Last();
+            RedoStack.RemoveAt(RedoStack.Count - 1);
+
+            // put it back into history
+            History.Add(operation);
+
+            // restore values
+            AngleResult = operation.Angle;
+            AspectRatioResult = operation.AspectRatio;
+
+            return new UndoResult
+            {
+                Elements = operation.Elements,
+                Angle = operation.Angle,
+                AspectRatio = operation.AspectRatio
+            };
         }
 
         // ---------- CURVATURE MODE ---------------- //
@@ -215,7 +271,15 @@ namespace DinoLino.Utilities.Modes
 
                     CurrentStep++;
 
-                    History.Add(new List<UIElement>(CurrentOperation));
+                    // Clear redo history when drawing new shape
+                    RedoStack.Clear();
+                    History.Add(new CurvatureOperation
+                    {
+                        Elements = new List<UIElement>(CurrentOperation),
+                        Angle = AngleResult,
+                        AspectRatio = AspectRatioResult
+                    });
+
                     CurrentOperation.Clear();
 
                     break;
