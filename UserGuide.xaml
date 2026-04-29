@@ -1,0 +1,13 @@
+﻿<Window x:Class="DinoLino.UserGuideWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="User Guide" Height="600" Width="500">
+
+    <ScrollViewer>
+        <TextBox x:Name="GuideText"
+                 IsReadOnly="True"
+                 TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"/>
+    </ScrollViewer>
+
+</Window>

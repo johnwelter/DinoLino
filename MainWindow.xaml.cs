@@ -164,6 +164,13 @@ namespace DinoLino
             about.ShowDialog();
         }
 
+        // Added User Guide
+        private void Menu_UserGuide(object sender, RoutedEventArgs e)
+        {
+            UserGuideWindow userguide = new UserGuideWindow();
+            userguide.ShowDialog();
+        }
+
         // Undo function
         private void Menu_Undo(object sender, RoutedEventArgs e)
         {

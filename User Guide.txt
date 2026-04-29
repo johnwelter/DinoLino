@@ -1,0 +1,34 @@
+USER GUIDE
+------------------------------------------------------------------------------------------------
+KEYBOARD SHORTCUTS: 
+
+Undo: 			Ctrl + Z
+Redo: 			Ctrl + R
+Clear: 			Ctrl + C
+Open image: 		Ctrl + F
+Zoom:			Scroll wheel
+Add landmark:		TBD
+------------------------------------------------------------------------------------------------
+CURVATURE MODE: 
+
+A geometric calculation to calculate curvature by approximating a curve as the arc of a circle using three points. 
+
+Click twice to draw a line from each end of the curve, then click a third time in the midpoint of the curve. Click a fourth time to begin another curvature calculation.
+
+Angle: the central angle of a circular arc drawn using these three points. 
+Aspect ratio: the length of the first line drawn divided by length of the second line.
+------------------------------------------------------------------------------------------------
+ANGLE MODE:
+
+Draws a triangle on the image and returns its three interior angles. 
+
+Click three times anywhere on the image to create a triangle. Click a fourth time to begin drawing another triangle.
+
+Angle A: The angle at vertex A.
+Angle B: The angle at vertex B.
+Angle C: The angle at vertex C.
+------------------------------------------------------------------------------------------------
+DRAW MODE:
+
+TBD
+------------------------------------------------------------------------------------------------
