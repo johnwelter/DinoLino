@@ -33,6 +33,8 @@ namespace DinoLino
 
         // Work Modes
         public CurvatureMode CurvatureMode;
+        public GetAngleMode GetAngleMode;
+        public DrawMode DrawMode;
 
         // Current active work mode
         public WorkMode CurrentWorkMode;
@@ -58,6 +60,11 @@ namespace DinoLino
             // Initiate curvature mode and make appropriate bindings
             CurvatureMode = new();
             CurvatureMode.BindCurvatureResults(UI_CurveAngleOutputValue, UI_AspectRatioOutputValue);
+
+            GetAngleMode = new();
+            GetAngleMode.BindAngleResults(UI_TriAngleOutputValue1, UI_TriAngleOutputValue2, UI_TriAngleOutputValue3);
+
+            DrawMode = new(); // placeholder for now
 
             // Set the current work mode to update
             CurrentWorkMode = CurvatureMode;
@@ -194,6 +201,25 @@ namespace DinoLino
 
         private void ControlTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (UI_ControlTabs.SelectedItem is TabItem tab)
+            {
+                switch (tab.Header.ToString())
+                {
+                    case "Curvature":
+                        CurrentWorkMode = CurvatureMode;
+                        break;
+
+                    case "Angle":
+                        CurrentWorkMode = GetAngleMode;
+                        break;
+
+                    case "Draw":
+                        CurrentWorkMode = DrawMode; 
+                        break;
+                }
+
+                CurrentWorkMode?.Reset();
+            }
         }
         #endregion
 

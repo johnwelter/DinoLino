@@ -22,9 +22,24 @@ namespace DinoLino.Utilities.Modes
         public class GetAngleOperation
         {
             public List<UIElement> Elements { get; set; }
-            public double Angle1 { get; set; }
-            public double Angle2 { get; set; }
-            public double Angle3 { get; set; }
+            public double AngleA { get; set; }
+            public double AngleB { get; set; }
+            public double AngleC { get; set; }
+        }
+
+        public TextBlock MakeLabel(string text, Vector2 pos)
+        {
+            TextBlock label = new TextBlock();
+            label.Text = text;
+            label.Foreground = Brushes.Red;
+            label.FontSize = 28;
+            label.FontWeight = FontWeights.Bold;
+
+            // offset so it doesn't sit exactly on the point
+            Canvas.SetLeft(label, pos.X + 5);
+            Canvas.SetTop(label, pos.Y + 5);
+
+            return label;
         }
 
         //  storing undo/redo history
@@ -48,37 +63,37 @@ namespace DinoLino.Utilities.Modes
         // Bindable results of angle calculation
 
         // private/public pairs used to handle propagation of results to UI bindings
-        private double _angle1Result;
-        private double _angle2Result;
-        private double _angle3Result;
+        private double _angleAResult;
+        private double _angleBResult;
+        private double _angleCResult;
 
-        public double Angle1Result
+        public double AngleAResult
         {
-            get => _angle1Result;
+            get => _angleAResult;
             set
             {
-                _angle1Result = value;
-                OnPropertyChanged(nameof(Angle1Result));
+                _angleAResult = value;
+                OnPropertyChanged(nameof(AngleAResult));
             }
         }
 
-        public double Angle2Result
+        public double AngleBResult
         {
-            get => _angle2Result;
+            get => _angleBResult;
             set
             {
-                _angle2Result = value;
-                OnPropertyChanged(nameof(Angle2Result));
+                _angleBResult = value;
+                OnPropertyChanged(nameof(AngleBResult));
             }
         }
 
-        public double Angle3Result
+        public double AngleCResult
         {
-            get => _angle3Result;
+            get => _angleCResult;
             set
             {
-                _angle3Result = value;
-                OnPropertyChanged(nameof(Angle3Result));
+                _angleCResult = value;
+                OnPropertyChanged(nameof(AngleCResult));
             }
         }
 
@@ -87,10 +102,11 @@ namespace DinoLino.Utilities.Modes
         public override void Reset()
         {
             base.Reset();
-            Angle1Result = Angle2Result = Angle3Result = 0;
+            AngleAResult = AngleBResult = AngleCResult = 0;
             CurrentStep = 0;
             CurrentUILine = null;
             CurrentOperation.Clear();
+            PointA = PointB = PointC = default;
         }
         public override Vector2 ProcessMouseMovement(Vector2 mousePos)
         {
@@ -141,6 +157,10 @@ namespace DinoLino.Utilities.Modes
                     output.Add(bc);
                     output.Add(ca);
 
+                    output.Add(MakeLabel("A", PointA));
+                    output.Add(MakeLabel("B", PointB));
+                    output.Add(MakeLabel("C", PointC));
+
                     CurrentOperation.Add(ab);
                     CurrentOperation.Add(bc);
                     CurrentOperation.Add(ca);
@@ -152,23 +172,25 @@ namespace DinoLino.Utilities.Modes
                     History.Add(new GetAngleOperation
                     {
                         Elements = new List<UIElement>(CurrentOperation),
-                        Angle1 = Angle1Result,
-                        Angle2 = Angle2Result,
-                        Angle3 = Angle3Result
+                        AngleA = AngleAResult,
+                        AngleB = AngleBResult,
+                        AngleC = AngleCResult
                     });
 
                     CurrentOperation.Clear();
+                    CurrentUILine = null;
                     CurrentStep++;
                     break;
 
                 case 3:
                     Reset();
-                    // reuse this click as the first step
                     PointA = mousePos;
+
                     CurrentUILine = MakeLine(PointA, PointA);
                     output.Add(CurrentUILine);
                     CurrentOperation.Add(CurrentUILine);
-                    CurrentStep = 1;
+
+                    CurrentStep = 1; 
                     break;
             }
             return output;
@@ -201,23 +223,23 @@ namespace DinoLino.Utilities.Modes
             if (Math.Abs(cross) < 0.0001)
                 return;
 
-            Angle1Result = Math.Round(Math.Abs(Vector2.AngleBetween(AB, AC)), 2); // angle A
-            Angle2Result = Math.Round(Math.Abs(Vector2.AngleBetween(BA, BC)), 2); // angle B
-            Angle3Result = Math.Round(Math.Abs(Vector2.AngleBetween(CA, CB)), 2); // angle C
+            AngleAResult = Math.Round(Math.Abs(Vector2.AngleBetween(AB, AC)), 2); // angle A
+            AngleBResult = Math.Round(Math.Abs(Vector2.AngleBetween(BA, BC)), 2); // angle B
+            AngleCResult = Math.Round(Math.Abs(Vector2.AngleBetween(CA, CB)), 2); // angle C
         }
 
         public void BindAngleResults(
-            System.Windows.Controls.Label angle1Output,
-            System.Windows.Controls.Label angle2Output,
-            System.Windows.Controls.Label angle3Output)
+            System.Windows.Controls.Label angleAOutput,
+            System.Windows.Controls.Label angleBOutput,
+            System.Windows.Controls.Label angleCOutput)
         {
-            angle1Output.DataContext = this;
-            angle2Output.DataContext = this;
-            angle3Output.DataContext = this;
+            angleAOutput.DataContext = this;
+            angleBOutput.DataContext = this;
+            angleCOutput.DataContext = this;
 
-            angle1Output.SetBinding(Label.ContentProperty, new Binding(nameof(Angle1Result)));
-            angle2Output.SetBinding(Label.ContentProperty, new Binding(nameof(Angle2Result)));
-            angle3Output.SetBinding(Label.ContentProperty, new Binding(nameof(Angle3Result)));
+            angleAOutput.SetBinding(Label.ContentProperty, new Binding(nameof(AngleAResult)));
+            angleBOutput.SetBinding(Label.ContentProperty, new Binding(nameof(AngleBResult)));
+            angleCOutput.SetBinding(Label.ContentProperty, new Binding(nameof(AngleCResult)));
         }
     }
 }

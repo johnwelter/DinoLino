@@ -116,15 +116,15 @@
                             </StackPanel>
                             <StackPanel x:Name="UI_TriAngleOutputs" Grid.Row="1">
                                 <StackPanel x:Name="UI_TriAngleOutput1" Orientation="Horizontal" >
-                                    <Label x:Name="UI_TriAngleOutputLabel1" Content="Angle 1:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_TriAngleOutputLabel1" Content="Angle A:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
                                     <Label x:Name="UI_TriAngleOutputValue1" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
                                 <StackPanel x:Name="UI_TriAngleOutput2" Orientation="Horizontal" >
-                                    <Label x:Name="UI_TriAngleOutputLabel2" Content="Angle 2:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_TriAngleOutputLabel2" Content="Angle B:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
                                     <Label x:Name="UI_TriAngleOutputValue2" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
                                 <StackPanel x:Name="UI_TriAngleOutput3" Orientation="Horizontal" >
-                                    <Label x:Name="UI_TriAngleOutputLabel3" Content="Angle 3:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_TriAngleOutputLabel3" Content="Angle C:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
                                     <Label x:Name="UI_TriAngleOutputValue3" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
                             </StackPanel>
