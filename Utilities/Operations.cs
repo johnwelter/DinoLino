@@ -20,5 +20,7 @@ namespace DinoLino.Utilities.Operations
         public double AngleA { get; set; }
         public double AngleB { get; set; }
         public double AngleC { get; set; }
+        public double TriAspectRatio { get; set; }
+        public double TriArea { get; set; }
     }
 }

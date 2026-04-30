@@ -128,6 +128,14 @@
                                     <Label x:Name="UI_TriAngleOutputLabel3" Content="Angle C:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
                                     <Label x:Name="UI_TriAngleOutputValue3" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
+                                <StackPanel x:Name="UI_TriAspectRatio" Orientation="Horizontal" >
+                                    <Label x:Name="UI_TriAspectRatioLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_TriAspectRatioValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
+                                <StackPanel x:Name="UI_TriAreaRatio" Orientation="Horizontal" >
+                                    <Label x:Name="UI_TriAreaRatioLabel" Content="Relative Size:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                    <Label x:Name="UI_TriAreaRatioValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
                     </TabItem>

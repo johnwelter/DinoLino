@@ -42,10 +42,16 @@ namespace DinoLino.Utilities.Modes
                 AngleAResult = prev.AngleA;
                 AngleBResult = prev.AngleB;
                 AngleCResult = prev.AngleC;
+                TriAspectRatioResult = prev.TriAspectRatio;
+                if (History.Count > 1 && History[History.Count - 2] is GetAngleOperation prevPrev && prevPrev.TriArea > 0.00001)
+                    RelativeAreaResult = Math.Round(prev.TriArea / prevPrev.TriArea, 2);
+                else
+                    RelativeAreaResult = "N/A";
             }
             else
             {
-                AngleAResult = AngleBResult = AngleCResult = 0;
+                AngleAResult = AngleBResult = AngleCResult = TriAspectRatioResult =  0;
+                RelativeAreaResult = "N/A";
             }
         }
 
@@ -56,6 +62,12 @@ namespace DinoLino.Utilities.Modes
                 AngleAResult = op.AngleA;
                 AngleBResult = op.AngleB;
                 AngleCResult = op.AngleC;
+                TriAspectRatioResult = op.TriAspectRatio;
+                int idx = History.IndexOf(op);
+                if (idx > 0 && History[idx - 1] is GetAngleOperation prevOp && prevOp.TriArea > 0.00001)
+                    RelativeAreaResult = Math.Round(op.TriArea / prevOp.TriArea, 2);
+                else
+                    RelativeAreaResult = "N/A";
             }
         }
 
@@ -79,6 +91,9 @@ namespace DinoLino.Utilities.Modes
         private double _angleAResult;
         private double _angleBResult;
         private double _angleCResult;
+        private double _TriAspectRatioResult;
+        private object _relativeAreaResult;
+        private double _currentArea = 0;
 
         public double AngleAResult
         {
@@ -110,12 +125,36 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
+        // aspect ratio of the triangle, calculated as longest side / height
+        public double TriAspectRatioResult
+        {
+            get => _TriAspectRatioResult;
+            set
+            {
+                _TriAspectRatioResult = value;
+                OnPropertyChanged(nameof(TriAspectRatioResult));
+            }
+        }
+
+        // ratio of triangle areas. Current triangle area divided by area of previous triangle.
+        public object RelativeAreaResult
+        {
+            get => _relativeAreaResult;
+            set
+            {
+                _relativeAreaResult = value;
+                OnPropertyChanged(nameof(RelativeAreaResult));
+            }
+        }
+
         // ---------- TRIANGLE MODE ---------------- //
 
         public override void Reset()
         {
             base.Reset();
             AngleAResult = AngleBResult = AngleCResult = 0;
+            TriAspectRatioResult = 0;
+            RelativeAreaResult = "N/A";
             CurrentStep = 0;
             CurrentUILine = null;
             CurrentOperation.Clear();
@@ -194,7 +233,9 @@ namespace DinoLino.Utilities.Modes
                         Elements = new List<UIElement>(CurrentOperation),
                         AngleA = AngleAResult,
                         AngleB = AngleBResult,
-                        AngleC = AngleCResult
+                        AngleC = AngleCResult,
+                        TriAspectRatio = TriAspectRatioResult,
+                        TriArea = _currentArea
                     });
 
                     CurrentOperation.Clear();
@@ -246,20 +287,46 @@ namespace DinoLino.Utilities.Modes
             AngleAResult = Math.Round(Math.Abs(Vector2.AngleBetween(AB, AC)), 2); // angle A
             AngleBResult = Math.Round(Math.Abs(Vector2.AngleBetween(BA, BC)), 2); // angle B
             AngleCResult = Math.Round(Math.Abs(Vector2.AngleBetween(CA, CB)), 2); // angle C
+
+            // Aspect ratio: width (longest side) / height (area * 2 / base)
+            double sideAB = AB.Magnitude();
+            double sideBC = BC.Magnitude();
+            double sideCA = CA.Magnitude();
+
+            double area = Math.Abs(cross) / 2.0;
+            _currentArea = area;
+            double longestSide = Math.Max(sideAB, Math.Max(sideBC, sideCA));
+            double height = (area * 2.0) / longestSide;
+
+            TriAspectRatioResult = height > 0.00001
+                ? Math.Round(longestSide / height, 2)
+                : 0;
+
+            // Compare area to previous triangle's area if one exists
+            if (History.Count > 0 && History.Last() is GetAngleOperation prev && prev.TriArea > 0.00001)
+                RelativeAreaResult = Math.Round(area / prev.TriArea, 2);
+            else
+                RelativeAreaResult = "N/A"; // no previous triangle to compare to
         }
 
         public void BindAngleResults(
             System.Windows.Controls.Label angleAOutput,
-            System.Windows.Controls.Label angleBOutput,
-            System.Windows.Controls.Label angleCOutput)
+            System.Windows.Controls.Label angleBOutput, 
+            System.Windows.Controls.Label angleCOutput,
+            System.Windows.Controls.Label TriAspectRatioOutput,
+            System.Windows.Controls.Label TriAreaOutput)
         {
             angleAOutput.DataContext = this;
             angleBOutput.DataContext = this;
             angleCOutput.DataContext = this;
+            TriAspectRatioOutput.DataContext = this;
+            TriAreaOutput.DataContext = this;
 
             angleAOutput.SetBinding(Label.ContentProperty, new Binding(nameof(AngleAResult)));
             angleBOutput.SetBinding(Label.ContentProperty, new Binding(nameof(AngleBResult)));
             angleCOutput.SetBinding(Label.ContentProperty, new Binding(nameof(AngleCResult)));
+            TriAspectRatioOutput.SetBinding(Label.ContentProperty, new Binding(nameof(TriAspectRatioResult)));
+            TriAreaOutput.SetBinding(Label.ContentProperty, new Binding(nameof(RelativeAreaResult)));
         }
     }
 }

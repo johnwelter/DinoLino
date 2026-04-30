@@ -1,5 +1,16 @@
 USER GUIDE
 ------------------------------------------------------------------------------------------------
+GLOBAL METHODS:
+
+Undo:	
+Undoes the last action performed by the user. This returns the metadata of the previous calculation and removes the last drawn operation.
+
+Redo:	
+Redoes the last action that was undone by the user. This returns the metadata of the next calculation and redraws the operation.
+
+Clear:	
+Clears all drawn operations and resets the metadata to its initial state.
+------------------------------------------------------------------------------------------------
 KEYBOARD SHORTCUTS: 
 
 Undo: 			Ctrl + Z
@@ -15,18 +26,21 @@ A geometric calculation to calculate curvature by approximating a curve as the a
 
 Click twice to draw a line from each end of the curve, then click a third time in the midpoint of the curve. Click a fourth time to begin another curvature calculation.
 
-Angle: the central angle of a circular arc drawn using these three points. 
-Aspect ratio: the length of the first line drawn divided by length of the second line.
+Angle: The central angle of a circular arc drawn using three points. 
+Aspect ratio: Length of the first line drawn divided by length of the second line.
 ------------------------------------------------------------------------------------------------
 ANGLE MODE:
 
-Draws a triangle on the image and returns its three interior angles. 
+Draws a triangle on the image and returns its three interior angles and proportions. 
 
 Click three times anywhere on the image to create a triangle. Click a fourth time to begin drawing another triangle.
 
-Angle A: The angle at vertex A.
-Angle B: The angle at vertex B.
-Angle C: The angle at vertex C.
+Angle A:		The angle at vertex A.
+Angle B:		The angle at vertex B.
+Angle C:		The angle at vertex C.
+Aspect Ratio:	Length of the longest side of the triangle divided by its height. 
+
+Note: Triangle height is the perpendicular distance from its longest side to the opposite vertex.
 ------------------------------------------------------------------------------------------------
 DRAW MODE:
 
