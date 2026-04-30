@@ -1,4 +1,5 @@
 ﻿using DinoLino.DataTypes;
+using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -15,6 +16,10 @@ namespace DinoLino.Utilities.Modes
     {
         protected List<UIElement> DrawnElements = new List<UIElement>();
 
+        //  storing undo/redo history
+        protected List<WorkOperation> History = new List<WorkOperation>();
+        protected List<WorkOperation> RedoStack = new List<WorkOperation>();
+
         public event PropertyChangedEventHandler PropertyChanged;
 
         public virtual Vector2 ProcessMouseMovement(Vector2 mousePos) { return mousePos; }
@@ -24,21 +29,38 @@ namespace DinoLino.Utilities.Modes
             DrawnElements.Clear();
         }
         // moving to WorkMode so this is a global tool usable across modes
-        public virtual UndoResult Undo()
+        public virtual WorkOperation Undo()
         {
-            return null;
+            if (History.Count == 0) return null;
+
+            var last = History.Last();
+            History.RemoveAt(History.Count - 1);
+            RedoStack.Add(last);
+
+            OnOperationUndone(last);
+            return last;
         }
         // moving to WorkMode so this is a global tool usable across modes
-        public virtual UndoResult Redo()
+        public virtual WorkOperation Redo()
         {
-            return null;
+            if (RedoStack.Count == 0) return null;
+
+            var operation = RedoStack.Last();
+            RedoStack.RemoveAt(RedoStack.Count - 1);
+            History.Add(operation);
+
+            OnOperationRedone(operation); // hook for subclasses to update their display values
+            return operation;
         }
+
+        protected virtual void OnOperationUndone(WorkOperation operation) { }
+        protected virtual void OnOperationRedone(WorkOperation operation) { }
 
         protected virtual void OnPropertyChanged(string name) 
         {
             if (PropertyChanged != null)
             {
-                PropertyChanged(this, new PropertyChangedEventArgs(name));
+                this.PropertyChanged(this, new PropertyChangedEventArgs(name));
             }
         }
     }

@@ -1,4 +1,5 @@
 ﻿using DinoLino.DataTypes;
+using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,7 +11,6 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Xml.Serialization;
 
@@ -18,17 +18,6 @@ namespace DinoLino.Utilities.Modes
 {
     public class CurvatureMode : WorkMode
     {
-        // stores lines, angle, aspect ratio
-        public class CurvatureOperation
-        {
-            public List<UIElement> Elements { get; set; }
-            public double Angle { get; set; }
-            public double AspectRatio { get; set; }
-        }
-
-        //  storing undo/redo history
-        private List<CurvatureOperation> History = new List<CurvatureOperation>();
-        private List<CurvatureOperation> RedoStack = new List<CurvatureOperation>();
 
         // Tracking 3-click line groups 
         private List<UIElement> CurrentOperation = new List<UIElement>();
@@ -76,61 +65,31 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // Undo function to remove lines from the last curvature operation (3 clicks worth)
-        public override UndoResult Undo()
+        protected override void OnOperationUndone(WorkOperation operation)
         {
-            if (History.Count == 0)
-                return null;
-
-            var lastOperation = History.Last();
-            History.RemoveAt(History.Count - 1);
-
-            // store it for redo
-            RedoStack.Add(lastOperation);
-
-            // restore previous values or reset if none left
-            if (History.Count > 0)
+            if (operation is CurvatureOperation)
             {
-                var prev = History.Last();
-                AngleResult = prev.Angle;
-                AspectRatioResult = prev.AspectRatio;
+                // Restore previous values, or reset if history is now empty
+                if (History.Count > 0 && History.Last() is CurvatureOperation prev)
+                {
+                    AngleResult = prev.Angle;
+                    AspectRatioResult = prev.AspectRatio;
+                }
+                else
+                {
+                    AngleResult = 0;
+                    AspectRatioResult = 0;
+                }
             }
-            else
-            {
-                AngleResult = 0;
-                AspectRatioResult = 0;
-            }
-
-            return new UndoResult
-            {
-                Elements = lastOperation.Elements,
-                Angle = AngleResult,
-                AspectRatio = AspectRatioResult
-            };
         }
 
-        // Redo function to add back lines that were removed by undo (3 clicks worth)
-        public override UndoResult Redo()
+        protected override void OnOperationRedone(WorkOperation operation)
         {
-            if (RedoStack.Count == 0)
-                return null;
-
-            var operation = RedoStack.Last();
-            RedoStack.RemoveAt(RedoStack.Count - 1);
-
-            // put it back into history
-            History.Add(operation);
-
-            // restore values
-            AngleResult = operation.Angle;
-            AspectRatioResult = operation.AspectRatio;
-
-            return new UndoResult
+            if (operation is CurvatureOperation op)
             {
-                Elements = operation.Elements,
-                Angle = operation.Angle,
-                AspectRatio = operation.AspectRatio
-            };
+                AngleResult = op.Angle;
+                AspectRatioResult = op.AspectRatio;
+            }
         }
 
         // ---------- CURVATURE MODE ---------------- //

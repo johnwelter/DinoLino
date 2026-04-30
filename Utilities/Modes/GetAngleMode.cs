@@ -1,4 +1,5 @@
 ﻿using DinoLino.DataTypes;
+using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -6,26 +7,17 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
-using System.Windows.Controls;
 using static DinoLino.Utilities.Modes.CurvatureMode;
 
 namespace DinoLino.Utilities.Modes
 {
     public class GetAngleMode : WorkMode
     { // Temporary to make sure things compile
-
-        // Stores lines and angles
-        public class GetAngleOperation
-        {
-            public List<UIElement> Elements { get; set; }
-            public double AngleA { get; set; }
-            public double AngleB { get; set; }
-            public double AngleC { get; set; }
-        }
 
         public TextBlock MakeLabel(string text, Vector2 pos)
         {
@@ -42,9 +34,30 @@ namespace DinoLino.Utilities.Modes
             return label;
         }
 
-        //  storing undo/redo history
-        private List<GetAngleOperation> History = new List<GetAngleOperation>();
-        private List<GetAngleOperation> RedoStack = new List<GetAngleOperation>();
+        // In GetAngleMode.cs — same pattern
+        protected override void OnOperationUndone(WorkOperation operation)
+        {
+            if (History.Count > 0 && History.Last() is GetAngleOperation prev)
+            {
+                AngleAResult = prev.AngleA;
+                AngleBResult = prev.AngleB;
+                AngleCResult = prev.AngleC;
+            }
+            else
+            {
+                AngleAResult = AngleBResult = AngleCResult = 0;
+            }
+        }
+
+        protected override void OnOperationRedone(WorkOperation operation)
+        {
+            if (operation is GetAngleOperation op)
+            {
+                AngleAResult = op.AngleA;
+                AngleBResult = op.AngleB;
+                AngleCResult = op.AngleC;
+            }
+        }
 
         // Tracking 3-click line groups 
         private List<UIElement> CurrentOperation = new ();
@@ -157,13 +170,20 @@ namespace DinoLino.Utilities.Modes
                     output.Add(bc);
                     output.Add(ca);
 
-                    output.Add(MakeLabel("A", PointA));
-                    output.Add(MakeLabel("B", PointB));
-                    output.Add(MakeLabel("C", PointC));
+                    var labelA = MakeLabel("A", PointA);
+                    var labelB = MakeLabel("B", PointB);
+                    var labelC = MakeLabel("C", PointC);
+
+                    output.Add(labelA);
+                    output.Add(labelB);
+                    output.Add(labelC);
 
                     CurrentOperation.Add(ab);
                     CurrentOperation.Add(bc);
                     CurrentOperation.Add(ca);
+                    CurrentOperation.Add(labelA);
+                    CurrentOperation.Add(labelB);
+                    CurrentOperation.Add(labelC);
 
                     // calculate the three angles
 
@@ -219,7 +239,7 @@ namespace DinoLino.Utilities.Modes
             Vector2 CB = PointB - PointC;
 
             // reject near-collinear points (not a triangle)
-            double cross = (AB.X * AC.Y - AB.Y * AC.X);
+            double cross = (AB ^ AC);
             if (Math.Abs(cross) < 0.0001)
                 return;
 

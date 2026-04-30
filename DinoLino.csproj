@@ -67,12 +67,12 @@
     <Compile Include="Utilities\Modes\DrawMode.cs" />
     <Compile Include="Utilities\Modes\GetAngleMode.cs" />
     <Compile Include="Utilities\Modes\CurvatureMode.cs" />
-    <Compile Include="Utilities\Modes\UndoResult.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
     <Compile Include="Utilities\Stats.cs" />
     <Compile Include="About.xaml.cs">
       <DependentUpon>About.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Utilities\Operations.cs" />
     <Page Include="Dictionary1.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
