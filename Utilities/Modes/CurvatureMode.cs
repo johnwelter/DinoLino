@@ -85,6 +85,17 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
+        private double _sChordArcRatioResult;
+        public double SChordArcRatioResult
+        {
+            get => _sChordArcRatioResult;
+            set
+            {
+                _sChordArcRatioResult = value;
+                OnPropertyChanged(nameof(SChordArcRatioResult));
+            }
+        }
+
         private double _chordArcRatioResult;
         public double ChordArcRatioResult
         {
@@ -127,11 +138,13 @@ namespace DinoLino.Utilities.Modes
                 {
                     AngleResult = prev.Angle;
                     AspectRatioResult = prev.AspectRatio;
+                    ChordArcRatioResult = prev.ChordArcRatio;
                 }
                 else
                 {
                     AngleResult = 0;
                     AspectRatioResult = 0;
+                    ChordArcRatioResult = 0;
                 }
             }
             else if (operation is SplineOperation)
@@ -139,12 +152,12 @@ namespace DinoLino.Utilities.Modes
                 if (History.Count > 0 && History.Last() is SplineOperation prev)
                 {
                     TurningAngleResult = prev.TurningAngle;
-                    ChordArcRatioResult = prev.ChordArcRatio;
+                    SChordArcRatioResult = prev.SChordArcRatio;
                 }
                 else
                 {
                     TurningAngleResult = 0;
-                    ChordArcRatioResult = 0;
+                    SChordArcRatioResult = 0;
                 }
             }
         }
@@ -155,11 +168,12 @@ namespace DinoLino.Utilities.Modes
             {
                 AngleResult = op.Angle;
                 AspectRatioResult = op.AspectRatio;
+                ChordArcRatioResult = op.ChordArcRatio;
             }
             else if (operation is SplineOperation sop)
             {
                 TurningAngleResult = sop.TurningAngle;
-                ChordArcRatioResult = sop.ChordArcRatio;
+                SChordArcRatioResult = sop.SChordArcRatio;
             }
         }
 
@@ -172,6 +186,7 @@ namespace DinoLino.Utilities.Modes
             AspectRatioResult = 0;
             TurningAngleResult = 0;
             ChordArcRatioResult = 0;
+            SChordArcRatioResult = 0;
             CurrentStep = 0;
             CurrentUILine = null;
             _splinePoints.Clear();
@@ -333,7 +348,8 @@ namespace DinoLino.Utilities.Modes
                     {
                         Elements = new List<UIElement>(CurrentOperation),
                         Angle = AngleResult,
-                        AspectRatio = AspectRatioResult
+                        AspectRatio = AspectRatioResult,
+                        ChordArcRatio = ChordArcRatioResult
                     });
 
                     UpdateUndoRedoState();
@@ -357,6 +373,7 @@ namespace DinoLino.Utilities.Modes
         private List<UIElement> ProcessSplineClick(Vector2 mousePos)
         {
             List<UIElement> output = new List<UIElement>();
+            ElementsToRemove.Clear();
 
             // add the point
             _splinePoints.Add(mousePos);
@@ -372,6 +389,7 @@ namespace DinoLino.Utilities.Modes
             {
                 // remove old preview from operation list if it exists
                 if (_splinePreview != null)
+                    ElementsToRemove.Add(_splinePreview);
                     _splineCurrentOperation.Remove(_splinePreview);
 
                 // generate new spline through all current points
@@ -398,7 +416,7 @@ namespace DinoLino.Utilities.Modes
             // calculate results
             List<Vector2> splinePointsDense = GetCatmullRomPoints(_splinePoints, 50);
             TurningAngleResult = Math.Round(CalculateTurningAngle(splinePointsDense), 2);
-            ChordArcRatioResult = Math.Round(CalculateChordArcRatio(splinePointsDense, _splinePoints), 2);
+            SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 2);
 
             // store in history
             RedoStack.Clear();
@@ -406,7 +424,7 @@ namespace DinoLino.Utilities.Modes
             {
                 Elements = new List<UIElement>(_splineCurrentOperation),
                 TurningAngle = TurningAngleResult,
-                ChordArcRatio = ChordArcRatioResult
+                SChordArcRatio = SChordArcRatioResult
             });
             UpdateUndoRedoState();
 
@@ -597,7 +615,7 @@ namespace DinoLino.Utilities.Modes
             return totalLength > 0.00001 ? totalTurning / totalLength : 0;
         }
 
-        private double CalculateChordArcRatio(List<Vector2> densePoints, List<Vector2> controlPoints)
+        private double CalculateSChordArcRatio(List<Vector2> densePoints, List<Vector2> controlPoints)
         {
             // arc length = sum of distances between dense interpolated points
             double arcLength = 0;
@@ -619,24 +637,31 @@ namespace DinoLino.Utilities.Modes
             Vector2 vA = Intersection - PointA;
             Vector2 vB = Intersection - PointB;
 
-            AngleResult = Math.Round(Math.Abs(Vector2.AngleBetween(vA, vB)), 2);
+            double angleDegrees = Math.Abs(Vector2.AngleBetween(vA, vB));
+            AngleResult = Math.Round(angleDegrees, 2);
 
-                    // -----------------------------
-                    // Aspect Ratio calculation
-                    // -----------------------------
+            // Aspect Ratio calculation
 
-                    double chordLength = (PointB - PointA).Magnitude();
+            double chordLength = (PointB - PointA).Magnitude();
 
-                    // bisector = midpoint → C
-                    double bisectorLength = (PointC - Midpoint).Magnitude();
+            // bisector = midpoint → C
+            double bisectorLength = (PointC - Midpoint).Magnitude();
 
-                    AspectRatioResult = bisectorLength > 0.00001
-                        ? Math.Round(chordLength / bisectorLength, 2)
-                        : 0;
+            AspectRatioResult = bisectorLength > 0.00001
+                ? Math.Round(chordLength / bisectorLength, 2)
+                : 0;
 
-                }
+            // Chord-Arc Ratio calculation
+            double radius = (PointA - Intersection).Magnitude();
+            double angleRadians = angleDegrees * Math.PI / 180.0;
+            double arcLength = radius * angleRadians;
 
-                public void BindCurvatureResults(Label angleOutput, Label aspectRatioOutput, Label turningAngleOutput, Label chordArcRatioOutput)
+            ChordArcRatioResult = arcLength > 0.00001
+                ? Math.Round(chordLength / arcLength, 2)
+                : 0;
+        }
+
+        public void BindCurvatureResults(Label angleOutput, Label aspectRatioOutput, Label turningAngleOutput, Label sChordArcRatioOutput, Label chordArcRatioOutput)
                 {
                     Binding angleBind = new Binding(nameof(AngleResult));
                     angleOutput.SetBinding(Label.ContentProperty, angleBind);
@@ -646,13 +671,17 @@ namespace DinoLino.Utilities.Modes
                     aspectRatioOutput.SetBinding(Label.ContentProperty, ratioBind);
                     aspectRatioOutput.DataContext = this;
 
+                    Binding chordArcRatioBind = new Binding(nameof(ChordArcRatioResult));
+                    chordArcRatioOutput.SetBinding(Label.ContentProperty, chordArcRatioBind);
+                    chordArcRatioOutput.DataContext = this;
+
                     Binding turningAngleBind = new Binding(nameof(TurningAngleResult));
                     turningAngleOutput.SetBinding(Label.ContentProperty, turningAngleBind);
                     turningAngleOutput.DataContext = this;
 
-                    Binding chordArcRatioBind = new Binding(nameof(ChordArcRatioResult));
-                    chordArcRatioOutput.SetBinding(Label.ContentProperty, chordArcRatioBind);
-                    chordArcRatioOutput.DataContext = this;
+                    Binding sChordArcRatioBind = new Binding(nameof(SChordArcRatioResult));
+                    sChordArcRatioOutput.SetBinding(Label.ContentProperty, sChordArcRatioBind);
+                    sChordArcRatioOutput.DataContext = this;
                 }
 
             }

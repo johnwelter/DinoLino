@@ -108,6 +108,10 @@
                                     <Label x:Name="UI_CurveAngleOutputLabel" Content="Central Angle:" FontSize="16"/>
                                     <Label x:Name="UI_CurveAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
+                                <StackPanel x:Name="UI_ChordArcRatioOutput" Orientation="Horizontal" Margin ="10,0,0,0">
+                                    <Label x:Name="UI_ChordArcRatioOutputLabel" Content="Chord-Arc Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontSize="16"/>
+                                    <Label x:Name="UI_ChordArcRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
                                 <StackPanel x:Name="UI_AspectRatioOutput" Orientation="Horizontal" Margin ="10,0,0,0">
                                     <Label x:Name="UI_AspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontSize="16"/>
                                     <Label x:Name="UI_AspectRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
@@ -117,9 +121,9 @@
                                     <Label x:Name="UI_TurningAngleOutputLabel" Content="Turning Angle:" FontSize="16"/> <!-- Note: turning angle isn't exactly the right term but idk if I can add greek letters -->
                                     <Label x:Name="UI_TurningAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
-                                <StackPanel x:Name="UI_ChordArcRatioOutput" Orientation="Horizontal" Margin ="10,0,0,0">
-                                    <Label x:Name="UI_ChordArcRatioOutputLabel" Content="Chord-Arc Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontSize="16"/>
-                                    <Label x:Name="UI_ChordArcRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                <StackPanel x:Name="UI_SChordArcRatioOutput" Orientation="Horizontal" Margin ="10,0,0,0">
+                                    <Label x:Name="UI_SChordArcRatioOutputLabel" Content="Chord-Arc Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontSize="16"/>
+                                    <Label x:Name="UI_SChordArcRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
 
                             </StackPanel>

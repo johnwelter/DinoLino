@@ -13,13 +13,14 @@ namespace DinoLino.Utilities.Operations
     {
         public double Angle { get; set; }
         public double AspectRatio { get; set; }
+        public double ChordArcRatio { get; set; }
     }
 
     // I think I need this to expand on curvaturemode.
     public class SplineOperation : WorkOperation
     {
         public double TurningAngle { get; set; }
-        public double ChordArcRatio { get; set; }
+        public double SChordArcRatio { get; set; }
     }
 
     public class GetAngleOperation : WorkOperation

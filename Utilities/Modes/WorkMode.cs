@@ -28,7 +28,9 @@ namespace DinoLino.Utilities.Modes
             }
 
         }
+
         protected List<UIElement> DrawnElements = new List<UIElement>();
+        public List<UIElement> ElementsToRemove { get; } = new List<UIElement>();
 
         //  storing undo/redo history
         protected List<WorkOperation> History = new List<WorkOperation>();

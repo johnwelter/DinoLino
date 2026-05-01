@@ -64,7 +64,7 @@ namespace DinoLino
 
             // Initiate curvature mode and make appropriate bindings
             CurvatureMode = new();
-            CurvatureMode.BindCurvatureResults(UI_CurveAngleOutputValue, UI_AspectRatioOutputValue, UI_TurningAngleOutputValue, UI_ChordArcRatioOutputValue);
+            CurvatureMode.BindCurvatureResults(UI_CurveAngleOutputValue, UI_AspectRatioOutputValue, UI_TurningAngleOutputValue, UI_SChordArcRatioOutputValue, UI_ChordArcRatioOutputValue);
 
             GetAngleMode = new();
             GetAngleMode.BindAngleResults(UI_TriAngleOutputValue1, UI_TriAngleOutputValue2, UI_TriAngleOutputValue3, UI_TriAspectRatioValue, UI_TriAreaRatioValue);
@@ -324,11 +324,19 @@ namespace DinoLino
 
             if (e.ClickCount == 2)
             {
+                foreach (UIElement element in CurrentWorkMode.ElementsToRemove)
+                    UI_WorkCanvas.Children.Remove(element);
+                CurrentWorkMode.ElementsToRemove.Clear();
+                
                 List<UIElement> elementsToAdd = CurrentWorkMode.ProcessDoubleClick(mousePos);
                 foreach (UIElement element in elementsToAdd)
                     AddElementToWorkSpace(element);
                 return;
             }
+
+            foreach (UIElement element in CurrentWorkMode.ElementsToRemove)
+                UI_WorkCanvas.Children.Remove(element);
+            CurrentWorkMode.ElementsToRemove.Clear();
 
             List<UIElement> elementsToAdd2 = CurrentWorkMode.ProcessClick(mousePos);
 
