@@ -29,7 +29,7 @@ Click twice to draw a line from each end of the curve, then click a third time i
 Angle: The central angle of a circular arc drawn using three points. 
 Aspect ratio: Length of the first line drawn divided by length of the second line.
 ------------------------------------------------------------------------------------------------
-ANGLE MODE:
+TRIANGLE MODE:
 
 Draws a triangle on the image and returns its three interior angles and proportions. 
 
@@ -38,11 +38,21 @@ Click three times anywhere on the image to create a triangle. Click a fourth tim
 Angle A:		The angle at vertex A.
 Angle B:		The angle at vertex B.
 Angle C:		The angle at vertex C.
-Aspect Ratio:	Length of the longest side of the triangle divided by its height. 
+Aspect Ratio:	Length of the longest side of the triangle divided by its height.
+Relative Size:	Area of the current triangle divided by the area of the previous triangle.
 
 Note: Triangle height is the perpendicular distance from its longest side to the opposite vertex.
 ------------------------------------------------------------------------------------------------
 DRAW MODE:
 
-TBD
+Draw basic shapes and lines on the image and return their relative proportions.
+
+Select a shape, line, or angle. Click on the image to begin drawing the selected geometric figure.
+For shapes, click once to begin drawing, drag to determine size and shape, and click a second time to finish.
+For lines, click twice anywhere on the image to draw a straight line between two points.
+For angles, type the desired angle in the text box. Click twice anywhere on the image draw line AB. Line BC will be constrained to the specified angle. Click a third time to finish.
+
+Aspect Ratio: Width of the drawn shape divided by its height. NA for lines and angles.
+Relative Size: Area of the drawn shape divided by the area of the previous shape. NA for lines and angles.
+Line Ratio: Length of the drawn line divided by the length of the previous line. NA for shapes.
 ------------------------------------------------------------------------------------------------

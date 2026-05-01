@@ -24,6 +24,10 @@ namespace DinoLino.Utilities.Modes
 
         public virtual Vector2 ProcessMouseMovement(Vector2 mousePos) { return mousePos; }
         public virtual List<UIElement> ProcessClick(Vector2 mousePos) { return null; }
+        
+        // Resets drawing state only (mid-operation cleanup)
+        public virtual void ResetDrawingState() { }
+        // full reset
         public virtual void Reset() 
         {
             DrawnElements.Clear();

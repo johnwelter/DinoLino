@@ -103,6 +103,13 @@ namespace DinoLino.Utilities.Modes
             CurrentUILine = null;
         }
 
+        public override void ResetDrawingState()
+        {
+            CurrentStep = 0;
+            CurrentUILine = null;
+            CurrentOperation.Clear();
+        }
+
         public override Vector2 ProcessMouseMovement(Vector2 mousePos)
         {
             Vector2 modifiedPos = mousePos;
@@ -243,7 +250,7 @@ namespace DinoLino.Utilities.Modes
 
                     break;
                 case 3:
-                    Reset();
+                    ResetDrawingState();
                     // reuse this click as the first step
                     PointA = new Vector2(mousePos.X, mousePos.Y);
                     CurrentUILine = MakeLine(mousePos, mousePos);

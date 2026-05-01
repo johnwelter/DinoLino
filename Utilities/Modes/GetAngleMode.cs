@@ -12,13 +12,11 @@ using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
-using static DinoLino.Utilities.Modes.CurvatureMode;
 
 namespace DinoLino.Utilities.Modes
 {
     public class GetAngleMode : WorkMode
-    { // Temporary to make sure things compile
-
+    {
         public TextBlock MakeLabel(string text, Vector2 pos)
         {
             TextBlock label = new TextBlock();
@@ -160,6 +158,15 @@ namespace DinoLino.Utilities.Modes
             CurrentOperation.Clear();
             PointA = PointB = PointC = default;
         }
+
+        public override void ResetDrawingState()
+        {
+            CurrentStep = 0;
+            CurrentUILine = null;
+            CurrentOperation.Clear();
+            PointA = PointB = PointC = default;
+        }
+
         public override Vector2 ProcessMouseMovement(Vector2 mousePos)
         {
             if (CurrentUILine != null)
@@ -244,7 +251,7 @@ namespace DinoLino.Utilities.Modes
                     break;
 
                 case 3:
-                    Reset();
+                    ResetDrawingState();
                     PointA = mousePos;
 
                     CurrentUILine = MakeLine(PointA, PointA);

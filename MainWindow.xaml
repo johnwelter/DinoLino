@@ -105,7 +105,7 @@
                         </StackPanel>
                     </TabItem>
                     <!-- angle mode controls and outputs-->
-                    <TabItem Header="Angle">
+                    <TabItem Header="Triangle">
                         <StackPanel x:Name="UI_AngleControls">
                             <StackPanel x:Name="UI_AngleButtons" Grid.Row="0" Margin="10,0,10,20">
                                 <StackPanel.Resources>
@@ -150,18 +150,21 @@
                                 <RadioButton Content="Circle" GroupName="Draw" x:Name="UI_DrawCircle" Checked="Circle_Checked" Height="25" FontSize="16"/>
                             </StackPanel>
                             <RadioButton Content="Line" GroupName="Draw" x:Name="UI_DrawLine" Checked="Line_Checked" Height="25" FontSize="18" FontWeight="Bold"/>
-                            <RadioButton Content="Chord Bisector" GroupName="Draw" x:Name="UI_DrawBisector" Checked="Bisector_Checked" Height="25" FontSize="18" FontWeight="Bold"/>
-                            <StackPanel Margin="15,0,0,0" Orientation="Horizontal">
-                                <TextBlock Text="Intersection" FontSize="16" Height="25" Margin="5,0,0,0"/>
-                                <TextBox x:Name="UI_IntersectionValue" Width="27" Height="24" FontSize="14" Margin="25,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Margin="15,0,0,0" Orientation="Horizontal">
-                                <TextBlock Text="Bisector Angle" FontSize="16" Height="25" Margin="5,0,0,0"/>
-                                <TextBox x:Name="UI_BisAngleValue" Width="27" Height="24" FontSize="14" Margin="7,0,0,0"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <RadioButton Content="Angle" GroupName="Draw" x:Name="UI_DrawAngle" Checked="DrawAngle_Checked" Height="25" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <TextBox x:Name="UI_DrawAngleValue" Width="27" Height="24" FontSize="14" Margin="7,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel x:Name="UI_DrawAspectRatioOutput" Orientation="Horizontal">
                                 <Label x:Name="UI_DrawAspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
                                 <Label x:Name="UI_DrawAspectRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                            </StackPanel>
+                            <StackPanel x:Name="UI_ShapeAreaOutput" Orientation="Horizontal">
+                                <Label x:Name="UI_ShapeAreaOutputLabel" Content="Relative Size:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                <Label x:Name="UI_ShapeAreaOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                            </StackPanel>
+                            <StackPanel x:Name="UI_LineLengthRatioOutput" Orientation="Horizontal">
+                                <Label x:Name="UI_LineLengthRatioOutputLabel" Content="Line Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                <Label x:Name="UI_LineLengthRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                             </StackPanel>
                         </StackPanel>
                     </TabItem>
@@ -171,7 +174,7 @@
             <Grid x:Name="UI_WorkSpace" Grid.Column="1" ClipToBounds="True">
                 <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseWheel="WorkSpace_ScrollZoom">
                     <Border x:Name ="UI_WorkBorder" BorderBrush="White" BorderThickness="3" Panel.ZIndex="10" Width="{Binding ActualWidth, ElementName=UI_WorkImage, Mode=OneWay}" Height="{Binding ActualHeight, ElementName=UI_WorkImage, Mode=OneWay}">
-                        <Canvas x:Name="UI_WorkCanvas"/>
+                        <Canvas x:Name="UI_WorkCanvas" Focusable="True"/>
                     </Border>
                     <Canvas x:Name="UI_WorkBackground" Background="Gray" />
                     <Image x:Name="UI_WorkImage"/>

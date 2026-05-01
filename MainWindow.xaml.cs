@@ -49,6 +49,11 @@ namespace DinoLino
 
             // Keyboard shortcuts
             this.KeyDown += MainWindow_KeyDown;
+            UI_WorkCanvas.MouseDown += (s, e) =>
+            {
+                Keyboard.ClearFocus();
+                UI_WorkCanvas.Focus();
+            };
 
             // TODO: it feels like work modes should control their own 
             // UI instead of having them predefined and hooked up through here - but that's a later fix. We'll want
@@ -64,7 +69,14 @@ namespace DinoLino
             GetAngleMode = new();
             GetAngleMode.BindAngleResults(UI_TriAngleOutputValue1, UI_TriAngleOutputValue2, UI_TriAngleOutputValue3, UI_TriAspectRatioValue, UI_TriAreaRatioValue);
 
-            DrawMode = new(); // placeholder for now
+            DrawMode = new();
+            DrawMode.BindDrawResults(UI_DrawAspectRatioOutputValue, UI_ShapeAreaOutputValue, UI_LineLengthRatioOutputValue);
+            UI_DrawAngleValue.TextChanged += DrawAngleValue_TextChanged;
+            UI_WorkCanvas.MouseDown += (s, e) =>
+            {
+                Keyboard.ClearFocus();
+                UI_WorkCanvas.Focus();
+            };
 
             // Set the current work mode to update
             CurrentWorkMode = CurvatureMode;
@@ -216,7 +228,7 @@ namespace DinoLino
                         CurrentWorkMode = CurvatureMode;
                         break;
 
-                    case "Angle":
+                    case "Triangle":
                         CurrentWorkMode = GetAngleMode;
                         break;
 
@@ -225,7 +237,7 @@ namespace DinoLino
                         break;
                 }
 
-                CurrentWorkMode?.Reset();
+                CurrentWorkMode?.ResetDrawingState(); // only reset in-progress click history
             }
         }
         #endregion
@@ -260,21 +272,34 @@ namespace DinoLino
         // TODO: the following are placeholders to prevent build errors. Need to write functions
         private void Rectangle_Checked(object sender, RoutedEventArgs e)
         {
+            DrawMode.CurrentShape = DrawMode.DrawShape.Rectangle;
         }
         private void Circle_Checked(object sender, RoutedEventArgs e)
         {
+            DrawMode.CurrentShape = DrawMode.DrawShape.Circle;
         }
         private void Ellipse_Checked(object sender, RoutedEventArgs e)
         {
+            DrawMode.CurrentShape = DrawMode.DrawShape.Ellipse;
         }
         private void Square_Checked(object sender, RoutedEventArgs e)
         {
+            DrawMode.CurrentShape = DrawMode.DrawShape.Square;
         }
-        private void Bisector_Checked(object sender, RoutedEventArgs e)
+        private void DrawAngle_Checked(object sender, RoutedEventArgs e)
         {
+            DrawMode.CurrentShape = DrawMode.DrawShape.Angle;
+            if (double.TryParse(UI_DrawAngleValue.Text, out double angle))
+                DrawMode.LockedAngleDegrees = angle;
+        }
+        private void DrawAngleValue_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (double.TryParse(UI_DrawAngleValue.Text, out double angle))
+                DrawMode.LockedAngleDegrees = angle;
         }
         private void Line_Checked(object sender, RoutedEventArgs e)
         {
+            DrawMode.CurrentShape = DrawMode.DrawShape.Line;
         }
         #endregion
     }

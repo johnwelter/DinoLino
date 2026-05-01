@@ -23,4 +23,11 @@ namespace DinoLino.Utilities.Operations
         public double TriAspectRatio { get; set; }
         public double TriArea { get; set; }
     }
+
+    public class DrawOperation : WorkOperation
+    {
+        public double DrawAspectRatio { get; set; }
+        public double ShapeArea { get; set; }
+        public double LineLength { get; set; }
+    }
 }
