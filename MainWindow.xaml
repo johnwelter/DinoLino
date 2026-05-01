@@ -92,13 +92,23 @@
                             <StackPanel x:Name="UI_CurvatureOutputs" Grid.Row="1">
 
                                 <!-- NOTE: This stack panel can be duplicated to add more results. just remember to give them new names!-->
-                                <StackPanel x:Name="UI_CurveAngleOutput" Orientation="Horizontal" >
-                                    <Label x:Name="UI_CurveAngleOutputLabel" Content="Angle:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                <RadioButton Content="3-Point Arc" GroupName="Curve" x:Name="UI_Arc3Point" Checked="ThreePointArc_Checked" Height="25" FontWeight="Bold" FontSize="18"/>
+                                <StackPanel x:Name="UI_CurveAngleOutput" Orientation="Horizontal" Margin ="12,0,0,0">
+                                    <Label x:Name="UI_CurveAngleOutputLabel" Content="Central Angle:" FontSize="16"/>
                                     <Label x:Name="UI_CurveAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
-                                <StackPanel x:Name="UI_AspectRatioOutput" Orientation="Horizontal">
-                                    <Label x:Name="UI_AspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>
+                                <StackPanel x:Name="UI_AspectRatioOutput" Orientation="Horizontal" Margin ="12,0,0,0">
+                                    <Label x:Name="UI_AspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontSize="16"/>
                                     <Label x:Name="UI_AspectRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
+                                <RadioButton Content="n-Point Spline" GroupName="Curve" x:Name="UI_SplineNPoint" Checked="nPointSpline_Checked" Height="25" FontWeight="Bold" FontSize="18"/>
+                                <StackPanel x:Name="UI_TurningAngleOutput" Orientation="Horizontal" Margin ="12,0,0,0">
+                                    <Label x:Name="UI_TurningAngleOutputLabel" Content="Turning Angle:" FontSize="16"/>
+                                    <Label x:Name="UI_TurningAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
+                                </StackPanel>
+                                <StackPanel x:Name="UI_ChordArcRatioOutput" Orientation="Horizontal" Margin ="12,0,0,0">
+                                    <Label x:Name="UI_ChordArcRatioOutputLabel" Content="Chord-Arc Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontSize="16"/>
+                                    <Label x:Name="UI_ChordArcRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
 
                             </StackPanel>
@@ -143,7 +153,7 @@
                     <TabItem Header="Draw">
                         <StackPanel x:Name="UI_DrawControls" Grid.Row="1" Margin="0,0,10,20">
                             <TextBlock Grid.Row="0" Text="Shapes" FontSize="18" FontWeight="Bold" Margin="10,16,10,10"/>
-                            <StackPanel Margin="20,0,0,0">
+                            <StackPanel Margin="14,0,0,0">
                                 <RadioButton Content="Rectangle" GroupName="Draw" x:Name="UI_DrawRectangle" Checked="Rectangle_Checked" Height="25" FontSize="16"/>
                                 <RadioButton Content="Square" GroupName="Draw" x:Name="UI_DrawSquare" Checked="Square_Checked" Height="25" FontSize="16"/>
                                 <RadioButton Content="Ellipse" GroupName="Draw" x:Name="UI_DrawEllipse" Checked="Ellipse_Checked" Height="25" FontSize="16"/>
@@ -152,7 +162,7 @@
                             <RadioButton Content="Line" GroupName="Draw" x:Name="UI_DrawLine" Checked="Line_Checked" Height="25" FontSize="18" FontWeight="Bold"/>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <RadioButton Content="Angle" GroupName="Draw" x:Name="UI_DrawAngle" Checked="DrawAngle_Checked" Height="25" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
-                                <TextBox x:Name="UI_DrawAngleValue" Width="27" Height="24" FontSize="14" Margin="7,0,0,0" VerticalAlignment="Center"/>
+                                <TextBox x:Name="UI_DrawAngleValue" Width="29" Height="23" FontSize="14" Margin="9,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel x:Name="UI_DrawAspectRatioOutput" Orientation="Horizontal">
                                 <Label x:Name="UI_DrawAspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontWeight="Bold" FontSize="18"/>

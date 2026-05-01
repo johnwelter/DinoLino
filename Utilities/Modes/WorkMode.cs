@@ -24,7 +24,9 @@ namespace DinoLino.Utilities.Modes
 
         public virtual Vector2 ProcessMouseMovement(Vector2 mousePos) { return mousePos; }
         public virtual List<UIElement> ProcessClick(Vector2 mousePos) { return null; }
-        
+        // double-click for finalizing splines (or anything else)
+        public virtual List<UIElement> ProcessDoubleClick(Vector2 mousePos) { return new List<UIElement>(); }
+
         // Resets drawing state only (mid-operation cleanup)
         public virtual void ResetDrawingState() { }
         

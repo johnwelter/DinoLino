@@ -14,7 +14,7 @@ Clears all drawn operations and resets the metadata to its initial state.
 KEYBOARD SHORTCUTS: 
 
 Undo: 			Ctrl + Z
-Redo: 			Ctrl + R
+Redo: 			Ctrl + Y
 Clear: 			Ctrl + C
 Open image: 		Ctrl + F
 Zoom:			Scroll wheel

@@ -18,9 +18,22 @@ namespace DinoLino.Utilities.Modes
 {
     public class CurvatureMode : WorkMode
     {
+        // enum for toggling between curvature methods
+        public enum CurvatureMethod
+        {
+            ThreePointArc,
+            NPointSpline
+        }
+        public CurvatureMethod CurrentMethod { get; set; } = CurvatureMethod.ThreePointArc;
 
         // Tracking 3-click line groups 
         private List<UIElement> CurrentOperation = new List<UIElement>();
+        
+        // Spline mode fields
+        private List<Vector2> _splinePoints = new List<Vector2>();
+        private List<UIElement> _splineDots = new List<UIElement>();
+        private Polyline _splinePreview = null;
+        private List<UIElement> _splineCurrentOperation = new List<UIElement>();
 
         // Current state of the curvature drawing mode
         public int CurrentStep = 0;
@@ -40,9 +53,31 @@ namespace DinoLino.Utilities.Modes
         public Vector2 BCMid;
 
 
-        // Bindable results of curvature calculation
+        // Bindable results of curvature calculations
 
         // private/public pair used to handle propagation of results to UI bindings
+        private double _turningAngleResult;
+        public double TurningAngleResult
+        {
+            get => _turningAngleResult;
+            set
+            {
+                _turningAngleResult = value;
+                OnPropertyChanged(nameof(TurningAngleResult));
+            }
+        }
+
+        private double _chordArcRatioResult;
+        public double ChordArcRatioResult
+        {
+            get => _chordArcRatioResult;
+            set
+            {
+                _chordArcRatioResult = value;
+                OnPropertyChanged(nameof(ChordArcRatioResult));
+            }
+        }
+
         private double _angleResult;
         public double AngleResult
         {
@@ -81,6 +116,19 @@ namespace DinoLino.Utilities.Modes
                     AspectRatioResult = 0;
                 }
             }
+            else if (operation is SplineOperation)
+            {
+                if (History.Count > 0 && History.Last() is SplineOperation prev)
+                {
+                    TurningAngleResult = prev.TurningAngle;
+                    ChordArcRatioResult = prev.ChordArcRatio;
+                }
+                else
+                {
+                    TurningAngleResult = 0;
+                    ChordArcRatioResult = 0;
+                }
+            }
         }
 
         protected override void OnOperationRedone(WorkOperation operation)
@@ -90,6 +138,11 @@ namespace DinoLino.Utilities.Modes
                 AngleResult = op.Angle;
                 AspectRatioResult = op.AspectRatio;
             }
+            else if (operation is SplineOperation sop)
+            {
+                TurningAngleResult = sop.TurningAngle;
+                ChordArcRatioResult = sop.ChordArcRatio;
+            }
         }
 
         // ---------- CURVATURE MODE ---------------- //
@@ -98,9 +151,15 @@ namespace DinoLino.Utilities.Modes
         {
             base.Reset();
             AngleResult = 0;
-            CurrentStep = 0;
             AspectRatioResult = 0;
+            TurningAngleResult = 0;
+            ChordArcRatioResult = 0;
+            CurrentStep = 0;
             CurrentUILine = null;
+            _splinePoints.Clear();
+            _splineDots.Clear();
+            _splinePreview = null;
+            _splineCurrentOperation.Clear();
         }
 
         public override void ResetDrawingState()
@@ -108,6 +167,10 @@ namespace DinoLino.Utilities.Modes
             CurrentStep = 0;
             CurrentUILine = null;
             CurrentOperation.Clear();
+            _splinePoints.Clear();
+            _splineDots.Clear();
+            _splinePreview = null;
+            _splineCurrentOperation.Clear();
         }
 
         public override Vector2 ProcessMouseMovement(Vector2 mousePos)
@@ -143,6 +206,9 @@ namespace DinoLino.Utilities.Modes
 
         public override List<UIElement> ProcessClick(Vector2 mousePos)
         {
+            if (CurrentMethod == CurvatureMethod.NPointSpline)
+                return ProcessSplineClick(mousePos);
+
             List<UIElement> outputElements = new List<UIElement>();
             switch (CurrentStep)
             {
@@ -264,6 +330,127 @@ namespace DinoLino.Utilities.Modes
             return outputElements;
         }
 
+        private List<UIElement> ProcessSplineClick(Vector2 mousePos)
+        {
+            List<UIElement> output = new List<UIElement>();
+
+            // add the point
+            _splinePoints.Add(mousePos);
+
+            // draw a visible dot marker
+            var dot = MakeDot(mousePos);
+            _splineDots.Add(dot);
+            _splineCurrentOperation.Add(dot);
+            output.Add(dot);
+
+            // once we have at least 2 points, update the spline preview
+            if (_splinePoints.Count >= 2)
+            {
+                // remove old preview from operation list if it exists
+                if (_splinePreview != null)
+                    _splineCurrentOperation.Remove(_splinePreview);
+
+                // generate new spline through all current points
+                _splinePreview = MakeCatmullRomPolyline(_splinePoints);
+                _splineCurrentOperation.Add(_splinePreview);
+                output.Add(_splinePreview);
+            }
+
+            return output;
+        }
+
+        public override List<UIElement> ProcessDoubleClick(Vector2 mousePos)
+        {
+            if (CurrentMethod != CurvatureMethod.NPointSpline)
+                return new List<UIElement>();
+
+            if (_splinePoints.Count < 3)
+            {
+                // not enough points, reset and try again
+                ResetDrawingState();
+                return new List<UIElement>();
+            }
+
+            // calculate results
+            List<Vector2> splinePointsDense = GetCatmullRomPoints(_splinePoints, 50);
+            TurningAngleResult = Math.Round(CalculateTurningAngle(splinePointsDense), 2);
+            ChordArcRatioResult = Math.Round(CalculateChordArcRatio(splinePointsDense, _splinePoints), 2);
+
+            // store in history
+            RedoStack.Clear();
+            History.Add(new SplineOperation
+            {
+                Elements = new List<UIElement>(_splineCurrentOperation),
+                TurningAngle = TurningAngleResult,
+                ChordArcRatio = ChordArcRatioResult
+            });
+            UpdateUndoRedoState();
+
+            var output = new List<UIElement>(_splineCurrentOperation);
+
+            // reset drawing state for next spline
+            _splinePoints.Clear();
+            _splineDots.Clear();
+            _splinePreview = null;
+            _splineCurrentOperation.Clear();
+
+            return output;
+        }
+
+        // generates a dense list of interpolated points along a Catmull-Rom spline
+        private List<Vector2> GetCatmullRomPoints(List<Vector2> controlPoints, int samplesPerSegment)
+        {
+            List<Vector2> result = new List<Vector2>();
+
+            // duplicate first and last points to create phantom endpoints
+            List<Vector2> pts = new List<Vector2>();
+            pts.Add(controlPoints[0]);
+            pts.AddRange(controlPoints);
+            pts.Add(controlPoints[controlPoints.Count - 1]);
+
+            for (int i = 1; i < pts.Count - 2; i++)
+            {
+                for (int j = 0; j < samplesPerSegment; j++)
+                {
+                    double t = (double)j / samplesPerSegment;
+                    result.Add(CatmullRom(pts[i - 1], pts[i], pts[i + 1], pts[i + 2], t));
+                }
+            }
+            result.Add(controlPoints[controlPoints.Count - 1]);
+            return result;
+        }
+
+        // Catmull-Rom interpolation between p1 and p2
+        private Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, double t)
+        {
+            double t2 = t * t;
+            double t3 = t2 * t;
+
+            double x = 0.5 * ((2 * p1.X) +
+                       (-p0.X + p2.X) * t +
+                       (2 * p0.X - 5 * p1.X + 4 * p2.X - p3.X) * t2 +
+                       (-p0.X + 3 * p1.X - 3 * p2.X + p3.X) * t3);
+
+            double y = 0.5 * ((2 * p1.Y) +
+                       (-p0.Y + p2.Y) * t +
+                       (2 * p0.Y - 5 * p1.Y + 4 * p2.Y - p3.Y) * t2 +
+                       (-p0.Y + 3 * p1.Y - 3 * p2.Y + p3.Y) * t3);
+
+            return new Vector2(x, y);
+        }
+
+        // builds a WPF Polyline from Catmull-Rom interpolated points
+        private Polyline MakeCatmullRomPolyline(List<Vector2> controlPoints)
+        {
+            List<Vector2> pts = GetCatmullRomPoints(controlPoints, 50);
+            Polyline polyline = new Polyline();
+            polyline.Stroke = Brushes.OrangeRed;
+            polyline.StrokeThickness = 2;
+            foreach (var pt in pts)
+                polyline.Points.Add(new Point(pt.X, pt.Y));
+            return polyline;
+        }
+
         public Line MakeLine(Vector2 a,  Vector2 b)
         {
             Line L = new();
@@ -274,6 +461,66 @@ namespace DinoLino.Utilities.Modes
             L.X2 = b.X;
             L.Y2 = b.Y;
             return L;
+        }
+
+        public Ellipse MakeDot(Vector2 pos)
+        {
+            Ellipse dot = new Ellipse();
+            dot.Fill = Brushes.OrangeRed;
+            dot.Width = 8;
+            dot.Height = 8;
+            Canvas.SetLeft(dot, pos.X - 4);
+            Canvas.SetTop(dot, pos.Y - 4);
+            return dot;
+        }
+
+        private double CalculateTurningAngle(List<Vector2> points)
+        {
+            if (points.Count < 3) return 0;
+
+            double totalTurning = 0;
+            double totalLength = 0;
+
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                Vector2 seg1 = points[i] - points[i - 1];
+                Vector2 seg2 = points[i + 1] - points[i];
+
+                double len1 = seg1.Magnitude();
+                double len2 = seg2.Magnitude();
+                totalLength += len1;
+
+                if (len1 < 0.00001 || len2 < 0.00001) continue;
+
+                double angle = Math.Abs(Vector2.AngleBetween(seg1, seg2));
+                totalTurning += angle;
+            }
+
+            // add last segment length
+            if (points.Count >= 2)
+            {
+                Vector2 last = points[points.Count - 1] - points[points.Count - 2];
+                totalLength += last.Magnitude();
+            }
+
+            return totalLength > 0.00001 ? totalTurning / totalLength : 0;
+        }
+
+        private double CalculateChordArcRatio(List<Vector2> densePoints, List<Vector2> controlPoints)
+        {
+            // arc length = sum of distances between dense interpolated points
+            double arcLength = 0;
+            for (int i = 1; i < densePoints.Count; i++)
+            {
+                Vector2 seg = densePoints[i] - densePoints[i - 1];
+                arcLength += seg.Magnitude();
+            }
+
+            // chord length = straight line from first to last control point
+            Vector2 chord = controlPoints[controlPoints.Count - 1] - controlPoints[0];
+            double chordLength = chord.Magnitude();
+
+            return chordLength > 0.00001 ? Math.Round(arcLength / chordLength, 2) : 0;
         }
 
         public void CalculateAndUpdateResults()
@@ -298,7 +545,7 @@ namespace DinoLino.Utilities.Modes
 
                 }
 
-                public void BindCurvatureResults(Label angleOutput, Label aspectRatioOutput)
+                public void BindCurvatureResults(Label angleOutput, Label aspectRatioOutput, Label turningAngleOutput, Label chordArcRatioOutput)
                 {
                     Binding angleBind = new Binding(nameof(AngleResult));
                     angleOutput.SetBinding(Label.ContentProperty, angleBind);
@@ -307,6 +554,14 @@ namespace DinoLino.Utilities.Modes
                     Binding ratioBind = new Binding(nameof(AspectRatioResult));
                     aspectRatioOutput.SetBinding(Label.ContentProperty, ratioBind);
                     aspectRatioOutput.DataContext = this;
+
+                    Binding turningAngleBind = new Binding(nameof(TurningAngleResult));
+                    turningAngleOutput.SetBinding(Label.ContentProperty, turningAngleBind);
+                    turningAngleOutput.DataContext = this;
+
+                    Binding chordArcRatioBind = new Binding(nameof(ChordArcRatioResult));
+                    chordArcRatioOutput.SetBinding(Label.ContentProperty, chordArcRatioBind);
+                    chordArcRatioOutput.DataContext = this;
                 }
 
             }

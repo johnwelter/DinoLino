@@ -64,7 +64,7 @@ namespace DinoLino
 
             // Initiate curvature mode and make appropriate bindings
             CurvatureMode = new();
-            CurvatureMode.BindCurvatureResults(UI_CurveAngleOutputValue, UI_AspectRatioOutputValue);
+            CurvatureMode.BindCurvatureResults(UI_CurveAngleOutputValue, UI_AspectRatioOutputValue, UI_TurningAngleOutputValue, UI_ChordArcRatioOutputValue);
 
             GetAngleMode = new();
             GetAngleMode.BindAngleResults(UI_TriAngleOutputValue1, UI_TriAngleOutputValue2, UI_TriAngleOutputValue3, UI_TriAspectRatioValue, UI_TriAreaRatioValue);
@@ -113,8 +113,27 @@ namespace DinoLino
 
         private void AddElementToWorkSpace(UIElement element)
         {
-            UI_WorkCanvas.Children.Add(element);
+            if (element == null) return;
+
+            // Remove from logical parent first
+            if (element is FrameworkElement fe && fe.Parent is Panel logicalPanel)
+            {
+                logicalPanel.Children.Remove(element);
+            }
+            else
+            {
+                // Fall back to visual parent
+                var visualParent = VisualTreeHelper.GetParent(element);
+                if (visualParent is Panel visualPanel)
+                    visualPanel.Children.Remove(element);
+            }
+
+            // Add to workspace if not already there
+            if (!UI_WorkCanvas.Children.Contains(element))
+                UI_WorkCanvas.Children.Add(element);
         }
+        
+
 
         private void UpdateWorkSpaceZoom(double delta, Point relativeTo)
         {
@@ -149,7 +168,7 @@ namespace DinoLino
                 e.Handled = true;
             }
             // Ctrl + R to redo
-            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R)
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Y)
             {
                 Menu_Redo(null, null);
             }
@@ -207,7 +226,7 @@ namespace DinoLino
             {
                 foreach (var el in result.Elements)
                 {
-                    UI_WorkCanvas.Children.Add(el);
+                    AddElementToWorkSpace(el);
                 }
             }
         }
@@ -260,12 +279,20 @@ namespace DinoLino
         private void WorkSpace_Click(object sender, MouseButtonEventArgs e)
         {
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
-            
-            List<UIElement> elementsToAdd = CurrentWorkMode.ProcessClick(mousePos);
 
-            foreach (UIElement element in elementsToAdd)
+            if (e.ClickCount == 2)
             {
-                UI_WorkCanvas.Children.Add(element);
+                List<UIElement> elementsToAdd = CurrentWorkMode.ProcessDoubleClick(mousePos);
+                foreach (UIElement element in elementsToAdd)
+                    AddElementToWorkSpace(element);
+                return;
+            }
+
+            List<UIElement> elementsToAdd2 = CurrentWorkMode.ProcessClick(mousePos);
+
+            foreach (UIElement element in elementsToAdd2)
+            {
+                AddElementToWorkSpace(element);
             }
         }
 
@@ -282,7 +309,8 @@ namespace DinoLino
             UpdateWorkSpaceZoom(e.Delta, e.GetPosition(UI_WorkImage));
         }
 
-        // TODO: the following are placeholders to prevent build errors. Need to write functions
+        // radio buttons
+        // Draw Mode
         private void Rectangle_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Rectangle;
@@ -313,6 +341,19 @@ namespace DinoLino
         private void Line_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Line;
+        }
+
+        // Curvature Mode
+        private void ThreePointArc_Checked(object sender, RoutedEventArgs e)
+        {
+            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.ThreePointArc;
+            CurvatureMode.ResetDrawingState();
+        }
+
+        private void nPointSpline_Checked(object sender, RoutedEventArgs e)
+        {
+            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.NPointSpline;
+            CurvatureMode.ResetDrawingState();
         }
         #endregion
     }
