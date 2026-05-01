@@ -27,11 +27,14 @@ namespace DinoLino.Utilities.Modes
         
         // Resets drawing state only (mid-operation cleanup)
         public virtual void ResetDrawingState() { }
+        
         // full reset
         public virtual void Reset() 
         {
             DrawnElements.Clear();
+            UpdateUndoRedoState();
         }
+        
         // moving to WorkMode so this is a global tool usable across modes
         public virtual WorkOperation Undo()
         {
@@ -42,6 +45,7 @@ namespace DinoLino.Utilities.Modes
             RedoStack.Add(last);
 
             OnOperationUndone(last);
+            UpdateUndoRedoState();
             return last;
         }
         // moving to WorkMode so this is a global tool usable across modes
@@ -54,7 +58,35 @@ namespace DinoLino.Utilities.Modes
             History.Add(operation);
 
             OnOperationRedone(operation); // hook for subclasses to update their display values
+            UpdateUndoRedoState();
             return operation;
+        }
+        private bool _canUndo;
+        public bool CanUndo
+        {
+            get => _canUndo;
+            private set
+            {
+                _canUndo = value;
+                OnPropertyChanged(nameof(CanUndo));
+            }
+        }
+
+        private bool _canRedo;
+        public bool CanRedo
+        {
+            get => _canRedo;
+            private set
+            {
+                _canRedo = value;
+                OnPropertyChanged(nameof(CanRedo));
+            }
+        }
+
+        protected void UpdateUndoRedoState()
+        {
+            CanUndo = History.Count > 0;
+            CanRedo = RedoStack.Count > 0;
         }
 
         protected virtual void OnOperationUndone(WorkOperation operation) { }

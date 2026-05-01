@@ -80,6 +80,7 @@ namespace DinoLino
 
             // Set the current work mode to update
             CurrentWorkMode = CurvatureMode;
+            BindUndoRedoMenuItems();
 
             // Initialize image zoom
             UI_WorkImage.InitializeGroupTransform(new Point(0, 0));
@@ -210,6 +211,17 @@ namespace DinoLino
                 }
             }
         }
+
+        private void BindUndoRedoMenuItems()
+        {
+            Binding undoBinding = new Binding(nameof(WorkMode.CanUndo));
+            undoBinding.Source = CurrentWorkMode;
+            UI_MenuUndo.SetBinding(MenuItem.IsEnabledProperty, undoBinding);
+
+            Binding redoBinding = new Binding(nameof(WorkMode.CanRedo));
+            redoBinding.Source = CurrentWorkMode;
+            UI_MenuRedo.SetBinding(MenuItem.IsEnabledProperty, redoBinding);
+        }
         #endregion
 
         #region Global Toolbar Functions
@@ -238,6 +250,7 @@ namespace DinoLino
                 }
 
                 CurrentWorkMode?.ResetDrawingState(); // only reset in-progress click history
+                BindUndoRedoMenuItems();
             }
         }
         #endregion

@@ -245,6 +245,8 @@ namespace DinoLino.Utilities.Modes
                         TriArea = _currentArea
                     });
 
+                    UpdateUndoRedoState();
+
                     CurrentOperation.Clear();
                     CurrentUILine = null;
                     CurrentStep++;

@@ -246,6 +246,8 @@ namespace DinoLino.Utilities.Modes
                         AspectRatio = AspectRatioResult
                     });
 
+                    UpdateUndoRedoState();
+
                     CurrentOperation.Clear();
 
                     break;

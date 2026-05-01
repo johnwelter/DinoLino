@@ -25,8 +25,8 @@
                 <MenuItem Header="_Open Image" Click="Menu_OpenImage"/>
             </MenuItem>
             <MenuItem Header="_Edit">
-                <MenuItem Header="_Undo" Click="Menu_Undo"/>
-                <MenuItem Header="_Redo" Click="Menu_Redo"/>
+                <MenuItem Header="_Undo" x:Name="UI_MenuUndo" Click="Menu_Undo"/>
+                <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"/>
             </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="_About" Click="Menu_About"/>

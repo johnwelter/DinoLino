@@ -300,6 +300,8 @@ namespace DinoLino.Utilities.Modes
                             LineLength = lengthAB // store AB as the reference length
                         });
 
+                        UpdateUndoRedoState();
+
                         CurrentOperation.Clear();
                         _currentAngleLine = null;
                         CurrentStep = 0;

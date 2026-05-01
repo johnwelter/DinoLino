@@ -47,7 +47,6 @@ DRAW MODE:
 
 Draw basic shapes and lines on the image and return their relative proportions.
 
-Select a shape, line, or angle. Click on the image to begin drawing the selected geometric figure.
 For shapes, click once to begin drawing, drag to determine size and shape, and click a second time to finish.
 For lines, click twice anywhere on the image to draw a straight line between two points.
 For angles, type the desired angle in the text box. Click twice anywhere on the image draw line AB. Line BC will be constrained to the specified angle. Click a third time to finish.
