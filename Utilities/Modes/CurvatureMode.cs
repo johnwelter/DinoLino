@@ -21,10 +21,13 @@ namespace DinoLino.Utilities.Modes
         // enum for toggling between curvature methods
         public enum CurvatureMethod
         {
+            None,
             ThreePointArc,
             NPointSpline
         }
-        public CurvatureMethod CurrentMethod { get; set; } = CurvatureMethod.ThreePointArc;
+
+        // set default to none until selection made
+        public CurvatureMethod CurrentMethod { get; set; } = CurvatureMethod.None;
 
         // Tracking 3-click line groups 
         private List<UIElement> CurrentOperation = new List<UIElement>();
@@ -32,7 +35,7 @@ namespace DinoLino.Utilities.Modes
         // Spline mode fields
         private List<Vector2> _splinePoints = new List<Vector2>();
         private List<UIElement> _splineDots = new List<UIElement>();
-        private Polyline _splinePreview = null;
+        private UIElement _splinePreview = null;
         private List<UIElement> _splineCurrentOperation = new List<UIElement>();
 
         // Current state of the curvature drawing mode
@@ -175,6 +178,9 @@ namespace DinoLino.Utilities.Modes
 
         public override Vector2 ProcessMouseMovement(Vector2 mousePos)
         {
+            if (CurrentMethod == CurvatureMethod.None)
+                return mousePos;
+
             Vector2 modifiedPos = mousePos;
             switch (CurrentStep)
             {
@@ -206,6 +212,9 @@ namespace DinoLino.Utilities.Modes
 
         public override List<UIElement> ProcessClick(Vector2 mousePos)
         {
+            if (CurrentMethod == CurvatureMethod.None)
+                return new List<UIElement>();
+
             if (CurrentMethod == CurvatureMethod.NPointSpline)
                 return ProcessSplineClick(mousePos);
 
@@ -351,7 +360,7 @@ namespace DinoLino.Utilities.Modes
                     _splineCurrentOperation.Remove(_splinePreview);
 
                 // generate new spline through all current points
-                _splinePreview = MakeCatmullRomPolyline(_splinePoints);
+                _splinePreview = MakeCatmullRomPath(_splinePoints);
                 _splineCurrentOperation.Add(_splinePreview);
                 output.Add(_splinePreview);
             }
@@ -439,16 +448,45 @@ namespace DinoLino.Utilities.Modes
             return new Vector2(x, y);
         }
 
-        // builds a WPF Polyline from Catmull-Rom interpolated points
-        private Polyline MakeCatmullRomPolyline(List<Vector2> controlPoints)
+        // builds a WPF Path from Catmull-Rom interpolated points
+        private Path MakeCatmullRomPath(List<Vector2> controlPoints)
         {
-            List<Vector2> pts = GetCatmullRomPoints(controlPoints, 50);
-            Polyline polyline = new Polyline();
-            polyline.Stroke = Brushes.OrangeRed;
-            polyline.StrokeThickness = 2;
-            foreach (var pt in pts)
-                polyline.Points.Add(new Point(pt.X, pt.Y));
-            return polyline;
+            if (controlPoints.Count < 2) return null;
+
+            var figure = new PathFigure();
+            figure.StartPoint = new Point(controlPoints[0].X, controlPoints[0].Y);
+
+            var segments = new PathSegmentCollection();
+
+            for (int i = 0; i < controlPoints.Count - 1; i++)
+            {
+                Vector2 p0 = i>0 ? controlPoints[i-1] : controlPoints[i];
+                Vector2 p1 = controlPoints[i];
+                Vector2 p2 = controlPoints[i+1];
+                Vector2 p3 = (i + 2 < controlPoints.Count) ? controlPoints[i + 2] : p2;
+
+                // Convert Catmull-Rom to Bezier
+                Vector2 c1 = p1 + (p2 - p0) * (1.0 / 6.0);
+                Vector2 c2 = p2 - (p3 - p1) * (1.0 / 6.0);
+
+                segments.Add(new BezierSegment(
+                    new Point(c1.X, c1.Y),
+                    new Point(c2.X, c2.Y),
+                    new Point(p2.X, p2.Y),
+                    true));
+            }
+
+            figure.Segments = segments;
+
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+
+            return new Path
+            {
+                Stroke = Brushes.OrangeRed,
+                StrokeThickness = 2,
+                Data = geometry
+            };
         }
 
         public Line MakeLine(Vector2 a,  Vector2 b)

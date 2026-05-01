@@ -241,6 +241,20 @@ namespace DinoLino
             redoBinding.Source = CurrentWorkMode;
             UI_MenuRedo.SetBinding(MenuItem.IsEnabledProperty, redoBinding);
         }
+
+        private void Menu_SeePrevOps(object sender, RoutedEventArgs e)
+        {
+            bool showPrevious = UI_SeePrevOps.IsChecked;
+
+            if (showPrevious)
+            { 
+                //placeholder
+            }
+            else
+            {
+                //placeholder
+            }
+        }
         #endregion
 
         #region Global Toolbar Functions
@@ -311,6 +325,12 @@ namespace DinoLino
 
         // radio buttons
         // Draw Mode
+        private void DrawNone_Checked(object sender, RoutedEventArgs e)
+        {
+            DrawMode.CurrentShape = DrawMode.DrawShape.None;
+            DrawMode.ResetDrawingState();
+        }
+
         private void Rectangle_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Rectangle;
@@ -344,6 +364,12 @@ namespace DinoLino
         }
 
         // Curvature Mode
+        private void CurvNone_Checked(object sender, RoutedEventArgs e)
+        {
+            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.None;
+            CurvatureMode.ResetDrawingState();
+        }
+
         private void ThreePointArc_Checked(object sender, RoutedEventArgs e)
         {
             CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.ThreePointArc;

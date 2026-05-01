@@ -28,6 +28,11 @@
                 <MenuItem Header="_Undo" x:Name="UI_MenuUndo" Click="Menu_Undo"/>
                 <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"/>
             </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps">
+                    <MenuItem Header="_Yes" IsCheckable="True" IsChecked="True" Click="Menu_SeePrevOps"/>
+                </MenuItem>
+            </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="_About" Click="Menu_About"/>
                 <MenuItem Header="_User Guide" Click="Menu_UserGuide"/>
@@ -93,20 +98,20 @@
 
                                 <!-- NOTE: This stack panel can be duplicated to add more results. just remember to give them new names!-->
                                 <RadioButton Content="3-Point Arc" GroupName="Curve" x:Name="UI_Arc3Point" Checked="ThreePointArc_Checked" Height="25" FontWeight="Bold" FontSize="18"/>
-                                <StackPanel x:Name="UI_CurveAngleOutput" Orientation="Horizontal" Margin ="12,0,0,0">
+                                <StackPanel x:Name="UI_CurveAngleOutput" Orientation="Horizontal" Margin ="10,0,0,0">
                                     <Label x:Name="UI_CurveAngleOutputLabel" Content="Central Angle:" FontSize="16"/>
                                     <Label x:Name="UI_CurveAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
-                                <StackPanel x:Name="UI_AspectRatioOutput" Orientation="Horizontal" Margin ="12,0,0,0">
+                                <StackPanel x:Name="UI_AspectRatioOutput" Orientation="Horizontal" Margin ="10,0,0,0">
                                     <Label x:Name="UI_AspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontSize="16"/>
                                     <Label x:Name="UI_AspectRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
                                 <RadioButton Content="n-Point Spline" GroupName="Curve" x:Name="UI_SplineNPoint" Checked="nPointSpline_Checked" Height="25" FontWeight="Bold" FontSize="18"/>
-                                <StackPanel x:Name="UI_TurningAngleOutput" Orientation="Horizontal" Margin ="12,0,0,0">
-                                    <Label x:Name="UI_TurningAngleOutputLabel" Content="Turning Angle:" FontSize="16"/>
+                                <StackPanel x:Name="UI_TurningAngleOutput" Orientation="Horizontal" Margin ="10,0,0,0">
+                                    <Label x:Name="UI_TurningAngleOutputLabel" Content="Turning Angle:" FontSize="16"/> <!-- Note: turning angle isn't exactly the right term but idk if I can add greek letters -->
                                     <Label x:Name="UI_TurningAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
-                                <StackPanel x:Name="UI_ChordArcRatioOutput" Orientation="Horizontal" Margin ="12,0,0,0">
+                                <StackPanel x:Name="UI_ChordArcRatioOutput" Orientation="Horizontal" Margin ="10,0,0,0">
                                     <Label x:Name="UI_ChordArcRatioOutputLabel" Content="Chord-Arc Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontSize="16"/>
                                     <Label x:Name="UI_ChordArcRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175" FontSize="16"/>
                                 </StackPanel>
