@@ -9,11 +9,25 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace DinoLino.Utilities.Modes
 {
     public class WorkMode : INotifyPropertyChanged
     {
+        // set default line color
+        private Brush _lineColor = Brushes.OrangeRed;
+
+        public Brush LineColor
+        {
+            get => _lineColor;
+            set
+            {
+                _lineColor = value;
+                OnPropertyChanged(nameof(LineColor));
+            }
+
+        }
         protected List<UIElement> DrawnElements = new List<UIElement>();
 
         //  storing undo/redo history

@@ -18,6 +18,21 @@ namespace DinoLino.Utilities.Modes
 {
     public class CurvatureMode : WorkMode
     {
+        // theta label for central angle
+        private TextBlock MakeThetaLabel(Vector2 position)
+        {
+            TextBlock textBlock = new TextBlock();
+            textBlock.Text = "\u03B8"; // Unicode for Greek lowercase Theta
+            textBlock.Foreground = this.LineColor;
+            textBlock.FontSize = 22;
+            textBlock.FontWeight = FontWeights.Bold;
+            Canvas.SetLeft(textBlock, position.X - 7);
+            Canvas.SetTop(textBlock, position.Y - 30);
+            textBlock.TextAlignment = TextAlignment.Center;
+
+            return textBlock;
+        }
+
         // enum for toggling between curvature methods
         public enum CurvatureMethod
         {
@@ -253,15 +268,6 @@ namespace DinoLino.Utilities.Modes
 
                     PointC = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
 
-                    var line1 = MakeLine(PointA, PointC);
-                    var line2 = MakeLine(PointB, PointC);
-
-                    outputElements.Add(line1);
-                    outputElements.Add(line2);
-
-                    CurrentOperation.Add(line1);
-                    CurrentOperation.Add(line2);
-
                     //midpoints for those lines
                     ACMid = (PointA + PointC) * 0.5;
                     BCMid = (PointB + PointC) * 0.5;
@@ -291,6 +297,17 @@ namespace DinoLino.Utilities.Modes
 
                     Intersection = ACMid + offset;
 
+                    double radius = (PointA - Intersection).Magnitude();
+                    var circularArc = MakeCircularArc(Intersection, PointA, PointB, radius);
+
+                    // add theta label at the intersection point
+                    var thetaLabel = MakeThetaLabel(Intersection);
+
+                    outputElements.Add(circularArc);
+                    CurrentOperation.Add(circularArc);
+                    outputElements.Add(thetaLabel);
+                    CurrentOperation.Add(thetaLabel);
+
                     CurrentUILine = null;
 
                     var line3 = MakeLine(ACMid, Intersection);
@@ -298,8 +315,6 @@ namespace DinoLino.Utilities.Modes
                     var line5 = MakeLine(PointA, Intersection);
                     var line6 = MakeLine(PointB, Intersection);
 
-                    outputElements.Add(line3);
-                    outputElements.Add(line4);
                     outputElements.Add(line5);
                     outputElements.Add(line6);
 
@@ -483,7 +498,45 @@ namespace DinoLino.Utilities.Modes
 
             return new Path
             {
-                Stroke = Brushes.OrangeRed,
+                Stroke = this.LineColor,
+                StrokeThickness = 2,
+                Data = geometry
+            };
+        }
+
+        private Path MakeCircularArc(Vector2 center, Vector2 start, Vector2 end, double radius)
+        {
+            // Determine if the arc should be a "LargeArc" (more than 180 degrees)
+            // For a standard 3-point curvature, this is usually false.
+            Vector2 v1 = start - center;
+            Vector2 v2 = end - center;
+            double angle = Vector2.AngleBetween(v1, v2);
+            bool isLargeArc = Math.Abs(angle) > 180;
+
+            // SweepDirection determines if the arc curves "up" or "down"
+            SweepDirection direction = angle > 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
+
+            var figure = new PathFigure();
+            figure.StartPoint = new Point(start.X, start.Y);
+
+            var arc = new ArcSegment
+            {
+                Point = new Point(end.X, end.Y),
+                Size = new Size(radius, radius),
+                RotationAngle = 0,
+                IsLargeArc = isLargeArc,
+                SweepDirection = direction,
+                IsStroked = true
+            };
+
+            figure.Segments.Add(arc);
+
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+
+            return new Path
+            {
+                Stroke = this.LineColor,
                 StrokeThickness = 2,
                 Data = geometry
             };
@@ -492,7 +545,7 @@ namespace DinoLino.Utilities.Modes
         public Line MakeLine(Vector2 a,  Vector2 b)
         {
             Line L = new();
-            L.Stroke = Brushes.OrangeRed;
+            L.Stroke = this.LineColor;
             L.StrokeThickness = 2;
             L.X1 = a.X;
             L.Y1 = a.Y;
@@ -504,7 +557,7 @@ namespace DinoLino.Utilities.Modes
         public Ellipse MakeDot(Vector2 pos)
         {
             Ellipse dot = new Ellipse();
-            dot.Fill = Brushes.OrangeRed;
+            dot.Fill = this.LineColor;
             dot.Width = 8;
             dot.Height = 8;
             Canvas.SetLeft(dot, pos.X - 4);

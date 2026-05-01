@@ -411,7 +411,7 @@ namespace DinoLino.Utilities.Modes
         public Line MakeLine(Vector2 a, Vector2 b)
         {
             Line L = new();
-            L.Stroke = Brushes.OrangeRed;
+            L.Stroke = this.LineColor;
             L.StrokeThickness = 2;
             L.X1 = a.X;
             L.Y1 = a.Y;
@@ -460,7 +460,7 @@ namespace DinoLino.Utilities.Modes
                     break;
             }    
 
-            shape.Stroke = Brushes.OrangeRed;
+            shape.Stroke = this.LineColor;
             shape.StrokeThickness = 2;
             shape.Width = width;
             shape.Height = height;

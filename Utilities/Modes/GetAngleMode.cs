@@ -21,7 +21,7 @@ namespace DinoLino.Utilities.Modes
         {
             TextBlock label = new TextBlock();
             label.Text = text;
-            label.Foreground = Brushes.Red;
+            label.Foreground = this.LineColor;
             label.FontSize = 28;
             label.FontWeight = FontWeights.Bold;
 
@@ -269,7 +269,7 @@ namespace DinoLino.Utilities.Modes
         public Line MakeLine(Vector2 a, Vector2 b)
         {
             Line L = new();
-            L.Stroke = Brushes.OrangeRed;
+            L.Stroke = this.LineColor;
             L.StrokeThickness = 2;
             L.X1 = a.X;
             L.Y1 = a.Y;

@@ -255,6 +255,34 @@ namespace DinoLino
                 //placeholder
             }
         }
+
+        private void Menu_MouseLeave(object sender, MouseEventArgs e)
+        {
+            if (sender is MenuItem menuItem)
+            {
+                menuItem.IsSubmenuOpen = false;
+            }
+        }
+
+        private void Menu_Red(object sender, RoutedEventArgs e)
+        {
+            CurrentWorkMode.LineColor = Brushes.OrangeRed;
+        }
+
+        private void Menu_Blue(object sender, RoutedEventArgs e)
+        {
+            CurrentWorkMode.LineColor = Brushes.MediumBlue;
+        }
+
+        private void Menu_Black(object sender, RoutedEventArgs e)
+        {
+            CurrentWorkMode.LineColor = Brushes.Black;
+        }
+
+        private void Menu_White(object sender, RoutedEventArgs e)
+        {
+            CurrentWorkMode.LineColor = Brushes.White;
+        }
         #endregion
 
         #region Global Toolbar Functions
@@ -335,29 +363,35 @@ namespace DinoLino
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Rectangle;
         }
+
         private void Circle_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Circle;
         }
+
         private void Ellipse_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Ellipse;
         }
+
         private void Square_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Square;
         }
+
         private void DrawAngle_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Angle;
             if (double.TryParse(UI_DrawAngleValue.Text, out double angle))
                 DrawMode.LockedAngleDegrees = angle;
         }
+
         private void DrawAngleValue_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (double.TryParse(UI_DrawAngleValue.Text, out double angle))
                 DrawMode.LockedAngleDegrees = angle;
         }
+
         private void Line_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Line;
