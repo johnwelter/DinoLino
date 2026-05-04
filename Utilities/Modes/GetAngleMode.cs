@@ -72,9 +72,6 @@ namespace DinoLino.Utilities.Modes
         // Tracking 3-click line groups 
         private List<UIElement> CurrentOperation = new ();
 
-        // Current state of the triangle drawing mode
-        public int CurrentStep = 0;
-
         // Current UI line to modify during mouse move
         public Line CurrentUILine = null;
 

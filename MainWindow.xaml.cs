@@ -36,6 +36,9 @@ namespace DinoLino
         public GetAngleMode GetAngleMode;
         public DrawMode DrawMode;
 
+        // A list to hold all modes for global settings
+        public List<WorkMode> AllWorkModes;
+
         // Current active work mode
         public WorkMode CurrentWorkMode;
 
@@ -71,12 +74,16 @@ namespace DinoLino
 
             DrawMode = new();
             DrawMode.BindDrawResults(UI_DrawAspectRatioOutputValue, UI_ShapeAreaOutputValue, UI_LineLengthRatioOutputValue);
+
             UI_DrawAngleValue.TextChanged += DrawAngleValue_TextChanged;
             UI_WorkCanvas.MouseDown += (s, e) =>
             {
                 Keyboard.ClearFocus();
                 UI_WorkCanvas.Focus();
             };
+
+            // Initialize list of all modes
+            AllWorkModes = new List<WorkMode> { CurvatureMode, GetAngleMode, DrawMode };
 
             // Set the current work mode to update
             CurrentWorkMode = CurvatureMode;
@@ -132,8 +139,6 @@ namespace DinoLino
             if (!UI_WorkCanvas.Children.Contains(element))
                 UI_WorkCanvas.Children.Add(element);
         }
-        
-
 
         private void UpdateWorkSpaceZoom(double delta, Point relativeTo)
         {
@@ -244,15 +249,12 @@ namespace DinoLino
 
         private void Menu_SeePrevOps(object sender, RoutedEventArgs e)
         {
-            bool showPrevious = UI_SeePrevOps.IsChecked;
+            bool isChecked = UI_SeePrevOps.IsChecked;
 
-            if (showPrevious)
-            { 
-                //placeholder
-            }
-            else
+            // Update the global preference 
+            foreach (var mode in AllWorkModes)
             {
-                //placeholder
+                mode.SeePreviousOperations = isChecked;
             }
         }
 
@@ -322,6 +324,12 @@ namespace DinoLino
         {
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
 
+            if (!CurrentWorkMode.SeePreviousOperations && CurrentWorkMode.CurrentStep == 0)
+            {
+                // don't use Children.Clear() because we want to keep the DotCursor
+                ClearWorkspaceVisualsOnly();
+            }
+
             if (e.ClickCount == 2)
             {
                 foreach (UIElement element in CurrentWorkMode.ElementsToRemove)
@@ -343,6 +351,19 @@ namespace DinoLino
             foreach (UIElement element in elementsToAdd2)
             {
                 AddElementToWorkSpace(element);
+            }
+        }
+
+        // Helper method to clear the drawings but keep the cursor
+        private void ClearWorkspaceVisualsOnly()
+        {
+            // Loop backwards to safely remove children while keeping the UI_DotCursor
+            for (int i = UI_WorkCanvas.Children.Count - 1; i >= 0; i--)
+            {
+                if (UI_WorkCanvas.Children[i] != UI_DotCursor)
+                {
+                    UI_WorkCanvas.Children.RemoveAt(i);
+                }
             }
         }
 

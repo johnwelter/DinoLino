@@ -53,8 +53,6 @@ namespace DinoLino.Utilities.Modes
         private UIElement _splinePreview = null;
         private List<UIElement> _splineCurrentOperation = new List<UIElement>();
 
-        // Current state of the curvature drawing mode
-        public int CurrentStep = 0;
 
         // Current UI line to modify during mouse move
         public Line CurrentUILine = null;

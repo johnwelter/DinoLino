@@ -15,6 +15,9 @@ namespace DinoLino.Utilities.Modes
 {
     public class WorkMode : INotifyPropertyChanged
     {
+        // Toggling whether or not previous operations are visible
+        public bool SeePreviousOperations { get; set; } = true;
+
         // set default line color
         private Brush _lineColor = Brushes.OrangeRed;
 
@@ -79,6 +82,9 @@ namespace DinoLino.Utilities.Modes
             UpdateUndoRedoState();
             return operation;
         }
+
+        public int CurrentStep { get; set; } = 0;
+
         private bool _canUndo;
         public bool CanUndo
         {

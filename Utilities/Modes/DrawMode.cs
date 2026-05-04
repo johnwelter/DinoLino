@@ -100,9 +100,6 @@ namespace DinoLino.Utilities.Modes
 
         public double LockedAngleDegrees { get; set; } = 0;
 
-        // Current state of the drawing mode
-        public int CurrentStep = 0;
-
         // Bindable results of shape calculations
 
         // private/public pairs used to handle propagation of results to UI bindings
