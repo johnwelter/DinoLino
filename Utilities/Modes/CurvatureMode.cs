@@ -107,14 +107,14 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        private double _angleResult;
-        public double AngleResult
+        private double _centralAngleResult;
+        public double CentralAngleResult
         {
-            get { return _angleResult; }
+            get { return _centralAngleResult; }
             set
             {
-                _angleResult = value;
-                OnPropertyChanged(nameof(AngleResult));
+                _centralAngleResult = value;
+                OnPropertyChanged(nameof(CentralAngleResult));
             }
         }
 
@@ -136,13 +136,13 @@ namespace DinoLino.Utilities.Modes
                 // Restore previous values, or reset if history is now empty
                 if (History.Count > 0 && History.Last() is CurvatureOperation prev)
                 {
-                    AngleResult = prev.Angle;
+                    CentralAngleResult = prev.CentralAngle;
                     AspectRatioResult = prev.AspectRatio;
                     ChordArcRatioResult = prev.ChordArcRatio;
                 }
                 else
                 {
-                    AngleResult = 0;
+                    CentralAngleResult = 0;
                     AspectRatioResult = 0;
                     ChordArcRatioResult = 0;
                 }
@@ -166,7 +166,7 @@ namespace DinoLino.Utilities.Modes
         {
             if (operation is CurvatureOperation op)
             {
-                AngleResult = op.Angle;
+                CentralAngleResult = op.CentralAngle;
                 AspectRatioResult = op.AspectRatio;
                 ChordArcRatioResult = op.ChordArcRatio;
             }
@@ -182,7 +182,7 @@ namespace DinoLino.Utilities.Modes
         public override void Reset()
         {
             base.Reset();
-            AngleResult = 0;
+            CentralAngleResult = 0;
             AspectRatioResult = 0;
             TurningAngleResult = 0;
             ChordArcRatioResult = 0;
@@ -347,7 +347,7 @@ namespace DinoLino.Utilities.Modes
                     History.Add(new CurvatureOperation
                     {
                         Elements = new List<UIElement>(CurrentOperation),
-                        Angle = AngleResult,
+                        CentralAngle = CentralAngleResult,
                         AspectRatio = AspectRatioResult,
                         ChordArcRatio = ChordArcRatioResult
                     });
@@ -524,15 +524,19 @@ namespace DinoLino.Utilities.Modes
 
         private Path MakeCircularArc(Vector2 center, Vector2 start, Vector2 end, double radius)
         {
-            // Determine if the arc should be a "LargeArc" (more than 180 degrees)
-            // For a standard 3-point curvature, this is usually false.
+            // Create vectors that define central angle
             Vector2 v1 = start - center;
             Vector2 v2 = end - center;
-            double angle = Vector2.AngleBetween(v1, v2);
-            bool isLargeArc = Math.Abs(angle) > 180;
 
-            // SweepDirection determines if the arc curves "up" or "down"
-            SweepDirection direction = angle > 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
+            // Create vector from C to center
+            Vector2 vC = PointC - center;
+
+            // SweepDirection 
+            double crossProduct = (PointC.X - start.X) * (end.Y - start.Y) - (PointC.Y - start.Y) * (end.X - start.X);
+            SweepDirection direction = crossProduct > 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
+
+            // A 3-point arc is >180 degrees if the center point lies inside triangle ABC
+            bool isLargeArc = IsPointInTriangle(center, start, end, PointC);
 
             var figure = new PathFigure();
             figure.StartPoint = new Point(start.X, start.Y);
@@ -558,6 +562,25 @@ namespace DinoLino.Utilities.Modes
                 StrokeThickness = 2,
                 Data = geometry
             };
+        }
+
+        // Helper function to check if center is inside the ABC triangle
+        private bool IsPointInTriangle(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
+        {
+            double d1 = Sign(p, a, b);
+            double d2 = Sign(p, b, c);
+            double d3 = Sign(p, c, a);
+
+            bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+            bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+            return !(has_neg && has_pos);
+        }
+
+        // Helper function to check the sign of the area formed by three points
+        private double Sign(Vector2 p1, Vector2 p2, Vector2 p3)
+        {
+            return (p1.X - p3.X) * (p2.Y - p3.Y) - (p2.X - p3.X) * (p1.Y - p3.Y);
         }
 
         public Line MakeLine(Vector2 a,  Vector2 b)
@@ -601,8 +624,8 @@ namespace DinoLino.Utilities.Modes
 
                 if (len1 < 0.00001 || len2 < 0.00001) continue;
 
-                double angle = Math.Abs(Vector2.AngleBetween(seg1, seg2));
-                totalTurning += angle;
+                double centralAngle = Math.Abs(Vector2.AngleBetween(seg1, seg2));
+                totalTurning += centralAngle;
             }
 
             // add last segment length
@@ -634,11 +657,35 @@ namespace DinoLino.Utilities.Modes
 
         public void CalculateAndUpdateResults()
         {
-            Vector2 vA = Intersection - PointA;
-            Vector2 vB = Intersection - PointB;
+            // use Atan2 to get absolute polar angles
+            double angleStart = Math.Atan2(PointA.Y - Intersection.Y, PointA.X - Intersection.X);
+            double angleEnd = Math.Atan2(PointB.Y - Intersection.Y, PointB.X - Intersection.X);
+            double angleC = Math.Atan2(PointC.Y - Intersection.Y, PointC.X - Intersection.X);
 
-            double angleDegrees = Math.Abs(Vector2.AngleBetween(vA, vB));
-            AngleResult = Math.Round(angleDegrees, 2);
+            // Normalize angles to 0-360
+            double diff = (angleEnd - angleStart) * (180 / Math.PI);
+            if (diff < 0) diff += 360;
+
+            // Determine if PointC lies within that sweep
+            double diffC = (angleC - angleStart) * (180 / Math.PI);
+            if (diffC < 0) diffC += 360;
+
+            // If PointC is 'behind' the direct path, we are looking at a large arc
+            if (diffC > diff)
+            {
+                // We are sweeping the 'long' way around
+                CentralAngleResult = Math.Round(diff, 2);
+            }
+            else
+            {
+                // Standard sweep
+                CentralAngleResult = Math.Round(diff, 2);
+            }
+
+            if (IsPointInTriangle(Intersection, PointA, PointB, PointC))
+            {
+                if (CentralAngleResult < 180) CentralAngleResult = 360 - CentralAngleResult;
+            }
 
             // Aspect Ratio calculation
 
@@ -653,19 +700,19 @@ namespace DinoLino.Utilities.Modes
 
             // Chord-Arc Ratio calculation
             double radius = (PointA - Intersection).Magnitude();
-            double angleRadians = angleDegrees * Math.PI / 180.0;
-            double arcLength = radius * angleRadians;
+            double centralAngleRadians = CentralAngleResult * Math.PI / 180.0;
+            double arcLength = radius * centralAngleRadians;
 
             ChordArcRatioResult = arcLength > 0.00001
                 ? Math.Round(chordLength / arcLength, 2)
                 : 0;
         }
 
-        public void BindCurvatureResults(Label angleOutput, Label aspectRatioOutput, Label turningAngleOutput, Label sChordArcRatioOutput, Label chordArcRatioOutput)
+        public void BindCurvatureResults(Label centralAngleOutput, Label aspectRatioOutput, Label turningAngleOutput, Label sChordArcRatioOutput, Label chordArcRatioOutput)
                 {
-                    Binding angleBind = new Binding(nameof(AngleResult));
-                    angleOutput.SetBinding(Label.ContentProperty, angleBind);
-                    angleOutput.DataContext = this;
+                    Binding centralAngleBind = new Binding(nameof(CentralAngleResult));
+                    centralAngleOutput.SetBinding(Label.ContentProperty, centralAngleBind);
+                    centralAngleOutput.DataContext = this;
 
                     Binding ratioBind = new Binding(nameof(AspectRatioResult));
                     aspectRatioOutput.SetBinding(Label.ContentProperty, ratioBind);

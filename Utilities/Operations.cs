@@ -11,7 +11,7 @@ namespace DinoLino.Utilities.Operations
     
     public class CurvatureOperation : WorkOperation
     {
-        public double Angle { get; set; }
+        public double CentralAngle { get; set; }
         public double AspectRatio { get; set; }
         public double ChordArcRatio { get; set; }
     }
