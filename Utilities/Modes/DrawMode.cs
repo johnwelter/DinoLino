@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Xml;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -183,6 +184,12 @@ namespace DinoLino.Utilities.Modes
 
             if (CurrentShape == DrawShape.Angle)
             {
+                // safeguard: check that input angle is valid
+                if (CurrentStep == 0 && LockedAngleDegrees == 0)
+                {
+                    return mousePos;
+                }
+
                 // step 1: dragging line AB freely
                 if (CurrentStep == 1 && _currentLine != null)
                 {
@@ -241,8 +248,13 @@ namespace DinoLino.Utilities.Modes
         public override List<UIElement> ProcessClick(Vector2 mousePos)
         {
             List<UIElement> output = new();
+
             if (CurrentShape == DrawShape.Angle)
             {
+                // safeguard: stop first click if angle is invalid / not set
+                if (CurrentStep == 0 && LockedAngleDegrees == 0)
+                    return output;
+
                 switch (CurrentStep)
                 {
                     case 0: // first click — point A, start line AB

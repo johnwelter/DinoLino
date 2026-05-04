@@ -419,6 +419,8 @@ namespace DinoLino
         {
             if (double.TryParse(UI_DrawAngleValue.Text, out double angle))
                 DrawMode.LockedAngleDegrees = angle;
+            else
+                DrawMode.LockedAngleDegrees = 0;
         }
 
         private void Line_Checked(object sender, RoutedEventArgs e)
