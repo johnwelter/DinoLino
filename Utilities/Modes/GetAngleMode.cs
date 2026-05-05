@@ -3,14 +3,9 @@ using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 
 namespace DinoLino.Utilities.Modes
@@ -32,7 +27,6 @@ namespace DinoLino.Utilities.Modes
             return label;
         }
 
-        // In GetAngleMode.cs — same pattern
         protected override void OnOperationUndone(WorkOperation operation)
         {
             if (_history.Count > 0 && _history.Last() is GetAngleOperation prev)
@@ -261,7 +255,7 @@ namespace DinoLino.Utilities.Modes
             return output;
         }
 
-        public Line MakeLine(Vector2 a, Vector2 b)
+        private Line MakeLine(Vector2 a, Vector2 b)
         {
             Line L = new();
             L.Stroke = this.LineColor;
@@ -272,7 +266,8 @@ namespace DinoLino.Utilities.Modes
             L.Y2 = b.Y;
             return L;
         }
-        public void CalculateAndUpdateResults()
+
+        private void CalculateAndUpdateResults()
         {
             Vector2 AB = PointB - PointA;
             Vector2 AC = PointC - PointA;

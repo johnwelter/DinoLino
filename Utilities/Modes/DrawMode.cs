@@ -3,14 +3,10 @@ using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using System.Windows.Media;
 using System.Windows.Shapes;
-using System.Xml;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -28,6 +24,17 @@ namespace DinoLino.Utilities.Modes
             Angle
         }
         public DrawShape CurrentShape { get; set; } = DrawShape.None;
+
+        // Helper function to find the most recent line operation in history for line length ratio calculations
+        private DrawOperation FindPreviousLine(int startIdx)
+        {
+            for (int i = startIdx; i >= 0; i--)
+            {
+                if (_history[i] is DrawOperation op && op.LineLength > 0.00001)
+                    return op;
+            }
+            return null;
+        }
 
         protected override void OnOperationUndone(WorkOperation operation)
         {
@@ -108,16 +115,6 @@ namespace DinoLino.Utilities.Modes
         private object _shapeAreaResult;
         private double _currentShapeArea = 0;
         private object _lineLengthRatioResult;
-
-        private DrawOperation FindPreviousLine(int startIdx)
-        {
-            for (int i = startIdx; i >= 0; i--)
-            {
-                if (_history[i] is DrawOperation op && op.LineLength > 0.00001)  
-                    return op;
-            }
-            return null;
-        }
 
         public double DrawAspectRatioResult
         {
@@ -426,7 +423,7 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        public Line MakeLine(Vector2 a, Vector2 b)
+        private Line MakeLine(Vector2 a, Vector2 b)
         {
             Line L = new();
             L.Stroke = this.LineColor;
@@ -459,7 +456,7 @@ namespace DinoLino.Utilities.Modes
             return new Vector2(origin.X + direction.X * magnitude, origin.Y + direction.Y * magnitude);
         }
 
-        public Shape MakeShape(Vector2 start, Vector2 end)
+        private Shape MakeShape(Vector2 start, Vector2 end)
         {
             double x = Math.Min(start.X, end.X);
             double y = Math.Min(start.Y, end.Y);
@@ -488,7 +485,7 @@ namespace DinoLino.Utilities.Modes
             return shape;
         }
 
-        public void CalculateAndUpdateResults(double width, double height)
+        private void CalculateAndUpdateResults(double width, double height)
         {
             double area;
             switch (CurrentShape)

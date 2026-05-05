@@ -1,16 +1,11 @@
 ﻿using DinoLino.DataTypes;
 using DinoLino.Utilities.Operations;
-using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Media;
 
 namespace DinoLino.Utilities.Modes
@@ -31,8 +26,8 @@ namespace DinoLino.Utilities.Modes
                 // set safeguard to prevent unnecessary updates
                 if (_lineColor != value)
                 {
-                _lineColor = value;
-                OnPropertyChanged();
+                    _lineColor = value;
+                    OnPropertyChanged();
                 }
             }
 

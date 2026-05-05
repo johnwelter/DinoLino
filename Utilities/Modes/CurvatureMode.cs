@@ -3,16 +3,11 @@ using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using System.Xml.Serialization;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -46,7 +41,7 @@ namespace DinoLino.Utilities.Modes
 
         // Tracking 3-click line groups 
         private List<UIElement> CurrentOperation = new List<UIElement>();
-        
+
         // Spline mode fields
         private List<Vector2> _splinePoints = new List<Vector2>();
         private List<UIElement> _splineDots = new List<UIElement>();
@@ -55,7 +50,7 @@ namespace DinoLino.Utilities.Modes
 
 
         // Current UI line to modify during mouse move
-        public Line CurrentUILine = null;
+        private Line CurrentUILine = null;
 
         // All major POIs in generating curvature
         public Vector2 PointA;
@@ -491,9 +486,9 @@ namespace DinoLino.Utilities.Modes
 
             for (int i = 0; i < controlPoints.Count - 1; i++)
             {
-                Vector2 p0 = i>0 ? controlPoints[i-1] : controlPoints[i];
+                Vector2 p0 = i > 0 ? controlPoints[i - 1] : controlPoints[i];
                 Vector2 p1 = controlPoints[i];
-                Vector2 p2 = controlPoints[i+1];
+                Vector2 p2 = controlPoints[i + 1];
                 Vector2 p3 = (i + 2 < controlPoints.Count) ? controlPoints[i + 2] : p2;
 
                 // Convert Catmull-Rom to Bezier
@@ -574,7 +569,7 @@ namespace DinoLino.Utilities.Modes
             return (p1.X - p3.X) * (p2.Y - p3.Y) - (p2.X - p3.X) * (p1.Y - p3.Y);
         }
 
-        public Line MakeLine(Vector2 a,  Vector2 b)
+        private Line MakeLine(Vector2 a, Vector2 b)
         {
             Line L = new();
             L.Stroke = this.LineColor;
@@ -586,7 +581,7 @@ namespace DinoLino.Utilities.Modes
             return L;
         }
 
-        public Ellipse MakeDot(Vector2 pos)
+        private Ellipse MakeDot(Vector2 pos)
         {
             Ellipse dot = new Ellipse();
             dot.Fill = this.LineColor;
@@ -646,7 +641,7 @@ namespace DinoLino.Utilities.Modes
             return chordLength > 0.00001 ? Math.Round(arcLength / chordLength, 2) : 0;
         }
 
-        public void CalculateAndUpdateResults()
+        private void CalculateAndUpdateResults()
         {
             // use Atan2 to get absolute polar angles
             double angleStart = Math.Atan2(PointA.Y - Intersection.Y, PointA.X - Intersection.X);
@@ -689,29 +684,29 @@ namespace DinoLino.Utilities.Modes
                 : 0;
         }
 
+        // Parameters: 3-point arc outputs (centralAngle, aspectRatio, chordArcRatio)
+        //             n-point spline outputs (turningAngle, sChordArcRatio)
         public void BindCurvatureResults(Label centralAngleOutput, Label aspectRatioOutput, Label turningAngleOutput, Label sChordArcRatioOutput, Label chordArcRatioOutput)
-                {
-                    Binding centralAngleBind = new Binding(nameof(CentralAngleResult));
-                    centralAngleOutput.SetBinding(Label.ContentProperty, centralAngleBind);
-                    centralAngleOutput.DataContext = this;
+        {
+            Binding centralAngleBind = new Binding(nameof(CentralAngleResult));
+            centralAngleOutput.SetBinding(Label.ContentProperty, centralAngleBind);
+            centralAngleOutput.DataContext = this;
 
-                    Binding ratioBind = new Binding(nameof(AspectRatioResult));
-                    aspectRatioOutput.SetBinding(Label.ContentProperty, ratioBind);
-                    aspectRatioOutput.DataContext = this;
+            Binding ratioBind = new Binding(nameof(AspectRatioResult));
+            aspectRatioOutput.SetBinding(Label.ContentProperty, ratioBind);
+            aspectRatioOutput.DataContext = this;
 
-                    Binding chordArcRatioBind = new Binding(nameof(ChordArcRatioResult));
-                    chordArcRatioOutput.SetBinding(Label.ContentProperty, chordArcRatioBind);
-                    chordArcRatioOutput.DataContext = this;
+            Binding chordArcRatioBind = new Binding(nameof(ChordArcRatioResult));
+            chordArcRatioOutput.SetBinding(Label.ContentProperty, chordArcRatioBind);
+            chordArcRatioOutput.DataContext = this;
 
-                    Binding turningAngleBind = new Binding(nameof(TurningAngleResult));
-                    turningAngleOutput.SetBinding(Label.ContentProperty, turningAngleBind);
-                    turningAngleOutput.DataContext = this;
+            Binding turningAngleBind = new Binding(nameof(TurningAngleResult));
+            turningAngleOutput.SetBinding(Label.ContentProperty, turningAngleBind);
+            turningAngleOutput.DataContext = this;
 
-                    Binding sChordArcRatioBind = new Binding(nameof(SChordArcRatioResult));
-                    sChordArcRatioOutput.SetBinding(Label.ContentProperty, sChordArcRatioBind);
-                    sChordArcRatioOutput.DataContext = this;
-                }
-
-            }
-
+            Binding sChordArcRatioBind = new Binding(nameof(SChordArcRatioResult));
+            sChordArcRatioOutput.SetBinding(Label.ContentProperty, sChordArcRatioBind);
+            sChordArcRatioOutput.DataContext = this;
         }
+    }
+}

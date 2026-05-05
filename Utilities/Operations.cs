@@ -16,7 +16,7 @@ namespace DinoLino.Utilities.Operations
         public double ChordArcRatio { get; set; }
     }
 
-    // I think I need this to expand on curvaturemode.
+    // Stores metadata for n-point Catmull-Rom spline operations in CurvatureMode
     public class SplineOperation : WorkOperation
     {
         public double TurningAngle { get; set; }
