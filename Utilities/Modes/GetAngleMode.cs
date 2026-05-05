@@ -35,13 +35,13 @@ namespace DinoLino.Utilities.Modes
         // In GetAngleMode.cs — same pattern
         protected override void OnOperationUndone(WorkOperation operation)
         {
-            if (History.Count > 0 && History.Last() is GetAngleOperation prev)
+            if (_history.Count > 0 && _history.Last() is GetAngleOperation prev)
             {
                 AngleAResult = prev.AngleA;
                 AngleBResult = prev.AngleB;
                 AngleCResult = prev.AngleC;
                 TriAspectRatioResult = prev.TriAspectRatio;
-                if (History.Count > 1 && History[History.Count - 2] is GetAngleOperation prevPrev && prevPrev.TriArea > 0.00001)
+                if (_history.Count > 1 && _history[_history.Count - 2] is GetAngleOperation prevPrev && prevPrev.TriArea > 0.00001)
                     RelativeAreaResult = Math.Round(prev.TriArea / prevPrev.TriArea, 2);
                 else
                     RelativeAreaResult = "N/A";
@@ -61,8 +61,8 @@ namespace DinoLino.Utilities.Modes
                 AngleBResult = op.AngleB;
                 AngleCResult = op.AngleC;
                 TriAspectRatioResult = op.TriAspectRatio;
-                int idx = History.IndexOf(op);
-                if (idx > 0 && History[idx - 1] is GetAngleOperation prevOp && prevOp.TriArea > 0.00001)
+                int idx = _history.IndexOf(op);
+                if (idx > 0 && _history[idx - 1] is GetAngleOperation prevOp && prevOp.TriArea > 0.00001)
                     RelativeAreaResult = Math.Round(op.TriArea / prevOp.TriArea, 2);
                 else
                     RelativeAreaResult = "N/A";
@@ -232,7 +232,7 @@ namespace DinoLino.Utilities.Modes
 
                     CalculateAndUpdateResults();
 
-                    History.Add(new GetAngleOperation
+                    CommitOperation(new GetAngleOperation
                     {
                         Elements = new List<UIElement>(CurrentOperation),
                         AngleA = AngleAResult,
@@ -241,8 +241,6 @@ namespace DinoLino.Utilities.Modes
                         TriAspectRatio = TriAspectRatioResult,
                         TriArea = _currentArea
                     });
-
-                    UpdateUndoRedoState();
 
                     CurrentOperation.Clear();
                     CurrentUILine = null;
@@ -309,7 +307,7 @@ namespace DinoLino.Utilities.Modes
                 : 0;
 
             // Compare area to previous triangle's area if one exists
-            if (History.Count > 0 && History.Last() is GetAngleOperation prev && prev.TriArea > 0.00001)
+            if (_history.Count > 0 && _history.Last() is GetAngleOperation prev && prev.TriArea > 0.00001)
                 RelativeAreaResult = Math.Round(area / prev.TriArea, 2);
             else
                 RelativeAreaResult = "N/A"; // no previous triangle to compare to

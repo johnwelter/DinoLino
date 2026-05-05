@@ -132,7 +132,7 @@ namespace DinoLino.Utilities.Modes
             if (operation is CurvatureOperation)
             {
                 // Restore previous values, or reset if history is now empty
-                if (History.Count > 0 && History.Last() is CurvatureOperation prev)
+                if (_history.Count > 0 && _history.Last() is CurvatureOperation prev)
                 {
                     CentralAngleResult = prev.CentralAngle;
                     AspectRatioResult = prev.AspectRatio;
@@ -147,7 +147,7 @@ namespace DinoLino.Utilities.Modes
             }
             else if (operation is SplineOperation)
             {
-                if (History.Count > 0 && History.Last() is SplineOperation prev)
+                if (_history.Count > 0 && _history.Last() is SplineOperation prev)
                 {
                     TurningAngleResult = prev.TurningAngle;
                     SChordArcRatioResult = prev.SChordArcRatio;
@@ -241,10 +241,14 @@ namespace DinoLino.Utilities.Modes
         public override List<UIElement> ProcessClick(Vector2 mousePos)
         {
             if (CurrentMethod == CurvatureMethod.None)
+            {
                 return new List<UIElement>();
+            }
 
             if (CurrentMethod == CurvatureMethod.NPointSpline)
+            {
                 return ProcessSplineClick(mousePos);
+            }
 
             List<UIElement> outputElements = new List<UIElement>();
             switch (CurrentStep)
@@ -293,7 +297,6 @@ namespace DinoLino.Utilities.Modes
                     Vector2 Ray23 = (new Vector3(PointB.X, PointB.Y, 1) ^ new Vector3(PointC.X, PointC.Y, 1)).ToVector2();
                     Ray23.Normalize();
 
-                    Vector2 diff = BCMid - ACMid;
                     double dx = BCMid.X - ACMid.X;
                     double dy = BCMid.Y - ACMid.Y;
                     double det = Ray23 ^ Ray13;
@@ -331,8 +334,6 @@ namespace DinoLino.Utilities.Modes
                     outputElements.Add(line5);
                     outputElements.Add(line6);
 
-                    CurrentOperation.Add(line3);
-                    CurrentOperation.Add(line4);
                     CurrentOperation.Add(line5);
                     CurrentOperation.Add(line6);
 
@@ -340,17 +341,14 @@ namespace DinoLino.Utilities.Modes
 
                     CurrentStep++;
 
-                    // Clear redo history when drawing new shape
-                    RedoStack.Clear();
-                    History.Add(new CurvatureOperation
+                    // add to history
+                    CommitOperation(new CurvatureOperation
                     {
                         Elements = new List<UIElement>(CurrentOperation),
                         CentralAngle = CentralAngleResult,
                         AspectRatio = AspectRatioResult,
                         ChordArcRatio = ChordArcRatioResult
                     });
-
-                    UpdateUndoRedoState();
 
                     CurrentOperation.Clear();
 
@@ -371,7 +369,7 @@ namespace DinoLino.Utilities.Modes
         private List<UIElement> ProcessSplineClick(Vector2 mousePos)
         {
             List<UIElement> output = new List<UIElement>();
-            ElementsToRemove.Clear();
+            ClearElementsToRemove();
 
             // add the point
             _splinePoints.Add(mousePos);
@@ -387,8 +385,10 @@ namespace DinoLino.Utilities.Modes
             {
                 // remove old preview from operation list if it exists
                 if (_splinePreview != null)
-                    ElementsToRemove.Add(_splinePreview);
+                {
+                    AddElementsToRemove(_splinePreview);
                     _splineCurrentOperation.Remove(_splinePreview);
+                }
 
                 // generate new spline through all current points
                 _splinePreview = MakeCatmullRomPath(_splinePoints);
@@ -402,7 +402,9 @@ namespace DinoLino.Utilities.Modes
         public override List<UIElement> ProcessDoubleClick(Vector2 mousePos)
         {
             if (CurrentMethod != CurvatureMethod.NPointSpline)
+            {
                 return new List<UIElement>();
+            }
 
             if (_splinePoints.Count < 3)
             {
@@ -417,14 +419,12 @@ namespace DinoLino.Utilities.Modes
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 2);
 
             // store in history
-            RedoStack.Clear();
-            History.Add(new SplineOperation
+            CommitOperation(new SplineOperation
             {
                 Elements = new List<UIElement>(_splineCurrentOperation),
                 TurningAngle = TurningAngleResult,
                 SChordArcRatio = SChordArcRatioResult
             });
-            UpdateUndoRedoState();
 
             var output = new List<UIElement>(_splineCurrentOperation);
 
@@ -522,13 +522,6 @@ namespace DinoLino.Utilities.Modes
 
         private Path MakeCircularArc(Vector2 center, Vector2 start, Vector2 end, double radius)
         {
-            // Create vectors that define central angle
-            Vector2 v1 = start - center;
-            Vector2 v2 = end - center;
-
-            // Create vector from C to center
-            Vector2 vC = PointC - center;
-
             // SweepDirection 
             double crossProduct = (PointC.X - start.X) * (end.Y - start.Y) - (PointC.Y - start.Y) * (end.X - start.X);
             SweepDirection direction = crossProduct > 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
@@ -668,17 +661,7 @@ namespace DinoLino.Utilities.Modes
             double diffC = (angleC - angleStart) * (180 / Math.PI);
             if (diffC < 0) diffC += 360;
 
-            // If PointC is 'behind' the direct path, we are looking at a large arc
-            if (diffC > diff)
-            {
-                // We are sweeping the 'long' way around
-                CentralAngleResult = Math.Round(diff, 2);
-            }
-            else
-            {
-                // Standard sweep
-                CentralAngleResult = Math.Round(diff, 2);
-            }
+            CentralAngleResult = Math.Round(diff, 2);
 
             if (IsPointInTriangle(Intersection, PointA, PointB, PointC))
             {

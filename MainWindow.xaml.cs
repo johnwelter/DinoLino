@@ -1,6 +1,14 @@
-﻿using System;
+﻿using DinoLino.DataTypes;
+using DinoLino.Utilities;
+using DinoLino.Utilities.Modes;
+using Microsoft.Win32;
+using System;
+using System.CodeDom;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Runtime.Remoting.Channels;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -12,13 +20,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
-
-using System.IO;
-using Microsoft.Win32;
-using DinoLino.Utilities;
-using DinoLino.DataTypes;
-using System.CodeDom;
-using DinoLino.Utilities.Modes;
 
 namespace DinoLino
 {
@@ -51,7 +52,7 @@ namespace DinoLino
             InitializeComponent();
 
             // Keyboard shortcuts
-            this.KeyDown += MainWindow_KeyDown;
+            this.PreviewKeyDown += MainWindow_KeyDown;
             UI_WorkCanvas.MouseDown += (s, e) =>
             {
                 Keyboard.ClearFocus();
@@ -76,11 +77,6 @@ namespace DinoLino
             DrawMode.BindDrawResults(UI_DrawAspectRatioOutputValue, UI_ShapeAreaOutputValue, UI_LineLengthRatioOutputValue);
 
             UI_DrawAngleValue.TextChanged += DrawAngleValue_TextChanged;
-            UI_WorkCanvas.MouseDown += (s, e) =>
-            {
-                Keyboard.ClearFocus();
-                UI_WorkCanvas.Focus();
-            };
 
             // Initialize list of all modes
             AllWorkModes = new List<WorkMode> { CurvatureMode, GetAngleMode, DrawMode };
@@ -172,10 +168,11 @@ namespace DinoLino
                 Menu_Undo(this, new RoutedEventArgs());
                 e.Handled = true;
             }
-            // Ctrl + R to redo
+            // Ctrl + Y to redo
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Y)
             {
-                Menu_Redo(null, null);
+                Menu_Redo(this, new RoutedEventArgs());
+                e.Handled = true;
             }
         }
         #endregion
@@ -256,6 +253,23 @@ namespace DinoLino
             {
                 mode.SeePreviousOperations = isChecked;
             }
+
+            // Refresh screen
+            if (!isChecked)
+            {
+                ClearWorkspaceVisualsOnly();
+            }
+            else
+            {
+                foreach (var mode in AllWorkModes)
+                {
+                    foreach (var operation in mode.History)
+                    {
+                        foreach (var el in operation.Elements)
+                            AddElementToWorkSpace(el);
+                    }
+                }
+            }
         }
 
         private void Menu_MouseLeave(object sender, MouseEventArgs e)
@@ -266,24 +280,13 @@ namespace DinoLino
             }
         }
 
-        private void Menu_Red(object sender, RoutedEventArgs e)
+        private void Menu_Color_Click(object sender, RoutedEventArgs e)
         {
-            CurrentWorkMode.LineColor = Brushes.OrangeRed;
-        }
-
-        private void Menu_Blue(object sender, RoutedEventArgs e)
-        {
-            CurrentWorkMode.LineColor = Brushes.MediumBlue;
-        }
-
-        private void Menu_Black(object sender, RoutedEventArgs e)
-        {
-            CurrentWorkMode.LineColor = Brushes.Black;
-        }
-
-        private void Menu_White(object sender, RoutedEventArgs e)
-        {
-            CurrentWorkMode.LineColor = Brushes.White;
+            if (sender is RadioButton rb && rb.Tag != null)
+            {
+                var brush = (Brush)new BrushConverter().ConvertFromString(rb.Tag.ToString());
+                CurrentWorkMode.LineColor = brush;
+            }
         }
         #endregion
 
@@ -324,7 +327,9 @@ namespace DinoLino
         {
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
 
-            if (!CurrentWorkMode.SeePreviousOperations && CurrentWorkMode.CurrentStep == 0)
+            bool isStartingNewOperation = CurrentWorkMode.CurrentStep == 0 || CurrentWorkMode.CurrentStep == 3;
+
+            if (!CurrentWorkMode.SeePreviousOperations && isStartingNewOperation)
             {
                 // don't use Children.Clear() because we want to keep the DotCursor
                 ClearWorkspaceVisualsOnly();
@@ -332,19 +337,15 @@ namespace DinoLino
 
             if (e.ClickCount == 2)
             {
-                foreach (UIElement element in CurrentWorkMode.ElementsToRemove)
-                    UI_WorkCanvas.Children.Remove(element);
-                CurrentWorkMode.ElementsToRemove.Clear();
-                
+                RemovePendingElements();
+
                 List<UIElement> elementsToAdd = CurrentWorkMode.ProcessDoubleClick(mousePos);
                 foreach (UIElement element in elementsToAdd)
                     AddElementToWorkSpace(element);
                 return;
             }
 
-            foreach (UIElement element in CurrentWorkMode.ElementsToRemove)
-                UI_WorkCanvas.Children.Remove(element);
-            CurrentWorkMode.ElementsToRemove.Clear();
+            RemovePendingElements();
 
             List<UIElement> elementsToAdd2 = CurrentWorkMode.ProcessClick(mousePos);
 
@@ -352,6 +353,16 @@ namespace DinoLino
             {
                 AddElementToWorkSpace(element);
             }
+        }
+
+        // Helper method for single click and double click finishing
+        private void RemovePendingElements()
+        {
+            foreach (UIElement element in CurrentWorkMode.ElementsToRemove)
+            {
+                UI_WorkCanvas.Children.Remove(element);
+            }
+            CurrentWorkMode.ClearElementsToRemove();
         }
 
         // Helper method to clear the drawings but keep the cursor
@@ -382,45 +393,31 @@ namespace DinoLino
 
         // radio buttons
         // Draw Mode
+        private void Shape_Checked(object sender, RoutedEventArgs e)
+        {
+            if (sender is RadioButton rb && Enum.TryParse(rb.Tag.ToString(), out DrawMode.DrawShape selectedShape))
+            {
+                DrawMode.CurrentShape = selectedShape;
+                DrawMode.ResetDrawingState();
+            }
+        }
+
         private void DrawNone_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.None;
             DrawMode.ResetDrawingState();
         }
 
-        private void Rectangle_Checked(object sender, RoutedEventArgs e)
-        {
-            DrawMode.CurrentShape = DrawMode.DrawShape.Rectangle;
-        }
-
-        private void Circle_Checked(object sender, RoutedEventArgs e)
-        {
-            DrawMode.CurrentShape = DrawMode.DrawShape.Circle;
-        }
-
-        private void Ellipse_Checked(object sender, RoutedEventArgs e)
-        {
-            DrawMode.CurrentShape = DrawMode.DrawShape.Ellipse;
-        }
-
-        private void Square_Checked(object sender, RoutedEventArgs e)
-        {
-            DrawMode.CurrentShape = DrawMode.DrawShape.Square;
-        }
-
+        
         private void DrawAngle_Checked(object sender, RoutedEventArgs e)
         {
             DrawMode.CurrentShape = DrawMode.DrawShape.Angle;
-            if (double.TryParse(UI_DrawAngleValue.Text, out double angle))
-                DrawMode.LockedAngleDegrees = angle;
+            DrawMode.UpdateAngle(UI_DrawAngleValue.Text);
         }
 
         private void DrawAngleValue_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (double.TryParse(UI_DrawAngleValue.Text, out double angle))
-                DrawMode.LockedAngleDegrees = angle;
-            else
-                DrawMode.LockedAngleDegrees = 0;
+            DrawMode.UpdateAngle(UI_DrawAngleValue.Text);
         }
 
         private void Line_Checked(object sender, RoutedEventArgs e)

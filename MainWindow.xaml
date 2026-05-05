@@ -33,10 +33,10 @@
                     <MenuItem Header="_Yes" IsCheckable="True" IsChecked="True" Click="Menu_SeePrevOps"/>
                 </MenuItem>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
-                    <RadioButton Content="_Red" GroupName="LineColors" IsChecked="True" Click="Menu_Red"/>
-                    <RadioButton Content="_Blue" GroupName="LineColors" Click="Menu_Blue"/>
-                    <RadioButton Content="_Black" GroupName="LineColors" Click="Menu_Black"/>
-                    <RadioButton Content="_White" GroupName="LineColors" Click="Menu_White"/>
+                    <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>
+                    <RadioButton Content="_Blue" Tag="Blue" GroupName="LineColors" Click="Menu_Color_Click"/>
+                    <RadioButton Content="_Black" Tag="Black" GroupName="LineColors" Click="Menu_Color_Click"/>
+                    <RadioButton Content="_White" Tag="White" GroupName="LineColors" Click="Menu_Color_Click"/>
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="_Help" MouseLeave="Menu_MouseLeave">
@@ -169,10 +169,10 @@
                         <StackPanel x:Name="UI_DrawControls" Grid.Row="1" Margin="0,0,10,20">
                             <TextBlock Grid.Row="0" Text="Shapes" FontSize="18" FontWeight="Bold" Margin="10,16,10,10"/>
                             <StackPanel Margin="14,0,0,0">
-                                <RadioButton Content="Rectangle" GroupName="Draw" x:Name="UI_DrawRectangle" Checked="Rectangle_Checked" Height="25" FontSize="16"/>
-                                <RadioButton Content="Square" GroupName="Draw" x:Name="UI_DrawSquare" Checked="Square_Checked" Height="25" FontSize="16"/>
-                                <RadioButton Content="Ellipse" GroupName="Draw" x:Name="UI_DrawEllipse" Checked="Ellipse_Checked" Height="25" FontSize="16"/>
-                                <RadioButton Content="Circle" GroupName="Draw" x:Name="UI_DrawCircle" Checked="Circle_Checked" Height="25" FontSize="16"/>
+                                <RadioButton Content="Rectangle" Tag="Rectangle" GroupName="Draw" x:Name="UI_DrawRectangle" Checked="Shape_Checked" Height="25" FontSize="16"/>
+                                <RadioButton Content="Square" Tag="Square" GroupName="Draw" x:Name="UI_DrawSquare" Checked="Shape_Checked" Height="25" FontSize="16"/>
+                                <RadioButton Content="Ellipse" Tag="Ellipse" GroupName="Draw" x:Name="UI_DrawEllipse" Checked="Shape_Checked" Height="25" FontSize="16"/>
+                                <RadioButton Content="Circle" Tag="Circle" GroupName="Draw" x:Name="UI_DrawCircle" Checked="Shape_Checked" Height="25" FontSize="16"/>
                             </StackPanel>
                             <StackPanel x:Name="UI_DrawAspectRatioOutput" Orientation="Horizontal" Margin="10,0,0,0">
                                 <Label x:Name="UI_DrawAspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom" FontSize="16"/>

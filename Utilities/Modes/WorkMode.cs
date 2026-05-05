@@ -2,9 +2,11 @@
 using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -26,18 +28,31 @@ namespace DinoLino.Utilities.Modes
             get => _lineColor;
             set
             {
+                // set safeguard to prevent unnecessary updates
+                if (_lineColor != value)
+                {
                 _lineColor = value;
-                OnPropertyChanged(nameof(LineColor));
+                OnPropertyChanged();
+                }
             }
 
         }
 
-        protected List<UIElement> DrawnElements = new List<UIElement>();
-        public List<UIElement> ElementsToRemove { get; } = new List<UIElement>();
+        protected ObservableCollection<UIElement> DrawnElements {get;} = new();
+        private readonly ObservableCollection<UIElement> _elementsToRemove = new();
+
+        public ReadOnlyObservableCollection<UIElement> ElementsToRemove { get; }
+
+        public WorkMode()
+        {
+            ElementsToRemove = new ReadOnlyObservableCollection<UIElement>(_elementsToRemove);
+        }
+
 
         //  storing undo/redo history
-        protected List<WorkOperation> History = new List<WorkOperation>();
-        protected List<WorkOperation> RedoStack = new List<WorkOperation>();
+        protected List<WorkOperation> _history = new List<WorkOperation>();
+        public IReadOnlyList<WorkOperation> History => _history;
+        protected List<WorkOperation> _redoStack = new List<WorkOperation>();
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -59,11 +74,11 @@ namespace DinoLino.Utilities.Modes
         // moving to WorkMode so this is a global tool usable across modes
         public virtual WorkOperation Undo()
         {
-            if (History.Count == 0) return null;
+            if (_history.Count == 0) return null;
 
-            var last = History.Last();
-            History.RemoveAt(History.Count - 1);
-            RedoStack.Add(last);
+            var last = _history.Last();
+            _history.RemoveAt(_history.Count - 1);
+            _redoStack.Add(last);
 
             OnOperationUndone(last);
             UpdateUndoRedoState();
@@ -72,15 +87,27 @@ namespace DinoLino.Utilities.Modes
         // moving to WorkMode so this is a global tool usable across modes
         public virtual WorkOperation Redo()
         {
-            if (RedoStack.Count == 0) return null;
+            if (_redoStack.Count == 0) return null;
 
-            var operation = RedoStack.Last();
-            RedoStack.RemoveAt(RedoStack.Count - 1);
-            History.Add(operation);
+            var operation = _redoStack.Last();
+            _redoStack.RemoveAt(_redoStack.Count - 1);
+            _history.Add(operation);
 
             OnOperationRedone(operation); // hook for subclasses to update their display values
             UpdateUndoRedoState();
             return operation;
+        }
+
+        // method to queue elements for removal
+        public void AddElementsToRemove(UIElement element)
+        {
+            _elementsToRemove.Add(element);
+        }
+
+        // method to empty the list
+        public void ClearElementsToRemove()
+        {
+            _elementsToRemove.Clear();
         }
 
         public int CurrentStep { get; set; } = 0;
@@ -91,8 +118,12 @@ namespace DinoLino.Utilities.Modes
             get => _canUndo;
             private set
             {
-                _canUndo = value;
-                OnPropertyChanged(nameof(CanUndo));
+                // set safeguard to prevent unnecessary updates
+                if (_canUndo != value)
+                {
+                    _canUndo = value;
+                    OnPropertyChanged();
+                }
             }
         }
 
@@ -102,26 +133,34 @@ namespace DinoLino.Utilities.Modes
             get => _canRedo;
             private set
             {
-                _canRedo = value;
-                OnPropertyChanged(nameof(CanRedo));
+                // set safeguard to prevent unnecessary updates
+                if (_canRedo != value)
+                {
+                    _canRedo = value;
+                    OnPropertyChanged();
+                }
             }
         }
 
         protected void UpdateUndoRedoState()
         {
-            CanUndo = History.Count > 0;
-            CanRedo = RedoStack.Count > 0;
+            CanUndo = _history.Count > 0;
+            CanRedo = _redoStack.Count > 0;
+        }
+
+        protected void CommitOperation(WorkOperation operation)
+        {
+            _redoStack.Clear();
+            _history.Add(operation);
+            UpdateUndoRedoState();
         }
 
         protected virtual void OnOperationUndone(WorkOperation operation) { }
         protected virtual void OnOperationRedone(WorkOperation operation) { }
 
-        protected virtual void OnPropertyChanged(string name) 
+        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
         {
-            if (PropertyChanged != null)
-            {
-                this.PropertyChanged(this, new PropertyChangedEventArgs(name));
-            }
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 }
