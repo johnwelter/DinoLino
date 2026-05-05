@@ -415,6 +415,19 @@ namespace DinoLino
             DrawMode.CurrentShape = DrawMode.DrawShape.Line;
         }
 
+        private void LineConstraint_Checked(object sender, RoutedEventArgs e)
+        {
+            if (DrawMode == null) return; // guard for initialization ordering
+
+            if (sender is RadioButton rb && Enum.TryParse(rb.Tag.ToString(), out DrawMode.LineConstraint selectedConstraint))
+            {
+                DrawMode.CurrentLineConstraint = selectedConstraint;
+                DrawMode.ResetDrawingState();
+            }
+        }
+
+
+
         // Curvature Mode
         private void CurvNone_Checked(object sender, RoutedEventArgs e)
         {

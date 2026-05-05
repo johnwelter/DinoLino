@@ -1,4 +1,5 @@
 ﻿// Utilities/Operations/Operations.cs
+using DinoLino.DataTypes;
 using System.Collections.Generic;
 using System.Windows;
 
@@ -37,5 +38,6 @@ namespace DinoLino.Utilities.Operations
         public double DrawAspectRatio { get; set; }
         public double ShapeArea { get; set; }
         public double LineLength { get; set; }
+        public Vector2 LineDirection { get; set; }
     }
 }

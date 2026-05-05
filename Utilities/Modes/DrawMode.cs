@@ -2,6 +2,7 @@
 using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Eventing.Reader;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -25,6 +26,15 @@ namespace DinoLino.Utilities.Modes
         }
         public DrawShape CurrentShape { get; set; } = DrawShape.None;
 
+        // line type tracker
+        public enum LineConstraint
+        {
+            None,
+            Parallel,
+            Perpendicular
+        }
+        public LineConstraint CurrentLineConstraint { get; set; } = LineConstraint.None;
+
         // Helper function to find the most recent line operation in history for line length ratio calculations
         private DrawOperation FindPreviousLine(int startIdx)
         {
@@ -38,6 +48,17 @@ namespace DinoLino.Utilities.Modes
 
         protected override void OnOperationUndone(WorkOperation operation)
         {
+            if (operation is DrawOperation undone && undone.LineLength > 0.00001)
+            {
+                bool anyConstrainedLinesRemain = _history.OfType<DrawOperation>().Any(op => op.LineLength > 0.00001);
+
+                if (!anyConstrainedLinesRemain)
+                {
+                    _hasReferenceLineDirection = false;
+                    _referenceLineDirection = default;
+                }
+            }
+
             if (_history.Count > 0 && _history.Last() is DrawOperation prev)
             {
                 // restore aspect ratio and area
@@ -105,6 +126,9 @@ namespace DinoLino.Utilities.Modes
         private Vector2 _pointA;
         private Vector2 _pointB;
         private Line _currentAngleLine = null;
+        private Vector2 _firstLineDirection;
+        private Vector2 _referenceLineDirection;
+        private bool _hasReferenceLineDirection;
 
         public double LockedAngleDegrees { get; set; } = 0;
 
@@ -155,6 +179,9 @@ namespace DinoLino.Utilities.Modes
             _dragStart = default;
             _pointA = default;
             _pointB = default;
+            _firstLineDirection = default;
+            _referenceLineDirection = default;
+            _hasReferenceLineDirection = false;
             CurrentOperation.Clear();
         }
 
@@ -170,6 +197,9 @@ namespace DinoLino.Utilities.Modes
             _dragStart = default;
             _pointA = default;
             _pointB = default;
+            _firstLineDirection = default;
+            _referenceLineDirection = default;
+            _hasReferenceLineDirection = false;
             CurrentOperation.Clear();
             CurrentStep = 0;
         }
@@ -207,8 +237,23 @@ namespace DinoLino.Utilities.Modes
             {
                 if (_currentLine != null)
                 {
-                    _currentLine.X2 = mousePos.X;
-                    _currentLine.Y2 = mousePos.Y;
+                    if (CurrentLineConstraint != LineConstraint.None && _hasReferenceLineDirection)
+                    {
+                        Vector2 constrainDir = CurrentLineConstraint == LineConstraint.Parallel
+                            ? _referenceLineDirection
+                            : new Vector2(-_referenceLineDirection.Y, _referenceLineDirection.X);
+
+                        Vector2 toMouse = mousePos - _dragStart;
+                        double magnitude = (toMouse.X * constrainDir.X) + (toMouse.Y * constrainDir.Y);
+
+                        _currentLine.X2 = _dragStart.X + constrainDir.X * magnitude;
+                        _currentLine.Y2 = _dragStart.Y + constrainDir.Y * magnitude;
+                    }
+                    else
+                    {
+                        _currentLine.X2 = mousePos.X;
+                        _currentLine.Y2 = mousePos.Y;
+                    }
                 }
                 return mousePos;
             }
@@ -302,7 +347,8 @@ namespace DinoLino.Utilities.Modes
                             Elements = new List<UIElement>(CurrentOperation),
                             DrawAspectRatio = 0,
                             ShapeArea = 0,
-                            LineLength = lengthAB // store AB as the reference length
+                            LineLength = lengthAB, // store AB as the reference length
+                            LineDirection = _referenceLineDirection
                         });
 
                         CurrentOperation.Clear();
@@ -320,31 +366,63 @@ namespace DinoLino.Utilities.Modes
             {
                 switch (CurrentStep)
                 {
-                    case 0: // first click — start the line
+                    case 0: // start line
                         _dragStart = mousePos;
                         _currentLine = MakeLine(mousePos, mousePos);
                         output.Add(_currentLine);
                         CurrentOperation.Add(_currentLine);
-                        CurrentStep++;
+                        CurrentStep = 1;
                         break;
 
-                    case 1: // second click — finalize the line
-                        _currentLine.X2 = mousePos.X;
-                        _currentLine.Y2 = mousePos.Y;
+                    case 1: // finish line
+                        Vector2 finalPoint = mousePos;
 
-                        // calculate line length
+                        if (CurrentLineConstraint != LineConstraint.None && _hasReferenceLineDirection)
+                        {
+                            Vector2 constrainDir = CurrentLineConstraint == LineConstraint.Parallel
+                                ? _referenceLineDirection
+                                : new Vector2(-_referenceLineDirection.Y, _referenceLineDirection.X);
+
+                            Vector2 toMouse = mousePos - _dragStart;
+                            double magnitude = (toMouse.X * constrainDir.X) + (toMouse.Y * constrainDir.Y);
+
+                            finalPoint = new Vector2(
+                                _dragStart.X + constrainDir.X * magnitude,
+                                _dragStart.Y + constrainDir.Y * magnitude);
+                        }
+
+                        _currentLine.X2 = finalPoint.X;
+                        _currentLine.Y2 = finalPoint.Y;
+
+                        // calculate direction ONLY for first constrained line
+                        Vector2 rawDir = new Vector2(
+                            (float)(_currentLine.X2 - _currentLine.X1),
+                            (float)(_currentLine.Y2 - _currentLine.Y1));
+
+                        double lenSq = rawDir.X * rawDir.X + rawDir.Y * rawDir.Y;
+
+                        if (lenSq > 0.000001)
+                        {
+                            rawDir.Normalize();
+                        }
+
+                        if (CurrentLineConstraint != LineConstraint.None && !_hasReferenceLineDirection && lenSq > 0.000001)
+                        {
+                            _referenceLineDirection = rawDir;
+                            _hasReferenceLineDirection = true;
+                        }
+
+                        // calculate length
                         double dx = mousePos.X - _dragStart.X;
                         double dy = mousePos.Y - _dragStart.Y;
-                        double lineLength = Math.Sqrt(dx * dx + dy * dy);
+                        double length = Math.Sqrt(dx * dx + dy * dy);
 
-                        // aspect ratio is N/A for lines
                         DrawAspectRatioResult = 0;
                         ShapeAreaResult = "N/A";
 
-                        // find previous line in history if one exists
-                        DrawOperation previousLine = FindPreviousLine(_history.Count - 1);
-                        if (previousLine != null && previousLine.LineLength > 0.00001)
-                            LineLengthRatioResult = Math.Round(lineLength / previousLine.LineLength, 2);
+                        DrawOperation prev = FindPreviousLine(_history.Count - 1);
+                        if (prev != null && prev.LineLength > 0.00001)
+                            LineLengthRatioResult = Math.Round(length / prev.LineLength, 2);
                         else
                             LineLengthRatioResult = "N/A";
 
@@ -353,7 +431,7 @@ namespace DinoLino.Utilities.Modes
                             Elements = new List<UIElement>(CurrentOperation),
                             DrawAspectRatio = 0,
                             ShapeArea = 0,
-                            LineLength = lineLength
+                            LineLength = length
                         });
 
                         CurrentOperation.Clear();
@@ -361,6 +439,7 @@ namespace DinoLino.Utilities.Modes
                         CurrentStep = 0;
                         break;
                 }
+
                 return output;
             }
 
