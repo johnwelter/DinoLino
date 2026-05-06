@@ -13,6 +13,15 @@ namespace DinoLino.Utilities.Modes
 {
     public class CurvatureMode : WorkMode
     {
+        public override void ClearMetadata()
+        {
+            CentralAngleResult = 0;
+            AspectRatioResult = 0;
+            ChordArcRatioResult = 0;
+            TurningAngleResult = 0;
+            SChordArcRatioResult = 0;
+        }
+
         // theta label for central angle
         private TextBlock MakeThetaLabel(Vector2 position)
         {
@@ -126,32 +135,14 @@ namespace DinoLino.Utilities.Modes
         {
             if (operation is CurvatureOperation)
             {
-                // Restore previous values, or reset if history is now empty
-                if (_history.Count > 0 && _history.Last() is CurvatureOperation prev)
-                {
-                    CentralAngleResult = prev.CentralAngle;
-                    AspectRatioResult = prev.AspectRatio;
-                    ChordArcRatioResult = prev.ChordArcRatio;
-                }
-                else
-                {
-                    CentralAngleResult = 0;
-                    AspectRatioResult = 0;
-                    ChordArcRatioResult = 0;
-                }
+                CentralAngleResult = 0;
+                AspectRatioResult = 0;
+                ChordArcRatioResult = 0;
             }
             else if (operation is SplineOperation)
             {
-                if (_history.Count > 0 && _history.Last() is SplineOperation prev)
-                {
-                    TurningAngleResult = prev.TurningAngle;
-                    SChordArcRatioResult = prev.SChordArcRatio;
-                }
-                else
-                {
-                    TurningAngleResult = 0;
-                    SChordArcRatioResult = 0;
-                }
+                TurningAngleResult = 0;
+                SChordArcRatioResult = 0;
             }
         }
 
@@ -339,6 +330,8 @@ namespace DinoLino.Utilities.Modes
                     // add to history
                     CommitOperation(new CurvatureOperation
                     {
+                        OperationKind = "3-Point Arc",
+                        SourceMode = this,
                         Elements = new List<UIElement>(CurrentOperation),
                         CentralAngle = CentralAngleResult,
                         AspectRatio = AspectRatioResult,
@@ -416,6 +409,8 @@ namespace DinoLino.Utilities.Modes
             // store in history
             CommitOperation(new SplineOperation
             {
+                OperationKind = "n-Point Spline",
+                SourceMode = this,
                 Elements = new List<UIElement>(_splineCurrentOperation),
                 TurningAngle = TurningAngleResult,
                 SChordArcRatio = SChordArcRatioResult

@@ -73,6 +73,7 @@
       <DependentUpon>About.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\Operations.cs" />
+    <Compile Include="Utilities\UndoRedoManager.cs" />
     <Page Include="Dictionary1.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>

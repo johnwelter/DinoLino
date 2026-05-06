@@ -12,6 +12,7 @@ namespace DinoLino.Utilities.Modes
 {
     public class WorkMode : INotifyPropertyChanged
     {
+        public UndoRedoManager UndoRedoManager { get; set; }
         // Toggling whether or not previous operations are visible
         public bool SeePreviousOperations { get; set; } = true;
 
@@ -43,12 +44,6 @@ namespace DinoLino.Utilities.Modes
             ElementsToRemove = new ReadOnlyObservableCollection<UIElement>(_elementsToRemove);
         }
 
-
-        //  storing undo/redo history
-        protected List<WorkOperation> _history = new List<WorkOperation>();
-        public IReadOnlyList<WorkOperation> History => _history;
-        protected List<WorkOperation> _redoStack = new List<WorkOperation>();
-
         public event PropertyChangedEventHandler PropertyChanged;
 
         public virtual Vector2 ProcessMouseMovement(Vector2 mousePos) { return mousePos; }
@@ -69,28 +64,12 @@ namespace DinoLino.Utilities.Modes
         // moving to WorkMode so this is a global tool usable across modes
         public virtual WorkOperation Undo()
         {
-            if (_history.Count == 0) return null;
-
-            var last = _history.Last();
-            _history.RemoveAt(_history.Count - 1);
-            _redoStack.Add(last);
-
-            OnOperationUndone(last);
-            UpdateUndoRedoState();
-            return last;
+            return UndoRedoManager?.Undo();
         }
         // moving to WorkMode so this is a global tool usable across modes
         public virtual WorkOperation Redo()
         {
-            if (_redoStack.Count == 0) return null;
-
-            var operation = _redoStack.Last();
-            _redoStack.RemoveAt(_redoStack.Count - 1);
-            _history.Add(operation);
-
-            OnOperationRedone(operation); // hook for subclasses to update their display values
-            UpdateUndoRedoState();
-            return operation;
+            return UndoRedoManager?.Redo();
         }
 
         // method to queue elements for removal
@@ -139,19 +118,18 @@ namespace DinoLino.Utilities.Modes
 
         protected void UpdateUndoRedoState()
         {
-            CanUndo = _history.Count > 0;
-            CanRedo = _redoStack.Count > 0;
+            CanUndo = UndoRedoManager?.CanUndo == true;
+            CanRedo = UndoRedoManager?.CanRedo == true;
         }
 
-        protected void CommitOperation(WorkOperation operation)
+        public void CommitOperation(WorkOperation operation)
         {
-            _redoStack.Clear();
-            _history.Add(operation);
-            UpdateUndoRedoState();
+            UndoRedoManager?.Commit(operation);
         }
 
         protected virtual void OnOperationUndone(WorkOperation operation) { }
         protected virtual void OnOperationRedone(WorkOperation operation) { }
+        public virtual void ClearMetadata() { }
 
         protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
         {

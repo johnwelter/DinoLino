@@ -13,6 +13,13 @@ namespace DinoLino.Utilities.Modes
 {
     public class DrawMode : WorkMode
     {
+        public override void ClearMetadata()
+        {
+            DrawAspectRatioResult = 0;
+            ShapeAreaResult = "N/A";
+            LineLengthRatioResult = "N/A";
+        }
+
         // shape type tracker
         public enum DrawShape
         {
@@ -36,21 +43,24 @@ namespace DinoLino.Utilities.Modes
         public LineConstraint CurrentLineConstraint { get; set; } = LineConstraint.None;
 
         // Helper function to find the most recent line operation in history for line length ratio calculations
-        private DrawOperation FindPreviousLine(int startIdx)
+        private DrawOperation FindPreviousLine(int skipLast)
         {
-            for (int i = startIdx; i >= 0; i--)
-            {
-                if (_history[i] is DrawOperation op && op.LineLength > 0.00001)
-                    return op;
-            }
-            return null;
+            var prev = UndoRedoManager.History
+                    .Reverse()
+                    .Skip(skipLast)
+                    .OfType<DrawOperation>()
+                    .FirstOrDefault(op => op.LineLength > 0.00001);
+
+            return prev;
         }
 
         protected override void OnOperationUndone(WorkOperation operation)
         {
             if (operation is DrawOperation undone && undone.LineLength > 0.00001)
             {
-                bool anyConstrainedLinesRemain = _history.OfType<DrawOperation>().Any(op => op.LineLength > 0.00001);
+                bool anyConstrainedLinesRemain = UndoRedoManager.History
+                    .OfType<DrawOperation>()
+                    .Any(op => op.LineLength > 0.00001);
 
                 if (!anyConstrainedLinesRemain)
                 {
@@ -59,20 +69,31 @@ namespace DinoLino.Utilities.Modes
                 }
             }
 
-            if (_history.Count > 0 && _history.Last() is DrawOperation prev)
+            // Restore from the new top of the global history
+            var prev = UndoRedoManager.History
+                .OfType<DrawOperation>()
+                .LastOrDefault();
+
+            if (prev != null)
             {
                 // restore aspect ratio and area
                 DrawAspectRatioResult = prev.DrawAspectRatio;
-                if (_history.Count > 1 && _history[_history.Count - 2] is DrawOperation prevPrev && prevPrev.ShapeArea > 0.00001)
-                    ShapeAreaResult = Math.Round(prev.ShapeArea / prevPrev.ShapeArea, 2);
+
+                var previousPrev = UndoRedoManager.History
+                    .OfType<DrawOperation>()
+                    .Reverse()
+                    .Skip(1)
+                    .FirstOrDefault(op => op.ShapeArea > 0.00001);
+
+                if (previousPrev != null && previousPrev.ShapeArea > 0.00001)
+                    ShapeAreaResult = Math.Round(prev.ShapeArea / previousPrev.ShapeArea, 2);
                 else
                     ShapeAreaResult = "N/A";
 
                 // restore line length ratio
                 if (prev.LineLength > 0.00001)
                 {
-                    int idx = _history.Count - 1;
-                    DrawOperation prevLine = FindPreviousLine(idx - 1);
+                    var prevLine = FindPreviousLine(1);
                     if (prevLine != null)
                         LineLengthRatioResult = Math.Round(prev.LineLength / prevLine.LineLength, 2);
                     else
@@ -96,16 +117,21 @@ namespace DinoLino.Utilities.Modes
             if (operation is DrawOperation op)
             {
                 DrawAspectRatioResult = op.DrawAspectRatio;
-                int idx = _history.IndexOf(op); 
-                if (idx > 0 && _history[idx - 1] is DrawOperation prevOp && prevOp.ShapeArea > 0.00001)
-                    ShapeAreaResult = Math.Round(op.ShapeArea / prevOp.ShapeArea, 2);
+
+                var prevInHistory = UndoRedoManager.History
+                    .OfType<DrawOperation>()
+                    .Reverse()
+                    .Skip(1)
+                    .FirstOrDefault(prevOp => prevOp.ShapeArea > 0.00001);
+
+                if (prevInHistory != null && prevInHistory.ShapeArea > 0.00001)
+                    ShapeAreaResult = Math.Round(op.ShapeArea / prevInHistory.ShapeArea, 2);
                 else
                     ShapeAreaResult = "N/A";
 
-                // restore line length ratio
                 if (op.LineLength > 0.00001)
                 {
-                    DrawOperation prevLine = FindPreviousLine(idx - 1);
+                    var prevLine = FindPreviousLine(1);
                     if (prevLine != null)
                         LineLengthRatioResult = Math.Round(op.LineLength / prevLine.LineLength, 2);
                     else
@@ -344,6 +370,8 @@ namespace DinoLino.Utilities.Modes
 
                         CommitOperation(new DrawOperation
                         {
+                            OperationKind = "Lines",
+                            SourceMode = this,
                             Elements = new List<UIElement>(CurrentOperation),
                             DrawAspectRatio = 0,
                             ShapeArea = 0,
@@ -420,14 +448,17 @@ namespace DinoLino.Utilities.Modes
                         DrawAspectRatioResult = 0;
                         ShapeAreaResult = "N/A";
 
-                        DrawOperation prev = FindPreviousLine(_history.Count - 1);
+                        var prev = FindPreviousLine(0);
                         if (prev != null && prev.LineLength > 0.00001)
                             LineLengthRatioResult = Math.Round(length / prev.LineLength, 2);
                         else
                             LineLengthRatioResult = "N/A";
 
+
                         CommitOperation(new DrawOperation
                         {
+                            OperationKind = "Lines",
+                            SourceMode = this,
                             Elements = new List<UIElement>(CurrentOperation),
                             DrawAspectRatio = 0,
                             ShapeArea = 0,
@@ -475,6 +506,8 @@ namespace DinoLino.Utilities.Modes
 
                     CommitOperation(new DrawOperation   
                     {
+                        OperationKind = "Shape",
+                        SourceMode = this,
                         Elements = new List<UIElement>(CurrentOperation),
                         DrawAspectRatio = DrawAspectRatioResult,
                         ShapeArea = _currentShapeArea
@@ -584,11 +617,14 @@ namespace DinoLino.Utilities.Modes
             double shorter = Math.Min(width, height);
             DrawAspectRatioResult = shorter > 0.00001 ? Math.Round(longer / shorter, 2) : 0;
 
-            if (_history.Count > 0 && _history.Last() is DrawOperation prev && prev.ShapeArea > 0.00001)
+            var prev = UndoRedoManager.History
+                .OfType<DrawOperation>()
+                .LastOrDefault();
+
+            if (prev != null && prev.ShapeArea > 0.00001)
                 ShapeAreaResult = Math.Round(area / prev.ShapeArea, 2);
             else
                 ShapeAreaResult = "N/A";
-            LineLengthRatioResult = "N/A";
         }
 
         public void BindDrawResults(

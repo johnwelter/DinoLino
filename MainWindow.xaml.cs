@@ -1,6 +1,7 @@
 ﻿using DinoLino.DataTypes;
 using DinoLino.Utilities;
 using DinoLino.Utilities.Modes;
+using DinoLino.Utilities.Operations;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
@@ -19,6 +20,7 @@ namespace DinoLino
     /// </summary>
     public partial class MainWindow : Window
     {
+        public UndoRedoManager UndoRedoManager;
 
         // Current working image in the workspace
         public BitmapImage WorkingImage;
@@ -75,6 +77,12 @@ namespace DinoLino
             // Set the current work mode to update
             CurrentWorkMode = CurvatureMode;
             BindUndoRedoMenuItems();
+
+            // Initialize the global undo redo manager and link to all modes
+            UndoRedoManager = new UndoRedoManager();
+            CurvatureMode.UndoRedoManager = UndoRedoManager;
+            GetAngleMode.UndoRedoManager = UndoRedoManager;
+            DrawMode.UndoRedoManager = UndoRedoManager;
 
             // Initialize image zoom
             UI_WorkImage.InitializeGroupTransform(new Point(0, 0));
@@ -199,7 +207,7 @@ namespace DinoLino
         // Undo function
         private void Menu_Undo(object sender, RoutedEventArgs e)
         {
-            var result = CurrentWorkMode.Undo();
+            var result = UndoRedoManager.Undo();
 
             if (result == null) return;
             {
@@ -213,7 +221,7 @@ namespace DinoLino
         // Redo function
         private void Menu_Redo(object sender, RoutedEventArgs e)
         {
-            var result = CurrentWorkMode.Redo();
+            var result = UndoRedoManager.Redo();
 
             if (result == null) return;
             {
@@ -227,11 +235,11 @@ namespace DinoLino
         private void BindUndoRedoMenuItems()
         {
             Binding undoBinding = new Binding(nameof(WorkMode.CanUndo));
-            undoBinding.Source = CurrentWorkMode;
+            undoBinding.Source = UndoRedoManager;
             UI_MenuUndo.SetBinding(MenuItem.IsEnabledProperty, undoBinding);
 
             Binding redoBinding = new Binding(nameof(WorkMode.CanRedo));
-            redoBinding.Source = CurrentWorkMode;
+            redoBinding.Source = UndoRedoManager;
             UI_MenuRedo.SetBinding(MenuItem.IsEnabledProperty, redoBinding);
         }
 
@@ -254,7 +262,7 @@ namespace DinoLino
             {
                 ClearWorkspaceVisualsOnly();
 
-                foreach (var operation in CurrentWorkMode.History)
+                foreach (var operation in UndoRedoManager.History)
                 {
                     foreach (var el in operation.Elements)
                         AddElementToWorkSpace(el);
