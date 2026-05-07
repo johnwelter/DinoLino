@@ -8,15 +8,18 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Shapes;
+using static DinoLino.Utilities.Modes.CurvatureMode;
 
 namespace DinoLino.Utilities.Modes
 {
     public class DrawMode : WorkMode
     {
+        #region Shared Draw Infrastructure
+        //-----Shared Code Across Draw Operations-----//
         public override void ClearMetadata()
         {
             DrawAspectRatioResult = 0;
-            ShapeAreaResult = "N/A";
+            RelativeAreaResult = "N/A";
             LineLengthRatioResult = "N/A";
         }
 
@@ -29,179 +32,49 @@ namespace DinoLino.Utilities.Modes
         }
         public DrawMethod CurrentMethod { get; set; } = DrawMethod.None;
 
-        // shape type tracker
-        public enum ShapeConstraint
+        // Tracking drawn elements
+        private List<UIElement> CurrentOperation = new();
+        private Vector2 _dragStart;
+
+        public override List<UIElement> ProcessClick(Vector2 mousePos)
         {
-            None,
-            Ellipse,
-            Circle,
-            Rectangle,
-            Square,
+            return CurrentMethod switch
+            {
+                DrawMethod.Line => ProcessLineClick(mousePos),
+                DrawMethod.Shape => ProcessShapeClick(mousePos),
+                _ => new List<UIElement>()
+            };
         }
-        public ShapeConstraint CurrentShape { get; set; } = ShapeConstraint.None;
 
-        // line type tracker
-        public enum LineConstraint
+        public override Vector2 ProcessMouseMovement(Vector2 mousePos)
         {
-            None,
-            Parallel,
-            Perpendicular,
-            AngleLocked
+            return CurrentMethod switch
+            {
+                DrawMethod.Shape => ProcessShapeMouseMovement(mousePos),
+                DrawMethod.Line => ProcessLineMouseMovement(mousePos),
+                _ => mousePos
+            };
         }
-        public LineConstraint CurrentLineType { get; set; } = LineConstraint.None;
-
-        // Helper function to find the most recent line operation in history for line length ratio calculations
-        private LineOperation FindPreviousLine(int skipLast)
+        private void FinishOperation()
         {
-            var prev = UndoRedoManager.History
-                    .Reverse()
-                    .Skip(skipLast)
-                    .OfType<LineOperation>()
-                    .FirstOrDefault(op => op.LineLength > 0.00001);
-
-            return prev;
+            CurrentOperation.Clear();
+            _currentShape = null;
+            _currentLine = null;
+            CurrentStep = 0;
         }
 
         protected override void OnOperationUndone(WorkOperation operation)
         {
-            if (operation is LineOperation undone && undone.LineLength > 0.00001)
-            {
-                bool anyConstrainedLinesRemain = UndoRedoManager.History
-                    .OfType<LineOperation>()
-                    .Any(op => op.LineLength > 0.00001);
+            HandleReferenceLineUndo(operation);
 
-                if (!anyConstrainedLinesRemain)
-                {
-                    _hasReferenceLineDirection = false;
-                    _referenceLineDirection = default;
-                }
-            }
-
-            // Restore from the new top of the global history
-            var prevLine = UndoRedoManager.History
-                .OfType<LineOperation>()
-                .LastOrDefault();
-
-            var prevShape = UndoRedoManager.History
-                .OfType<ShapeOperation>()
-                .LastOrDefault();
-
-            if (prevLine != null)
-            {
-                // restore aspect ratio and area
-                DrawAspectRatioResult = prevShape.DrawAspectRatio;
-
-                var previousPrev = UndoRedoManager.History
-                    .OfType<ShapeOperation>()
-                    .Reverse()
-                    .Skip(1)
-                    .FirstOrDefault(op => op.ShapeArea > 0.00001);
-
-                if (previousPrev != null && previousPrev.ShapeArea > 0.00001)
-                    ShapeAreaResult = Math.Round(prevShape.ShapeArea / previousPrev.ShapeArea, 2);
-                else
-                    ShapeAreaResult = "N/A";
-
-                // restore line length ratio
-                if (prevLine.LineLength > 0.00001)
-                {
-                    var prevPrevLine = FindPreviousLine(1);
-                    if (prevPrevLine != null)
-                        LineLengthRatioResult = Math.Round(prevLine.LineLength / prevPrevLine.LineLength, 2);
-                    else
-                        LineLengthRatioResult = "N/A";
-                }
-                else
-                {
-                    LineLengthRatioResult = "N/A";
-                }
-            }
-            else
-            {
-                DrawAspectRatioResult = 0;
-                ShapeAreaResult = "N/A";
-                LineLengthRatioResult = "N/A";
-            }
+            RestoreShapeResultsFromHistory();
+            RestoreLineResultsFromHistory();
         }
 
         protected override void OnOperationRedone(WorkOperation operation)
         {
-            if (operation is ShapeOperation prevShape)
-            {
-                DrawAspectRatioResult = prevShape.DrawAspectRatio;
-
-                var prevInHistory = UndoRedoManager.History
-                    .OfType<ShapeOperation>()
-                    .Reverse()
-                    .Skip(1)
-                    .FirstOrDefault(prevOp => prevOp.ShapeArea > 0.00001);
-
-                if (prevInHistory != null && prevInHistory.ShapeArea > 0.00001)
-                    ShapeAreaResult = Math.Round(prevShape.ShapeArea / prevInHistory.ShapeArea, 2);
-                else
-                    ShapeAreaResult = "N/A";
-            } 
-            
-            if (operation is LineOperation prevLine && prevLine.LineLength > 0.00001)
-            {
-                var prevPrevLine = FindPreviousLine(1);
-                if (prevPrevLine != null)
-                    LineLengthRatioResult = Math.Round(prevLine.LineLength / prevPrevLine.LineLength, 2);
-                else
-                    LineLengthRatioResult = "N/A";
-            }
-            else
-            {
-                LineLengthRatioResult = "N/A";
-            }
-        }
-
-        // Tracking drawn elements
-        private List<UIElement> CurrentOperation = new();
-        private Vector2 _dragStart;
-        private Shape _currentShape = null;
-        private Line _currentLine = null;
-        private Vector2 _referenceLineDirection;
-        private bool _hasReferenceLineDirection;
-
-        public double LockedAngleDegrees { get; set; } = 0;
-
-        // Bindable results of shape calculations
-
-        // private/public pairs used to handle propagation of results to UI bindings
-        private double _drawAspectRatioResult;
-        private object _shapeAreaResult;
-        private double _currentShapeArea = 0;
-        private object _lineLengthRatioResult;
-
-        public double DrawAspectRatioResult
-        {
-            get => _drawAspectRatioResult;
-            set
-            {
-                _drawAspectRatioResult = value;
-                OnPropertyChanged(nameof(DrawAspectRatioResult));
-            }
-        }
-
-        public object ShapeAreaResult
-        {
-            get => _shapeAreaResult;
-            set
-            {
-                _shapeAreaResult = value;
-                OnPropertyChanged(nameof(ShapeAreaResult));
-            }
-        }
-
-        public object LineLengthRatioResult
-        {
-            get => _lineLengthRatioResult;
-            set
-            {
-                _lineLengthRatioResult = value;
-                OnPropertyChanged(nameof(LineLengthRatioResult));
-            }
+            RestoreShapeResultsFromHistory();
+            RestoreLineResultsFromHistory();
         }
 
         public override void ResetDrawingState()
@@ -219,7 +92,7 @@ namespace DinoLino.Utilities.Modes
         {
             base.Reset();
             DrawAspectRatioResult = 0;
-            ShapeAreaResult = "N/A";
+            RelativeAreaResult = "N/A";
             LineLengthRatioResult = "N/A";
             _currentShape = null;
             _currentLine = null;
@@ -230,123 +103,72 @@ namespace DinoLino.Utilities.Modes
             CurrentStep = 0;
         }
 
-        public override Vector2 ProcessMouseMovement(Vector2 mousePos)
+        #endregion
+
+
+        #region Shape Operations
+        //-----Shape Operation Code-----//
+        // shape type tracker
+        public enum ShapeConstraint
         {
-            if (CurrentMethod == DrawMethod.Shape)
+            None,
+            Ellipse,
+            Circle,
+            Rectangle,
+            Square,
+        }
+        public ShapeConstraint CurrentShape { get; set; } = ShapeConstraint.None;
+
+        // Tracking drawn elements
+        private Shape _currentShape = null;
+
+        // Bindable results of shape calculations
+        // private/public pairs used to handle propagation of results to UI bindings
+        private double _drawAspectRatioResult;
+        private object _relativeAreaResult;
+        private double _currentShapeArea = 0;
+
+        public double DrawAspectRatioResult
+        {
+            get => _drawAspectRatioResult;
+            set
             {
-                if (CurrentShape == ShapeConstraint.None)
-                { 
-                    return mousePos; 
-                }
-                
-                if (_currentShape != null)
-                {
-                    var (width, height) = GetConstrainedShapeSize(mousePos);
-
-                    double x = mousePos.X >= _dragStart.X ? _dragStart.X : _dragStart.X - width;
-                    double y = mousePos.Y >= _dragStart.Y ? _dragStart.Y : _dragStart.Y - height;
-
-                    _currentShape.Width = width;
-                    _currentShape.Height = height;
-                    Canvas.SetLeft(_currentShape, x);
-                    Canvas.SetTop(_currentShape, y);
-                }
-                return mousePos;
+                _drawAspectRatioResult = value;
+                OnPropertyChanged(nameof(DrawAspectRatioResult));
             }
+        }
 
-            if (CurrentMethod == DrawMethod.Line)
+        public object RelativeAreaResult
+        {
+            get => _relativeAreaResult;
+            set
             {
-                if (_currentLine != null)
-                {
-                    Vector2 constrained = ApplyLineConstraint(_dragStart, mousePos);
-                    _currentLine.X2 = constrained.X;
-                    _currentLine.Y2 = constrained.Y;
-                }
-                return mousePos;
+                _relativeAreaResult = value;
+                OnPropertyChanged(nameof(RelativeAreaResult));
             }
+        }
+
+        private Vector2 ProcessShapeMouseMovement(Vector2 mousePos)
+        {
+            if (CurrentShape == ShapeConstraint.None || _currentShape == null)
+                return mousePos;
+
+            var (width, height) = GetConstrainedShapeSize(mousePos);
+            var (x, y) = GetShapePosition(mousePos, width, height);
+
+            _currentShape.Width = width;
+            _currentShape.Height = height;
+
+            Canvas.SetLeft(_currentShape, x);
+            Canvas.SetTop(_currentShape, y);
+
             return mousePos;
         }
 
-        public override List<UIElement> ProcessClick(Vector2 mousePos)
+        private List<UIElement> ProcessShapeClick(Vector2 mousePos)
         {
             List<UIElement> output = new();
 
-            switch (CurrentMethod)
-            {
-                // line mode selected
-                case DrawMethod.Line:
-                    return ProcessLineClick(mousePos, output);
-
-                // shape mode selected
-                case DrawMethod.Shape:
-                    return ProcessShapeClick(mousePos, output);
-
-                // no mode selected
-                default:
-                    return output;
-            }
-        }
-
-        private List<UIElement> ProcessLineClick(Vector2 mousePos, List<UIElement> output)
-        {
-            switch (CurrentStep)
-            {
-                case 0:
-                    _dragStart = mousePos;
-                    _currentLine = MakeLine(mousePos, mousePos);
-                    output.Add(_currentLine);
-                    CurrentOperation.Add(_currentLine);
-                    CurrentStep = 1;
-                    break;
-
-                case 1:
-                    Vector2 finalPoint = ApplyLineConstraint(_dragStart, mousePos);
-                    _currentLine.X2 = finalPoint.X;
-                    _currentLine.Y2 = finalPoint.Y;
-
-                    // Capture reference direction from first constrained line
-                    Vector2 rawDir = new Vector2(_currentLine.X2 - _currentLine.X1, _currentLine.Y2 - _currentLine.Y1);
-                    double lenSq = rawDir.X * rawDir.X + rawDir.Y * rawDir.Y;
-                    if (lenSq > 0.000001)
-                    {
-                        double len = Math.Sqrt(lenSq);
-                        rawDir = new Vector2(rawDir.X / len, rawDir.Y / len);
-                    }
-                    if (CurrentLineType != LineConstraint.None && !_hasReferenceLineDirection && lenSq > 0.000001)
-                    {
-                        _referenceLineDirection = rawDir;
-                        _hasReferenceLineDirection = true;
-                    }
-
-                    double dx = _currentLine.X2 - _currentLine.X1;
-                    double dy = _currentLine.Y2 - _currentLine.Y1;
-                    double length = Math.Sqrt(dx * dx + dy * dy);
-
-                    var prev = FindPreviousLine(0);
-                    LineLengthRatioResult = (prev != null && prev.LineLength > 0.00001)
-                        ? Math.Round(length / prev.LineLength, 2)
-                        : "N/A";
-
-                    CommitOperation(new LineOperation
-                    {
-                        OperationKind = "Lines",
-                        SourceMode = this,
-                        Elements = new List<UIElement>(CurrentOperation),
-                        LineLength = length,
-                        LineLengthRatio = LineLengthRatioResult
-                    });
-
-                    CurrentOperation.Clear();
-                    _currentLine = null;
-                    CurrentStep = 0;
-                    break;
-            }
-
-            return output;
-        }
-
-        private List<UIElement> ProcessShapeClick(Vector2 mousePos, List<UIElement> output)
-        {
             if (CurrentShape == ShapeConstraint.None)
                 return output;
 
@@ -371,16 +193,196 @@ namespace DinoLino.Utilities.Modes
                         SourceMode = this,
                         Elements = new List<UIElement>(CurrentOperation),
                         DrawAspectRatio = DrawAspectRatioResult,
+                        RelativeArea = RelativeAreaResult,
                         ShapeArea = _currentShapeArea
                     });
 
-                    CurrentOperation.Clear();
-                    _currentShape = null;
-                    CurrentStep = 0;
+                    FinishOperation();
                     break;
             }
 
             return output;
+        }
+
+        private (double x, double y) GetShapePosition(Vector2 mousePos,double width,double height)
+        {
+            double x = mousePos.X >= _dragStart.X
+                ? _dragStart.X
+                : _dragStart.X - width;
+
+            double y = mousePos.Y >= _dragStart.Y
+                ? _dragStart.Y
+                : _dragStart.Y - height;
+
+            return (x, y);
+        }
+
+        private Shape MakeShape(Vector2 start, Vector2 end)
+        {
+            double x = Math.Min(start.X, end.X);
+            double y = Math.Min(start.Y, end.Y);
+            double width = Math.Abs(end.X - start.X);
+            double height = Math.Abs(end.Y - start.Y);
+
+            Shape shape;
+            switch (CurrentShape)
+            {
+                case ShapeConstraint.Ellipse:
+                case ShapeConstraint.Circle:
+                    shape = new System.Windows.Shapes.Ellipse();
+                    break;
+                default:
+                    shape = new System.Windows.Shapes.Rectangle();
+                    break;
+            }
+
+            shape.Stroke = this.LineColor;
+            shape.StrokeThickness = 2;
+            shape.Width = width;
+            shape.Height = height;
+            Canvas.SetLeft(shape, x);
+            Canvas.SetTop(shape, y);
+
+            return shape;
+        }
+
+        private void RestoreShapeResultsFromHistory()
+        {
+            var prevShape = UndoRedoManager.History
+                .OfType<ShapeOperation>()
+                .LastOrDefault();
+
+            if (prevShape == null)
+            {
+                DrawAspectRatioResult = 0;
+                RelativeAreaResult = "N/A";
+                return;
+            }
+
+            DrawAspectRatioResult = prevShape.DrawAspectRatio;
+            RelativeAreaResult = prevShape.RelativeArea;
+        }
+
+        #endregion
+
+        #region Line Operations
+        //-----Line Operation Code-----//
+        // line type tracker
+        public enum LineConstraint
+        {
+            None,
+            Parallel,
+            Perpendicular,
+            AngleLocked
+        }
+        public LineConstraint CurrentLineType { get; set; } = LineConstraint.None;
+
+        // Tracking drawn elements
+        private Line _currentLine = null;
+        private Vector2 _referenceLineDirection;
+        private bool _hasReferenceLineDirection;
+        public double LockedAngleDegrees { get; set; } = 0;
+
+        // Bindable results of shape calculations
+        // private/public pairs used to handle propagation of results to UI bindings
+        private object _lineLengthRatioResult;
+
+        public object LineLengthRatioResult
+        {
+            get => _lineLengthRatioResult;
+            set
+            {
+                _lineLengthRatioResult = value;
+                OnPropertyChanged(nameof(LineLengthRatioResult));
+            }
+        }
+
+        private Vector2 ProcessLineMouseMovement(Vector2 mousePos)
+        {
+            if (_currentLine == null)
+                return mousePos;
+
+            Vector2 constrained = ApplyLineConstraint(_dragStart, mousePos);
+
+            _currentLine.X2 = constrained.X;
+            _currentLine.Y2 = constrained.Y;
+
+            return mousePos;
+        }
+
+        private List<UIElement> ProcessLineClick(Vector2 mousePos)
+        {
+            List<UIElement> output = new();
+            switch (CurrentStep)
+            {
+                case 0:
+                    _dragStart = mousePos;
+                    _currentLine = MakeLine(mousePos, mousePos);
+                    output.Add(_currentLine);
+                    CurrentOperation.Add(_currentLine);
+                    CurrentStep = 1;
+                    break;
+
+                case 1:
+                    Vector2 finalPoint = ApplyLineConstraint(_dragStart, mousePos);
+                    _currentLine.X2 = finalPoint.X;
+                    _currentLine.Y2 = finalPoint.Y;
+
+                    TryCaptureReferenceDirection();
+                    CommitLine();
+
+                    FinishOperation();
+                    break;
+            }
+            return output;
+        }
+
+        private void TryCaptureReferenceDirection()
+        {
+            if (CurrentLineType == LineConstraint.None || _hasReferenceLineDirection)
+                return;
+
+            Vector2 rawDir = new Vector2(_currentLine.X2 - _currentLine.X1, _currentLine.Y2 - _currentLine.Y1);
+            double lenSq = rawDir.X * rawDir.X + rawDir.Y * rawDir.Y;
+
+            if (lenSq <= 0.000001) return;
+
+            double len = Math.Sqrt(lenSq);
+            _referenceLineDirection = new Vector2(rawDir.X / len, rawDir.Y / len);
+            _hasReferenceLineDirection = true;
+        }
+
+        private void CommitLine()
+        {
+            double dx = _currentLine.X2 - _currentLine.X1;
+            double dy = _currentLine.Y2 - _currentLine.Y1;
+            double length = Math.Sqrt(dx * dx + dy * dy);
+
+            var prev = FindPreviousLine(0);
+            LineLengthRatioResult = (prev != null && prev.LineLength > 0.00001)
+                ? Math.Round(length / prev.LineLength, 2)
+                : "N/A";
+
+            CommitOperation(new LineOperation
+            {
+                OperationKind = "Lines",
+                SourceMode = this,
+                Elements = new List<UIElement>(CurrentOperation),
+                LineLength = length,
+                LineLengthRatio = LineLengthRatioResult
+            });
+        }
+
+        // Helper function to find the most recent line operation in history for line length ratio calculations
+        private LineOperation FindPreviousLine(int skipLast)
+        {
+            var prev = UndoRedoManager.History
+                    .Reverse()
+                    .Skip(skipLast)
+                    .OfType<LineOperation>()
+                    .FirstOrDefault(op => op.LineLength > 0.00001);
+
+            return prev;
         }
 
         // Helper function
@@ -440,56 +442,57 @@ namespace DinoLino.Utilities.Modes
             L.Y2 = b.Y;
             return L;
         }
-
         private Vector2 ConstrainToAngle(Vector2 origin, Vector2 mousePos, double angleDegrees)
         {
-            if (_hasReferenceLineDirection)
-            {
-                double baseAngleRadians = Math.Atan2(_referenceLineDirection.Y, _referenceLineDirection.X);
-                double offsetRadians = angleDegrees * Math.PI / 180.0;
-                double lockedRadians = baseAngleRadians + offsetRadians;
+            double baseAngleRadians = Math.Atan2(_referenceLineDirection.Y, _referenceLineDirection.X);
+            double lockedRadians = baseAngleRadians + angleDegrees * Math.PI / 180.0;
 
-                Vector2 direction = new Vector2(Math.Cos(lockedRadians), Math.Sin(lockedRadians));
-                Vector2 toMouse = mousePos - origin;
-                double magnitude = (toMouse.X * direction.X) + (toMouse.Y * direction.Y);
+            Vector2 direction = new Vector2(Math.Cos(lockedRadians), Math.Sin(lockedRadians));
+            Vector2 toMouse = mousePos - origin;
+            double magnitude = (toMouse.X * direction.X) + (toMouse.Y * direction.Y);
 
-                return new Vector2(origin.X + direction.X * magnitude, origin.Y + direction.Y * magnitude);
-            }
-            else
-            {
-                return mousePos; // no reference yet, fall back to free movement
-            }
+            return new Vector2(origin.X + direction.X * magnitude, origin.Y + direction.Y * magnitude);
         }
 
-        private Shape MakeShape(Vector2 start, Vector2 end)
+        private void HandleReferenceLineUndo(WorkOperation operation)
         {
-            double x = Math.Min(start.X, end.X);
-            double y = Math.Min(start.Y, end.Y);
-            double width = Math.Abs(end.X - start.X);
-            double height = Math.Abs(end.Y - start.Y);
+            if (operation is not LineOperation undone || undone.LineLength <= 0.00001)
+                return;
 
-            Shape shape;
-            switch (CurrentShape)
+            bool anyConstrainedLinesRemain = UndoRedoManager.History
+                .OfType<LineOperation>()
+                .Any(op => op.LineLength > 0.00001);
+
+            if (!anyConstrainedLinesRemain)
             {
-                case ShapeConstraint.Ellipse:
-                case ShapeConstraint.Circle:
-                    shape = new System.Windows.Shapes.Ellipse();
-                    break;
-                default:
-                    shape = new System.Windows.Shapes.Rectangle();
-                    break;
-            }    
-
-            shape.Stroke = this.LineColor;
-            shape.StrokeThickness = 2;
-            shape.Width = width;
-            shape.Height = height;
-            Canvas.SetLeft(shape, x);
-            Canvas.SetTop(shape, y);
-
-            return shape;
+                _hasReferenceLineDirection = false;
+                _referenceLineDirection = default;
+            }
         }
 
+        private void RestoreLineResultsFromHistory()
+        {
+            var prevLine = UndoRedoManager.History
+                .OfType<LineOperation>()
+                .LastOrDefault();
+
+            if (prevLine == null || prevLine.LineLength <= 0.00001)
+            {
+                LineLengthRatioResult = "N/A";
+                return;
+            }
+
+            var prevPrevLine = FindPreviousLine(1);
+
+            LineLengthRatioResult =
+                prevPrevLine != null
+                ? Math.Round(prevLine.LineLength / prevPrevLine.LineLength, 2)
+                : "N/A";
+        }
+
+        #endregion
+
+        #region Results
         private void CalculateAndUpdateResults(double width, double height)
         {
             double area;
@@ -515,9 +518,9 @@ namespace DinoLino.Utilities.Modes
                 .LastOrDefault();
 
             if (prev != null && prev.ShapeArea > 0.00001)
-                ShapeAreaResult = Math.Round(area / prev.ShapeArea, 2);
+                RelativeAreaResult = Math.Round(area / prev.ShapeArea, 2);
             else
-                ShapeAreaResult = "N/A";
+                RelativeAreaResult = "N/A";
         }
 
         public void BindDrawResults(
@@ -530,8 +533,9 @@ namespace DinoLino.Utilities.Modes
             lineLengthRatioOutput.DataContext = this;
 
             DrawAspectRatioOutput.SetBinding(Label.ContentProperty, new Binding(nameof(DrawAspectRatioResult)));
-            ShapeAreaOutput.SetBinding(Label.ContentProperty, new Binding(nameof(ShapeAreaResult)));
+            ShapeAreaOutput.SetBinding(Label.ContentProperty, new Binding(nameof(RelativeAreaResult)));
             lineLengthRatioOutput.SetBinding(Label.ContentProperty, new Binding(nameof(LineLengthRatioResult)));
         }
+        #endregion
     }
 }

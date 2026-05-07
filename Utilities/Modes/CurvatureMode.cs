@@ -13,14 +13,8 @@ namespace DinoLino.Utilities.Modes
 {
     public class CurvatureMode : WorkMode
     {
-        public override void ClearMetadata()
-        {
-            CentralAngleResult = 0;
-            AspectRatioResult = 0;
-            ChordArcRatioResult = 0;
-            TurningAngleResult = 0;
-            SChordArcRatioResult = 0;
-        }
+        #region Shared Curvature Infrastructure
+        //-----BROAD/SHARED CURVATURE SECTION-----//
 
         // enum for toggling between curvature methods
         public enum CurvatureMethod
@@ -30,11 +24,64 @@ namespace DinoLino.Utilities.Modes
             NPointSpline
         }
 
-        // set default to none until selection made
+        // set default nethod to none until selection made
         public CurvatureMethod CurrentMethod { get; set; } = CurvatureMethod.None;
 
         // Current UI line to modify during mouse move
         private Line CurrentUILine = null;
+
+        public override List<UIElement> ProcessClick(Vector2 mousePos)
+        {
+            return CurrentMethod switch
+            {
+                CurvatureMethod.NPointSpline => ProcessSplineClick(mousePos),
+                CurvatureMethod.ThreePointArc => ProcessArcClick(mousePos),
+                _ => new List<UIElement>()
+            };
+        }
+
+        public override Vector2 ProcessMouseMovement(Vector2 mousePos)
+        {
+            if (CurrentMethod == CurvatureMethod.None)
+                return mousePos;
+
+            Vector2 modifiedPos = mousePos;
+            switch (CurrentStep)
+            {
+                case 1:
+                    CurrentUILine.X2 = mousePos.X;
+                    CurrentUILine.Y2 = mousePos.Y;
+                    break;
+
+                case 2:
+
+                    // we want to lock everything to a given 2D vector
+                    // origin at the Midpoint, project down and across
+                    // we can do this by making a 2D vector of the mouse position, and dotting it to get the new magnitude
+                    // add normalized direction + scale to midpoint to get new point
+
+                    Vector2 toMouse = mousePos - Midpoint;
+                    double newMag = Orthoganal | toMouse;
+
+                    Vector2 newDist = Orthoganal * newMag;
+
+                    CurrentUILine.X2 = Midpoint.X + newDist.X;
+                    CurrentUILine.Y2 = Midpoint.Y + newDist.Y;
+                    modifiedPos = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
+                    break;
+
+            }
+            return modifiedPos;
+        }
+
+        public override void ClearMetadata()
+        {
+            CentralAngleResult = 0;
+            AspectRatioResult = 0;
+            ChordArcRatioResult = 0;
+            TurningAngleResult = 0;
+            SChordArcRatioResult = 0;
+        }
 
         protected override void OnOperationUndone(WorkOperation operation)
         {
@@ -66,6 +113,9 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
+        #endregion
+
+        #region 3 Point Arc Section
         //-----3-POINT ARC SECTION-----//
 
         // Tracking 3-click line groups 
@@ -345,9 +395,9 @@ namespace DinoLino.Utilities.Modes
             L.Y2 = b.Y;
             return L;
         }
+        #endregion
 
-
-
+        #region n-point spline section
         //-----N-POINT SPLINE SECTION-----//
         // Spline mode fields
         private List<Vector2> _splinePoints = new List<Vector2>();
@@ -595,53 +645,9 @@ namespace DinoLino.Utilities.Modes
 
             return chordLength > 0.00001 ? Math.Round(arcLength / chordLength, 2) : 0;
         }
+        #endregion
 
-        public override Vector2 ProcessMouseMovement(Vector2 mousePos)
-        {
-            if (CurrentMethod == CurvatureMethod.None)
-                return mousePos;
-
-            Vector2 modifiedPos = mousePos;
-            switch (CurrentStep)
-            {
-                case 1:
-                    CurrentUILine.X2 = mousePos.X;
-                    CurrentUILine.Y2 = mousePos.Y;
-                    break;
-
-                case 2:
-
-                    // we want to lock everything to a given 2D vector
-                    // origin at the Midpoint, project down and across
-                    // we can do this by making a 2D vector of the mouse position, and dotting it to get the new magnitude
-                    // add normalized direction + scale to midpoint to get new point
-
-                    Vector2 toMouse = mousePos - Midpoint;
-                    double newMag = Orthoganal | toMouse;
-
-                    Vector2 newDist = Orthoganal * newMag;
-
-                    CurrentUILine.X2 = Midpoint.X + newDist.X;
-                    CurrentUILine.Y2 = Midpoint.Y + newDist.Y;
-                    modifiedPos = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
-                    break;
-
-            }
-            return modifiedPos;
-        }
-
-        public override List<UIElement> ProcessClick(Vector2 mousePos)
-        {
-            return CurrentMethod switch
-            {
-                CurvatureMethod.NPointSpline => ProcessSplineClick(mousePos),
-                CurvatureMethod.ThreePointArc => ProcessArcClick(mousePos),
-                _ => new List<UIElement>()
-            };
-        }
-
-
-
+        #region curvature results
         //-----RESULTS-----//
         private void CalculateAndUpdateResults()
         {
@@ -710,5 +716,6 @@ namespace DinoLino.Utilities.Modes
             sChordArcRatioOutput.SetBinding(Label.ContentProperty, sChordArcRatioBind);
             sChordArcRatioOutput.DataContext = this;
         }
+        #endregion
     }
 }

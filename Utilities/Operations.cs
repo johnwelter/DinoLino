@@ -71,12 +71,14 @@ namespace DinoLino.Utilities.Operations
     public class ShapeOperation : WorkOperation
     {
         public double DrawAspectRatio { get; set; }
+        public object RelativeArea { get; set; }
         public double ShapeArea { get; set; }
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is DrawMode mode)
             {
-                mode.DrawAspectRatioResult = DrawAspectRatio;  
+                mode.DrawAspectRatioResult = DrawAspectRatio;
+                mode.RelativeAreaResult = RelativeArea;
             }
         }
     }
