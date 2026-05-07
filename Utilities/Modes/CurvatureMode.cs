@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Xml;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -21,21 +22,6 @@ namespace DinoLino.Utilities.Modes
             SChordArcRatioResult = 0;
         }
 
-        // theta label for central angle
-        private TextBlock MakeThetaLabel(Vector2 position)
-        {
-            TextBlock textBlock = new TextBlock();
-            textBlock.Text = "\u03B8"; // Unicode for Greek lowercase Theta
-            textBlock.Foreground = this.LineColor;
-            textBlock.FontSize = 22;
-            textBlock.FontWeight = FontWeights.Bold;
-            Canvas.SetLeft(textBlock, position.X - 7);
-            Canvas.SetTop(textBlock, position.Y - 30);
-            textBlock.TextAlignment = TextAlignment.Center;
-
-            return textBlock;
-        }
-
         // enum for toggling between curvature methods
         public enum CurvatureMethod
         {
@@ -47,18 +33,43 @@ namespace DinoLino.Utilities.Modes
         // set default to none until selection made
         public CurvatureMethod CurrentMethod { get; set; } = CurvatureMethod.None;
 
-        // Tracking 3-click line groups 
-        private List<UIElement> CurrentOperation = new List<UIElement>();
-
-        // Spline mode fields
-        private List<Vector2> _splinePoints = new List<Vector2>();
-        private List<UIElement> _splineDots = new List<UIElement>();
-        private UIElement _splinePreview = null;
-        private List<UIElement> _splineCurrentOperation = new List<UIElement>();
-
-
         // Current UI line to modify during mouse move
         private Line CurrentUILine = null;
+
+        protected override void OnOperationUndone(WorkOperation operation)
+        {
+            if (operation is CurvatureOperation)
+            {
+                CentralAngleResult = 0;
+                AspectRatioResult = 0;
+                ChordArcRatioResult = 0;
+            }
+            else if (operation is SplineOperation)
+            {
+                TurningAngleResult = 0;
+                SChordArcRatioResult = 0;
+            }
+        }
+
+        protected override void OnOperationRedone(WorkOperation operation)
+        {
+            if (operation is CurvatureOperation op)
+            {
+                CentralAngleResult = op.CentralAngle;
+                AspectRatioResult = op.AspectRatio;
+                ChordArcRatioResult = op.ChordArcRatio;
+            }
+            else if (operation is SplineOperation sop)
+            {
+                TurningAngleResult = sop.TurningAngle;
+                SChordArcRatioResult = sop.SChordArcRatio;
+            }
+        }
+
+        //-----3-POINT ARC SECTION-----//
+
+        // Tracking 3-click line groups 
+        private List<UIElement> CurrentOperation = new List<UIElement>();
 
         // All major POIs in generating curvature
         public Vector2 PointA;
@@ -67,36 +78,11 @@ namespace DinoLino.Utilities.Modes
         public Vector2 Orthoganal;
         public Vector2 PointC;
         public Vector2 Intersection;
-
         public Vector2 ACMid;
         public Vector2 BCMid;
 
-
         // Bindable results of curvature calculations
-
         // private/public pair used to handle propagation of results to UI bindings
-        private double _turningAngleResult;
-        public double TurningAngleResult
-        {
-            get => _turningAngleResult;
-            set
-            {
-                _turningAngleResult = value;
-                OnPropertyChanged(nameof(TurningAngleResult));
-            }
-        }
-
-        private double _sChordArcRatioResult;
-        public double SChordArcRatioResult
-        {
-            get => _sChordArcRatioResult;
-            set
-            {
-                _sChordArcRatioResult = value;
-                OnPropertyChanged(nameof(SChordArcRatioResult));
-            }
-        }
-
         private double _chordArcRatioResult;
         public double ChordArcRatioResult
         {
@@ -130,112 +116,11 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        protected override void OnOperationUndone(WorkOperation operation)
+        private List<UIElement> ProcessArcClick(Vector2 mousePos)
         {
-            if (operation is CurvatureOperation)
-            {
-                CentralAngleResult = 0;
-                AspectRatioResult = 0;
-                ChordArcRatioResult = 0;
-            }
-            else if (operation is SplineOperation)
-            {
-                TurningAngleResult = 0;
-                SChordArcRatioResult = 0;
-            }
-        }
-
-        protected override void OnOperationRedone(WorkOperation operation)
-        {
-            if (operation is CurvatureOperation op)
-            {
-                CentralAngleResult = op.CentralAngle;
-                AspectRatioResult = op.AspectRatio;
-                ChordArcRatioResult = op.ChordArcRatio;
-            }
-            else if (operation is SplineOperation sop)
-            {
-                TurningAngleResult = sop.TurningAngle;
-                SChordArcRatioResult = sop.SChordArcRatio;
-            }
-        }
-
-        // ---------- CURVATURE MODE ---------------- //
-
-        public override void Reset()
-        {
-            base.Reset();
-            CentralAngleResult = 0;
-            AspectRatioResult = 0;
-            TurningAngleResult = 0;
-            ChordArcRatioResult = 0;
-            SChordArcRatioResult = 0;
-            CurrentStep = 0;
-            CurrentUILine = null;
-            _splinePoints.Clear();
-            _splineDots.Clear();
-            _splinePreview = null;
-            _splineCurrentOperation.Clear();
-        }
-
-        public override void ResetDrawingState()
-        {
-            CurrentStep = 0;
-            CurrentUILine = null;
-            CurrentOperation.Clear();
-            _splinePoints.Clear();
-            _splineDots.Clear();
-            _splinePreview = null;
-            _splineCurrentOperation.Clear();
-        }
-
-        public override Vector2 ProcessMouseMovement(Vector2 mousePos)
-        {
-            if (CurrentMethod == CurvatureMethod.None)
-                return mousePos;
-
-            Vector2 modifiedPos = mousePos;
-            switch (CurrentStep)
-            {
-                case 1:
-                    CurrentUILine.X2 = mousePos.X;
-                    CurrentUILine.Y2 = mousePos.Y;
-                    break;
-
-                case 2:
-
-                    // we want to lock everything to a given 2D vector
-                    // origin at the Midpoint, project down and across
-                    // we can do this by making a 2D vector of the mouse position, and dotting it to get the new magnitude
-                    // add normalized direction + scale to midpoint to get new point
-
-                    Vector2 toMouse = mousePos - Midpoint;
-                    double newMag = Orthoganal | toMouse;
-
-                    Vector2 newDist = Orthoganal * newMag;
-
-                    CurrentUILine.X2 = Midpoint.X + newDist.X;
-                    CurrentUILine.Y2 = Midpoint.Y + newDist.Y;
-                    modifiedPos = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
-                    break;
-
-            }
-            return modifiedPos;
-        }
-
-        public override List<UIElement> ProcessClick(Vector2 mousePos)
-        {
-            if (CurrentMethod == CurvatureMethod.None)
-            {
-                return new List<UIElement>();
-            }
-
-            if (CurrentMethod == CurvatureMethod.NPointSpline)
-            {
-                return ProcessSplineClick(mousePos);
-            }
-
             List<UIElement> outputElements = new List<UIElement>();
+            ClearElementsToRemove();
+
             switch (CurrentStep)
             {
                 case 0: // Start the first chord
@@ -350,7 +235,160 @@ namespace DinoLino.Utilities.Modes
                     CurrentStep = 1;
                     break;
             }
+
             return outputElements;
+        }
+        public override void Reset()
+        {
+            base.Reset();
+            CentralAngleResult = 0;
+            AspectRatioResult = 0;
+            TurningAngleResult = 0;
+            ChordArcRatioResult = 0;
+            SChordArcRatioResult = 0;
+            CurrentStep = 0;
+            CurrentUILine = null;
+            _splinePoints.Clear();
+            _splineDots.Clear();
+            _splinePreview = null;
+            _splineCurrentOperation.Clear();
+        }
+
+        public override void ResetDrawingState()
+        {
+            CurrentStep = 0;
+            CurrentUILine = null;
+            CurrentOperation.Clear();
+            _splinePoints.Clear();
+            _splineDots.Clear();
+            _splinePreview = null;
+            _splineCurrentOperation.Clear();
+        }
+
+        // method to place theta label on central angle
+        private TextBlock MakeThetaLabel(Vector2 position)
+        {
+            TextBlock textBlock = new TextBlock();
+            textBlock.Text = "\u03B8"; // Unicode for Greek lowercase Theta
+            textBlock.Foreground = this.LineColor;
+            textBlock.FontSize = 22;
+            textBlock.FontWeight = FontWeights.Bold;
+            Canvas.SetLeft(textBlock, position.X - 7);
+            Canvas.SetTop(textBlock, position.Y - 30);
+            textBlock.TextAlignment = TextAlignment.Center;
+
+            return textBlock;
+        }
+
+        private Path MakeCircularArc(Vector2 center, Vector2 start, Vector2 end, double radius)
+        {
+            // SweepDirection 
+            double crossProduct = (PointC.X - start.X) * (end.Y - start.Y) - (PointC.Y - start.Y) * (end.X - start.X);
+            SweepDirection direction = crossProduct > 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
+
+            // A 3-point arc is >180 degrees if the center point lies inside triangle ABC
+            bool isLargeArc = IsPointInTriangle(center, start, end, PointC);
+
+            var figure = new PathFigure();
+            figure.StartPoint = new Point(start.X, start.Y);
+
+            var arc = new ArcSegment
+            {
+                Point = new Point(end.X, end.Y),
+                Size = new Size(radius, radius),
+                RotationAngle = 0,
+                IsLargeArc = isLargeArc,
+                SweepDirection = direction,
+                IsStroked = true
+            };
+
+            figure.Segments.Add(arc);
+
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+
+            return new Path
+            {
+                Stroke = this.LineColor,
+                StrokeThickness = 2,
+                Data = geometry
+            };
+        }
+
+        // Helper function to check if center is inside the ABC triangle
+        private bool IsPointInTriangle(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
+        {
+            double d1 = Sign(p, a, b);
+            double d2 = Sign(p, b, c);
+            double d3 = Sign(p, c, a);
+
+            bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+            bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+            return !(has_neg && has_pos);
+        }
+
+        // Helper function to check the sign of the area formed by three points
+        private double Sign(Vector2 p1, Vector2 p2, Vector2 p3)
+        {
+            return (p1.X - p3.X) * (p2.Y - p3.Y) - (p2.X - p3.X) * (p1.Y - p3.Y);
+        }
+
+        private Line MakeLine(Vector2 a, Vector2 b)
+        {
+            Line L = new();
+            L.Stroke = this.LineColor;
+            L.StrokeThickness = 2;
+            L.X1 = a.X;
+            L.Y1 = a.Y;
+            L.X2 = b.X;
+            L.Y2 = b.Y;
+            return L;
+        }
+
+
+
+        //-----N-POINT SPLINE SECTION-----//
+        // Spline mode fields
+        private List<Vector2> _splinePoints = new List<Vector2>();
+        private List<UIElement> _splineDots = new List<UIElement>();
+        private UIElement _splinePreview = null;
+        private List<UIElement> _splineCurrentOperation = new List<UIElement>();
+
+
+        // Bindable results of curvature calculations
+        // private/public pair used to handle propagation of results to UI bindings
+        private double _turningAngleResult;
+        public double TurningAngleResult
+        {
+            get => _turningAngleResult;
+            set
+            {
+                _turningAngleResult = value;
+                OnPropertyChanged(nameof(TurningAngleResult));
+            }
+        }
+
+        private double _sChordArcRatioResult;
+        public double SChordArcRatioResult
+        {
+            get => _sChordArcRatioResult;
+            set
+            {
+                _sChordArcRatioResult = value;
+                OnPropertyChanged(nameof(SChordArcRatioResult));
+            }
+        }
+
+        private Ellipse MakeDot(Vector2 pos)
+        {
+            Ellipse dot = new Ellipse();
+            dot.Fill = this.LineColor;
+            dot.Width = 8;
+            dot.Height = 8;
+            Canvas.SetLeft(dot, pos.X - 4);
+            Canvas.SetTop(dot, pos.Y - 4);
+            return dot;
         }
 
         private List<UIElement> ProcessSplineClick(Vector2 mousePos)
@@ -509,83 +547,6 @@ namespace DinoLino.Utilities.Modes
             };
         }
 
-        private Path MakeCircularArc(Vector2 center, Vector2 start, Vector2 end, double radius)
-        {
-            // SweepDirection 
-            double crossProduct = (PointC.X - start.X) * (end.Y - start.Y) - (PointC.Y - start.Y) * (end.X - start.X);
-            SweepDirection direction = crossProduct > 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
-
-            // A 3-point arc is >180 degrees if the center point lies inside triangle ABC
-            bool isLargeArc = IsPointInTriangle(center, start, end, PointC);
-
-            var figure = new PathFigure();
-            figure.StartPoint = new Point(start.X, start.Y);
-
-            var arc = new ArcSegment
-            {
-                Point = new Point(end.X, end.Y),
-                Size = new Size(radius, radius),
-                RotationAngle = 0,
-                IsLargeArc = isLargeArc,
-                SweepDirection = direction,
-                IsStroked = true
-            };
-
-            figure.Segments.Add(arc);
-
-            var geometry = new PathGeometry();
-            geometry.Figures.Add(figure);
-
-            return new Path
-            {
-                Stroke = this.LineColor,
-                StrokeThickness = 2,
-                Data = geometry
-            };
-        }
-
-        // Helper function to check if center is inside the ABC triangle
-        private bool IsPointInTriangle(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
-        {
-            double d1 = Sign(p, a, b);
-            double d2 = Sign(p, b, c);
-            double d3 = Sign(p, c, a);
-
-            bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-            bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-
-            return !(has_neg && has_pos);
-        }
-
-        // Helper function to check the sign of the area formed by three points
-        private double Sign(Vector2 p1, Vector2 p2, Vector2 p3)
-        {
-            return (p1.X - p3.X) * (p2.Y - p3.Y) - (p2.X - p3.X) * (p1.Y - p3.Y);
-        }
-
-        private Line MakeLine(Vector2 a, Vector2 b)
-        {
-            Line L = new();
-            L.Stroke = this.LineColor;
-            L.StrokeThickness = 2;
-            L.X1 = a.X;
-            L.Y1 = a.Y;
-            L.X2 = b.X;
-            L.Y2 = b.Y;
-            return L;
-        }
-
-        private Ellipse MakeDot(Vector2 pos)
-        {
-            Ellipse dot = new Ellipse();
-            dot.Fill = this.LineColor;
-            dot.Width = 8;
-            dot.Height = 8;
-            Canvas.SetLeft(dot, pos.X - 4);
-            Canvas.SetTop(dot, pos.Y - 4);
-            return dot;
-        }
-
         private double CalculateTurningAngle(List<Vector2> points)
         {
             if (points.Count < 3) return 0;
@@ -635,6 +596,53 @@ namespace DinoLino.Utilities.Modes
             return chordLength > 0.00001 ? Math.Round(arcLength / chordLength, 2) : 0;
         }
 
+        public override Vector2 ProcessMouseMovement(Vector2 mousePos)
+        {
+            if (CurrentMethod == CurvatureMethod.None)
+                return mousePos;
+
+            Vector2 modifiedPos = mousePos;
+            switch (CurrentStep)
+            {
+                case 1:
+                    CurrentUILine.X2 = mousePos.X;
+                    CurrentUILine.Y2 = mousePos.Y;
+                    break;
+
+                case 2:
+
+                    // we want to lock everything to a given 2D vector
+                    // origin at the Midpoint, project down and across
+                    // we can do this by making a 2D vector of the mouse position, and dotting it to get the new magnitude
+                    // add normalized direction + scale to midpoint to get new point
+
+                    Vector2 toMouse = mousePos - Midpoint;
+                    double newMag = Orthoganal | toMouse;
+
+                    Vector2 newDist = Orthoganal * newMag;
+
+                    CurrentUILine.X2 = Midpoint.X + newDist.X;
+                    CurrentUILine.Y2 = Midpoint.Y + newDist.Y;
+                    modifiedPos = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
+                    break;
+
+            }
+            return modifiedPos;
+        }
+
+        public override List<UIElement> ProcessClick(Vector2 mousePos)
+        {
+            return CurrentMethod switch
+            {
+                CurvatureMethod.NPointSpline => ProcessSplineClick(mousePos),
+                CurvatureMethod.ThreePointArc => ProcessArcClick(mousePos),
+                _ => new List<UIElement>()
+            };
+        }
+
+
+
+        //-----RESULTS-----//
         private void CalculateAndUpdateResults()
         {
             // use Atan2 to get absolute polar angles
