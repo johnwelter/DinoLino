@@ -54,6 +54,7 @@ namespace DinoLino.Utilities.Operations
         public double AngleC { get; set; }
         public double TriAspectRatio { get; set; }
         public double TriArea { get; set; }
+        public object RelativeArea { get; set; }
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is GetAngleMode mode)
@@ -62,25 +63,34 @@ namespace DinoLino.Utilities.Operations
                 mode.AngleBResult = AngleB;
                 mode.AngleCResult = AngleC;
                 mode.TriAspectRatioResult = TriAspectRatio;
-                // For relative area, you might need a different approach
-                mode.RelativeAreaResult = TriArea > 0.00001 ? TriArea.ToString() : "N/A";
+                mode.RelativeAreaResult = RelativeArea;
             }
         }
     }
 
-    public class DrawOperation : WorkOperation
+    public class ShapeOperation : WorkOperation
     {
         public double DrawAspectRatio { get; set; }
         public double ShapeArea { get; set; }
-        public double LineLength { get; set; }
-        public Vector2 LineDirection { get; set; }
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is DrawMode mode)
             {
-                mode.DrawAspectRatioResult = DrawAspectRatio;
-                mode.ShapeAreaResult = ShapeArea > 0.00001 ? ShapeArea.ToString() : "N/A";
-                // LineLengthRatio might need history context
+                mode.DrawAspectRatioResult = DrawAspectRatio;  
+            }
+        }
+    }
+
+    public class LineOperation : WorkOperation
+    {
+        public double LineLength { get; set; }
+        public Vector2 LineDirection { get; set; }
+        public object LineLengthRatio { get; set; }
+        public override void ApplyMetadataToMode()
+        {
+            if (SourceMode is DrawMode mode)
+            {
+                mode.LineLengthRatioResult = LineLengthRatio;
             }
         }
     }

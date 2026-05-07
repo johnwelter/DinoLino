@@ -56,7 +56,7 @@ namespace DinoLino.Utilities.Modes
                 AngleBResult = op.AngleB;
                 AngleCResult = op.AngleC;
                 TriAspectRatioResult = op.TriAspectRatio;
-                RelativeAreaResult = op.TriArea > 0.00001 ? op.TriArea.ToString() : "N/A";
+                RelativeAreaResult = op.RelativeArea;
             }
         }
 
@@ -232,7 +232,8 @@ namespace DinoLino.Utilities.Modes
                         AngleB = AngleBResult,
                         AngleC = AngleCResult,
                         TriAspectRatio = TriAspectRatioResult,
-                        TriArea = _currentArea
+                        TriArea = _currentArea,
+                        RelativeArea = RelativeAreaResult
                     });
 
                     CurrentOperation.Clear();

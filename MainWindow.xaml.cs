@@ -391,36 +391,28 @@ namespace DinoLino
 
         // radio buttons
         // Draw Mode
+
+        private void DrawMethod_Checked(object sender, RoutedEventArgs e)
+        {
+            if (sender is RadioButton rb && Enum.TryParse(rb.Tag.ToString(), out DrawMode.DrawMethod selectedMethod))
+            {
+                DrawMode.CurrentMethod = selectedMethod;
+                DrawMode.ResetDrawingState();
+            }
+        }
+
         private void Shape_Checked(object sender, RoutedEventArgs e)
         {
-            if (sender is RadioButton rb && Enum.TryParse(rb.Tag.ToString(), out DrawMode.DrawShape selectedShape))
+            if (sender is RadioButton rb && Enum.TryParse(rb.Tag.ToString(), out DrawMode.ShapeConstraint selectedShape))
             {
                 DrawMode.CurrentShape = selectedShape;
                 DrawMode.ResetDrawingState();
             }
         }
 
-        private void DrawNone_Checked(object sender, RoutedEventArgs e)
-        {
-            DrawMode.CurrentShape = DrawMode.DrawShape.None;
-            DrawMode.ResetDrawingState();
-        }
-
-        
-        private void DrawAngle_Checked(object sender, RoutedEventArgs e)
-        {
-            DrawMode.CurrentShape = DrawMode.DrawShape.Angle;
-            DrawMode.UpdateAngle(UI_DrawAngleValue.Text);
-        }
-
         private void DrawAngleValue_TextChanged(object sender, TextChangedEventArgs e)
         {
             DrawMode.UpdateAngle(UI_DrawAngleValue.Text);
-        }
-
-        private void Line_Checked(object sender, RoutedEventArgs e)
-        {
-            DrawMode.CurrentShape = DrawMode.DrawShape.Line;
         }
 
         private void LineConstraint_Checked(object sender, RoutedEventArgs e)
@@ -429,11 +421,10 @@ namespace DinoLino
 
             if (sender is RadioButton rb && Enum.TryParse(rb.Tag.ToString(), out DrawMode.LineConstraint selectedConstraint))
             {
-                DrawMode.CurrentLineConstraint = selectedConstraint;
+                DrawMode.CurrentLineType = selectedConstraint;
                 DrawMode.ResetDrawingState();
             }
         }
-
 
 
         // Curvature Mode
