@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -287,6 +288,14 @@ namespace DinoLino
             {
                 var brush = (Brush)new BrushConverter().ConvertFromString(rb.Tag.ToString());
                 CurrentWorkMode.LineColor = brush;
+            }
+        }
+
+        private void Menu_FontSize_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is RadioButton rb && double.TryParse(rb.Tag.ToString(), out double size))
+            {
+                TextElement.SetFontSize(UI_ControlPanel, size);
             }
         }
         #endregion
