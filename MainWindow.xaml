@@ -24,7 +24,7 @@
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Open Image" Click="Menu_OpenImage"/>
-            </MenuItem>a
+            </MenuItem>
             <MenuItem Header="_Edit" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Undo" x:Name="UI_MenuUndo" Click="Menu_Undo"/>
                 <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"/>
@@ -78,17 +78,9 @@
             <StackPanel x:Name="UI_ControlPanel" Grid.Column="0" TextElement.FontSize="16">
 
                 <!-- Controls that aren't dependent on mode type  -->
+                <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
                 <StackPanel x:Name="UI_GlobalControls">
-                    <StackPanel.Resources>
-                        <Style TargetType="{x:Type Button}">
-                            <Setter Property="Margin" Value="36,10,36,10"/>
-                            <Setter Property="Height" Value="36"/>
-                        </Style>
-                    </StackPanel.Resources>
-
-                    <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
-                    <Button x:Name="UI_AAClearButton" Content="Clear" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
-
+                    <TextBox x:Name="UI_SpecimenNameBox" Text="Specimen 1" MaxLength="15" Margin="10,10,10,10"/>
                 </StackPanel>
 
                 <!-- Mode tabs -->
@@ -144,7 +136,8 @@
                                 </StackPanel>
                                 <RadioButton Content="n-Point Spline" GroupName="Curve" x:Name="UI_SplineNPoint" Checked="nPointSpline_Checked" Height="25" FontWeight="Bold"/>
                                 <StackPanel x:Name="UI_TurningAngleOutput" Orientation="Horizontal" Margin ="10,0,0,0">
-                                    <Label x:Name="UI_TurningAngleOutputLabel" Content="Turning Angle:"/> <!-- Note: turning angle isn't exactly the right term but idk if I can add greek letters -->
+                                    <Label x:Name="UI_TurningAngleOutputLabel" Content="Turning Angle:"/>
+                                    <!-- Note: turning angle isn't exactly the right term but idk if I can add greek letters -->
                                     <Label x:Name="UI_TurningAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175"/>
                                 </StackPanel>
                                 <StackPanel x:Name="UI_SChordArcRatioOutput" Orientation="Horizontal" Margin ="10,0,0,0">
@@ -225,6 +218,7 @@
                         </StackPanel>
                     </TabItem>
                 </TabControl>
+                <Button x:Name="UI_AAClearButton" Content="Clear" Margin="36,10,36,10" Height="36" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
             </StackPanel>
             <GridSplitter Grid.Column="1"
                   Width="4"

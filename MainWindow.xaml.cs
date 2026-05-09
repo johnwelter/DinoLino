@@ -23,6 +23,9 @@ namespace DinoLino
     {
         public UndoRedoManager UndoRedoManager;
 
+        // Tracks how many images have been opened
+        private int _specimenCount = 0;
+
         // Current working image in the workspace
         public BitmapImage WorkingImage;
 
@@ -165,6 +168,7 @@ namespace DinoLino
                 Menu_OpenImage(this, new RoutedEventArgs());
                 e.Handled = true;
             }
+
             // Ctrl + Z to undo
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Z)
             {
@@ -187,8 +191,11 @@ namespace DinoLino
 
             if (openFileDialog.ShowDialog() == true)
             {
+                _specimenCount++;
+
                 WorkingImage = new BitmapImage(new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));
                 UI_WorkImage.Source = WorkingImage;
+                UI_SpecimenNameBox.Text = $"Specimen {_specimenCount}";
             }
 
             ResetWorkSpaceZoom();
