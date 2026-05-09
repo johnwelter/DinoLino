@@ -7,7 +7,8 @@
     xmlns:System="clr-namespace:System;assembly=mscorlib" xmlns:core="http://schemas.microsoft.com/winfx/2009/xaml" x:Class="DinoLino.MainWindow"
     mc:Ignorable="d"
     Title="DinoLino" Height="584.24" Width="1062.441"
-    ResizeMode="NoResize">
+    MinWidth="800" MinHeight="500"
+    ResizeMode="CanResize">
 
     <DockPanel>
 
@@ -23,7 +24,7 @@
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Open Image" Click="Menu_OpenImage"/>
-            </MenuItem>
+            </MenuItem>a
             <MenuItem Header="_Edit" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Undo" x:Name="UI_MenuUndo" Click="Menu_Undo"/>
                 <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"/>
@@ -61,8 +62,9 @@
 
         <Grid x:Name="UI_MainWindow">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="0.5*"/>
-                <ColumnDefinition Width="2.5*"/>
+                <ColumnDefinition Width="0.25*" MinWidth="150"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
             <!-- Controls Panel: toolbars and outputs for different controls and modes-->
@@ -217,8 +219,15 @@
                     </TabItem>
                 </TabControl>
             </StackPanel>
-
-            <Grid x:Name="UI_WorkSpace" Grid.Column="1" ClipToBounds="True">
+            <GridSplitter Grid.Column="1"
+                  Width="4"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch"
+                  Background="DarkGray"
+                  ResizeDirection="Columns"
+                  ResizeBehavior="PreviousAndNext"
+                  Cursor="SizeWE"/>
+            <Grid x:Name="UI_WorkSpace" Grid.Column="2" ClipToBounds="True">
                 <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseWheel="WorkSpace_ScrollZoom">
                     <Border x:Name ="UI_WorkBorder" BorderBrush="White" BorderThickness="3" Panel.ZIndex="10" Width="{Binding ActualWidth, ElementName=UI_WorkImage, Mode=OneWay}" Height="{Binding ActualHeight, ElementName=UI_WorkImage, Mode=OneWay}">
                         <Canvas x:Name="UI_WorkCanvas" Focusable="True"/>
