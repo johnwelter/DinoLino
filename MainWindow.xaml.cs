@@ -61,7 +61,10 @@ namespace DinoLino
 
             // Initiate curvature mode and make appropriate bindings
             CurvatureMode = new();
-            CurvatureMode.BindCurvatureResults(UI_CurveAngleOutputValue, UI_AspectRatioOutputValue, UI_TurningAngleOutputValue, UI_SChordArcRatioOutputValue, UI_ChordArcRatioOutputValue);
+            CurvatureMode.BindCurvatureResults(
+                UI_CurveAngleOutputValue, UI_ChordArcRatioOutputValue, UI_AspectRatioOutputValue, // circular arc metadata
+                UI_XYFunctionOutputValue, UI_PChordArcRatioOutputValue, UI_RiseSpanRatioOutputValue, UI_VertexCurvatureOutputValue, // parabolic arc metadata
+                UI_TurningAngleOutputValue, UI_SChordArcRatioOutputValue); // spline metadata
 
             GetAngleMode = new();
             GetAngleMode.BindAngleResults(UI_TriAngleOutputValue1, UI_TriAngleOutputValue2, UI_TriAngleOutputValue3, UI_TriAspectRatioValue, UI_TriAreaRatioValue);
@@ -426,7 +429,6 @@ namespace DinoLino
             }
         }
 
-
         // Curvature Mode
         private void CurvNone_Checked(object sender, RoutedEventArgs e)
         {
@@ -434,9 +436,17 @@ namespace DinoLino
             CurvatureMode.ResetDrawingState();
         }
 
-        private void ThreePointArc_Checked(object sender, RoutedEventArgs e)
+        private void CircularArc_Checked(object sender, RoutedEventArgs e)
         {
-            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.ThreePointArc;
+            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.CircularArc;
+            CurvatureMode.CurrentStep = 0;
+            CurvatureMode.ResetDrawingState();
+        }
+
+        private void ParabolicArc_Checked(object sender, RoutedEventArgs e)
+        {
+            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.ParabolicArc;
+            CurvatureMode.CurrentStep = 0;
             CurvatureMode.ResetDrawingState();
         }
 

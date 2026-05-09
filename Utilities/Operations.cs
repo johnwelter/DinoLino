@@ -16,7 +16,7 @@ namespace DinoLino.Utilities.Operations
         public abstract void ApplyMetadataToMode();
     }
     
-    public class CurvatureOperation : WorkOperation
+    public class CircularArcOperation : WorkOperation
     {
         public double CentralAngle { get; set; }
         public double AspectRatio { get; set; }
@@ -28,6 +28,24 @@ namespace DinoLino.Utilities.Operations
                 mode.CentralAngleResult = CentralAngle;
                 mode.AspectRatioResult = AspectRatio;
                 mode.ChordArcRatioResult = ChordArcRatio;
+            }
+        }
+    }
+
+    public class ParabolaOperation : WorkOperation
+    {
+        public string XYFunction { get; set; }
+        public double RiseSpanRatio { get; set; }
+        public double PChordArcRatio { get; set; }
+        public double VertexCurvature { get; set; }
+        public override void ApplyMetadataToMode()
+        {
+            if (SourceMode is CurvatureMode mode)
+            {
+                mode.XYFunctionResult = XYFunction;
+                mode.RiseSpanRatioResult = RiseSpanRatio;
+                mode.PChordArcRatioResult = PChordArcRatio;
+                mode.VertexCurvatureResult = VertexCurvature;
             }
         }
     }

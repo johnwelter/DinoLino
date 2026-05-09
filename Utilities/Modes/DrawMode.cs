@@ -8,7 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Shapes;
-using static DinoLino.Utilities.Modes.CurvatureMode;
+
 
 namespace DinoLino.Utilities.Modes
 {

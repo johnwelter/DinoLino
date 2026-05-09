@@ -20,7 +20,8 @@ namespace DinoLino.Utilities.Modes
         public enum CurvatureMethod
         {
             None,
-            ThreePointArc,
+            CircularArc,
+            ParabolicArc,
             NPointSpline
         }
 
@@ -35,7 +36,8 @@ namespace DinoLino.Utilities.Modes
             return CurrentMethod switch
             {
                 CurvatureMethod.NPointSpline => ProcessSplineClick(mousePos),
-                CurvatureMethod.ThreePointArc => ProcessArcClick(mousePos),
+                CurvatureMethod.CircularArc => ProcessCircArcClick(mousePos),
+                CurvatureMethod.ParabolicArc => ProcessParArcClick(mousePos),
                 _ => new List<UIElement>()
             };
         }
@@ -44,6 +46,8 @@ namespace DinoLino.Utilities.Modes
         {
             if (CurrentMethod == CurvatureMethod.None)
                 return mousePos;
+
+            if (CurrentUILine == null) return mousePos;
 
             Vector2 modifiedPos = mousePos;
             switch (CurrentStep)
@@ -74,22 +78,53 @@ namespace DinoLino.Utilities.Modes
             return modifiedPos;
         }
 
+        private Line MakeLine(Vector2 a, Vector2 b)
+        {
+            Line L = new();
+            L.Stroke = this.LineColor;
+            L.StrokeThickness = 2;
+            L.X1 = a.X;
+            L.Y1 = a.Y;
+            L.X2 = b.X;
+            L.Y2 = b.Y;
+            return L;
+        }
+
+        private double ComputeArcLength(List<Vector2> points)
+        {
+            double length = 0;
+            for (int i = 1; i < points.Count; i++)
+                length += (points[i] - points[i - 1]).Magnitude();
+            return length;
+        }
+
         public override void ClearMetadata()
         {
             CentralAngleResult = 0;
             AspectRatioResult = 0;
             ChordArcRatioResult = 0;
+            XYFunctionResult = "";
+            PChordArcRatioResult = 0;
+            RiseSpanRatioResult = 0;
+            VertexCurvatureResult = 0;
             TurningAngleResult = 0;
             SChordArcRatioResult = 0;
         }
 
         protected override void OnOperationUndone(WorkOperation operation)
         {
-            if (operation is CurvatureOperation)
+            if (operation is CircularArcOperation)
             {
                 CentralAngleResult = 0;
                 AspectRatioResult = 0;
                 ChordArcRatioResult = 0;
+            }
+            else if (operation is ParabolaOperation)
+            {
+                XYFunctionResult = "";
+                RiseSpanRatioResult = 0;
+                PChordArcRatioResult = 0;
+                VertexCurvatureResult = 0;
             }
             else if (operation is SplineOperation)
             {
@@ -100,12 +135,20 @@ namespace DinoLino.Utilities.Modes
 
         protected override void OnOperationRedone(WorkOperation operation)
         {
-            if (operation is CurvatureOperation op)
+            if (operation is CircularArcOperation op)
             {
                 CentralAngleResult = op.CentralAngle;
                 AspectRatioResult = op.AspectRatio;
                 ChordArcRatioResult = op.ChordArcRatio;
             }
+            else if (operation is ParabolaOperation pop)
+            {
+                XYFunctionResult = pop.XYFunction;
+                RiseSpanRatioResult = pop.RiseSpanRatio;
+                PChordArcRatioResult = pop.PChordArcRatio;
+                VertexCurvatureResult = pop.VertexCurvature;
+            }
+
             else if (operation is SplineOperation sop)
             {
                 TurningAngleResult = sop.TurningAngle;
@@ -113,10 +156,27 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
+        public override void ResetDrawingState()
+        {
+            CurrentStep = 0;
+            CurrentUILine = null;
+            CurrentOperation.Clear();
+            _splinePoints.Clear();
+            _splineDots.Clear();
+            _splinePreview = null;
+            _splineCurrentOperation.Clear();
+        }
+
+        public override void Reset()
+        {
+            base.Reset();
+            ClearMetadata();
+            ResetDrawingState();
+        }
         #endregion
 
-        #region 3 Point Arc Section
-        //-----3-POINT ARC SECTION-----//
+        #region 3-Point Arc Section
+        //-----THREE-POINT ARC SECTION-----//
 
         // Tracking 3-click line groups 
         private List<UIElement> CurrentOperation = new List<UIElement>();
@@ -130,6 +190,43 @@ namespace DinoLino.Utilities.Modes
         public Vector2 Intersection;
         public Vector2 ACMid;
         public Vector2 BCMid;
+
+        // Helper functions
+        private void StartChord(Vector2 mousePos, List<UIElement> outputElements)
+        {
+            PointA = new Vector2(mousePos.X, mousePos.Y);
+            CurrentUILine = MakeLine(mousePos, mousePos);
+            outputElements.Add(CurrentUILine);
+            CurrentOperation.Add(CurrentUILine);
+            CurrentStep++;
+        }
+
+        private void FinishChord(Vector2 mousePos, List<UIElement> outputElements)
+        {
+            CurrentUILine.X2 = mousePos.X;
+            CurrentUILine.Y2 = mousePos.Y;
+            PointB = mousePos;
+        }
+
+        private void StartBisector(Vector2 mousePos, List<UIElement> outputElements)
+        {
+            Midpoint = (PointA + PointB) * 0.5;
+            CurrentUILine = MakeLine(Midpoint, Midpoint);
+            outputElements.Add(CurrentUILine);
+            CurrentOperation.Add(CurrentUILine);
+
+            // make the orthoganal
+            Vector3 p1 = new Vector3(PointA.X, PointA.Y, 1);
+            Vector3 p2 = new Vector3(PointB.X, PointB.Y, 1);
+            Orthoganal = (p1 ^ p2).ToVector2();
+            Orthoganal.Normalize();
+
+            CurrentStep++;
+        }
+       
+
+        #region Circular Arc Section
+        //-----CIRCULAR ARCS-----//
 
         // Bindable results of curvature calculations
         // private/public pair used to handle propagation of results to UI bindings
@@ -166,7 +263,7 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        private List<UIElement> ProcessArcClick(Vector2 mousePos)
+        private List<UIElement> ProcessCircArcClick(Vector2 mousePos)
         {
             List<UIElement> outputElements = new List<UIElement>();
             ClearElementsToRemove();
@@ -175,34 +272,18 @@ namespace DinoLino.Utilities.Modes
             {
                 case 0: // Start the first chord
 
-                    PointA = new Vector2(mousePos.X, mousePos.Y);
-                    CurrentUILine = MakeLine(mousePos, mousePos);
-                    outputElements.Add(CurrentUILine);
-                    CurrentOperation.Add(CurrentUILine);
-                    CurrentStep++;
+                    StartChord(mousePos, outputElements);
                     break;
 
-                case 1: // End the first chord, find the midpoint, and start the bisector line 
+                case 1: // End the first chord and start the bisector line 
 
-                    CurrentUILine.X2 = mousePos.X;
-                    CurrentUILine.Y2 = mousePos.Y;
-                    PointB = new Vector2(mousePos.X, mousePos.Y);
-                    Midpoint = (PointA + PointB) * 0.5;
-                    CurrentUILine = MakeLine(Midpoint, Midpoint);
-                    outputElements.Add(CurrentUILine);
-                    CurrentOperation.Add(CurrentUILine);
-
-                    // make the orthoganal
-                    Vector3 p1 = new Vector3(PointA.X, PointA.Y, 1);
-                    Vector3 p2 = new Vector3(PointB.X, PointB.Y, 1);
-                    Orthoganal = (p1 ^ p2).ToVector2();
-                    Orthoganal.Normalize();
-
-                    CurrentStep++;
+                    FinishChord(mousePos, outputElements);
+                    StartBisector(mousePos, outputElements);
                     break;
 
                 case 2: // Send Bisector line, calculate all remaining POIs, and calculate the final results.
 
+                    // finish bisector
                     PointC = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
 
                     //midpoints for those lines
@@ -257,14 +338,14 @@ namespace DinoLino.Utilities.Modes
                     CurrentOperation.Add(line5);
                     CurrentOperation.Add(line6);
 
-                    CalculateAndUpdateResults();
+                    CalculateCircularArcResults();
 
                     CurrentStep++;
 
                     // add to history
-                    CommitOperation(new CurvatureOperation
+                    CommitOperation(new CircularArcOperation
                     {
-                        OperationKind = "3-Point Arc",
+                        OperationKind = "Circular Arc",
                         SourceMode = this,
                         Elements = new List<UIElement>(CurrentOperation),
                         CentralAngle = CentralAngleResult,
@@ -287,32 +368,6 @@ namespace DinoLino.Utilities.Modes
             }
 
             return outputElements;
-        }
-        public override void Reset()
-        {
-            base.Reset();
-            CentralAngleResult = 0;
-            AspectRatioResult = 0;
-            TurningAngleResult = 0;
-            ChordArcRatioResult = 0;
-            SChordArcRatioResult = 0;
-            CurrentStep = 0;
-            CurrentUILine = null;
-            _splinePoints.Clear();
-            _splineDots.Clear();
-            _splinePreview = null;
-            _splineCurrentOperation.Clear();
-        }
-
-        public override void ResetDrawingState()
-        {
-            CurrentStep = 0;
-            CurrentUILine = null;
-            CurrentOperation.Clear();
-            _splinePoints.Clear();
-            _splineDots.Clear();
-            _splinePreview = null;
-            _splineCurrentOperation.Clear();
         }
 
         // method to place theta label on central angle
@@ -384,18 +439,245 @@ namespace DinoLino.Utilities.Modes
             return (p1.X - p3.X) * (p2.Y - p3.Y) - (p2.X - p3.X) * (p1.Y - p3.Y);
         }
 
-        private Line MakeLine(Vector2 a, Vector2 b)
+        // function to calculate results
+        private void CalculateCircularArcResults()
         {
-            Line L = new();
-            L.Stroke = this.LineColor;
-            L.StrokeThickness = 2;
-            L.X1 = a.X;
-            L.Y1 = a.Y;
-            L.X2 = b.X;
-            L.Y2 = b.Y;
-            return L;
+            // use Atan2 to get absolute polar angles
+            double angleStart = Math.Atan2(PointA.Y - Intersection.Y, PointA.X - Intersection.X);
+            double angleEnd = Math.Atan2(PointB.Y - Intersection.Y, PointB.X - Intersection.X);
+            double angleC = Math.Atan2(PointC.Y - Intersection.Y, PointC.X - Intersection.X);
+
+            // Normalize angles to 0-360
+            double diff = (angleEnd - angleStart) * (180 / Math.PI);
+            if (diff < 0) diff += 360;
+
+            // Determine if PointC lies within that sweep
+            double diffC = (angleC - angleStart) * (180 / Math.PI);
+            if (diffC < 0) diffC += 360;
+
+            CentralAngleResult = Math.Round(diff, 2);
+
+            if (IsPointInTriangle(Intersection, PointA, PointB, PointC))
+            {
+                if (CentralAngleResult < 180) CentralAngleResult = 360 - CentralAngleResult;
+            }
+
+            // Aspect Ratio calculation
+
+            double chordLength = (PointB - PointA).Magnitude();
+
+            // bisector = midpoint → C
+            double bisectorLength = (PointC - Midpoint).Magnitude();
+
+            AspectRatioResult = bisectorLength > 0.00001
+                ? Math.Round(chordLength / bisectorLength, 2)
+                : 0;
+
+            // Chord-Arc Ratio calculation
+            double radius = (PointA - Intersection).Magnitude();
+            double centralAngleRadians = CentralAngleResult * Math.PI / 180.0;
+            double arcLength = radius * centralAngleRadians;
+
+            ChordArcRatioResult = arcLength > 0.00001
+                ? Math.Round(chordLength / arcLength, 2)
+                : 0;
         }
         #endregion
+
+        #region Parabolic Arc Section
+        //-----PARABOLIC ARCS-----//
+
+        private double ParabolaA;
+        private double ParabolaB;
+        private double ParabolaC;
+
+        private string _xyFunctionResult;
+        public string XYFunctionResult
+        {
+            get => _xyFunctionResult;
+            set { _xyFunctionResult = value; OnPropertyChanged(nameof(XYFunctionResult)); }
+        }
+
+        private double _pChordArcRatioResult;
+        public double PChordArcRatioResult
+        {
+            get => _pChordArcRatioResult;
+            set { _pChordArcRatioResult = value; OnPropertyChanged(nameof(PChordArcRatioResult)); }
+        }
+
+        private double _riseSpanRatioResult;
+        public double RiseSpanRatioResult
+        {
+            get => _riseSpanRatioResult;
+            set { _riseSpanRatioResult = value; OnPropertyChanged(nameof(RiseSpanRatioResult)); }
+        }
+
+        private double _vertexCurvatureResult;
+        public double VertexCurvatureResult
+        {
+            get => _vertexCurvatureResult;
+            set { _vertexCurvatureResult = value; OnPropertyChanged(nameof(VertexCurvatureResult)); }
+        }
+      
+        private List<UIElement> ProcessParArcClick(Vector2 mousePos)
+        {
+            List<UIElement> outputElements = new List<UIElement>();
+            ClearElementsToRemove();
+            switch (CurrentStep)
+            {
+                case 0: // Start the first chord
+
+                    StartChord(mousePos, outputElements);
+                    break;
+
+                case 1: // End the first chord and start the bisector line 
+
+                    FinishChord(mousePos, outputElements);
+                    StartBisector(mousePos, outputElements);
+                    break;
+
+                case 2: // finish Bisector line, calculate all remaining POIs, and calculate the final results.
+
+                    // finish bisector
+                    PointC = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
+
+                    // draw parabolic arc through points A, B, and C
+                    var parabola = MakeParabolicArc(PointA, PointB, PointC);
+
+                    outputElements.Add(parabola);
+                    CurrentOperation.Add(parabola);
+
+                    // calculate results
+                    CalculateParabolicArcResults();
+
+                    Console.WriteLine(XYFunctionResult);
+                    Console.WriteLine(PChordArcRatioResult);
+
+                    CurrentStep++;
+
+                    // add to history
+                    CommitOperation(new ParabolaOperation
+                    {
+                        OperationKind = "Parabolic Arc",
+                        SourceMode = this,
+                        Elements = new List<UIElement>(CurrentOperation),
+                        XYFunction = XYFunctionResult,
+                        RiseSpanRatio = RiseSpanRatioResult,
+                        PChordArcRatio = PChordArcRatioResult,
+                        VertexCurvature = VertexCurvatureResult
+                    });
+
+                    CurrentOperation.Clear();
+
+                    break;
+                case 3:
+                    ResetDrawingState();
+                    // reuse this click as the first step
+                    PointA = new Vector2(mousePos.X, mousePos.Y);
+                    CurrentUILine = MakeLine(mousePos, mousePos);
+                    outputElements.Add(CurrentUILine);
+                    CurrentOperation.Add(CurrentUILine);
+                    CurrentStep = 1;
+                    break;
+            }
+
+            return outputElements;
+        }
+
+        private Path MakeParabolicArc(Vector2 pointA, Vector2 pointB, Vector2 pointC)
+        {
+            BuildLocalBasis(pointA, pointB, out Vector2 xAxis, out Vector2 yAxis, out double chordLength);
+
+            if (chordLength < 1e-8)
+                return null;
+
+            Vector2 cDelta = pointC - pointA;
+            Vector2 cL = new Vector2(
+                Dot(cDelta, xAxis) / chordLength,
+                Dot(cDelta, yAxis) / chordLength
+            );
+
+            SolveParabola(0, 0, 1, 0, cL.X, cL.Y);
+
+            if (XYFunctionResult == "Invalid parabola")
+                return null;
+
+            List<Vector2> worldPoints = SampleParabolaWorldPoints(pointA, xAxis, yAxis, chordLength, 64);
+
+            PathFigure figure = new PathFigure { StartPoint = new Point(worldPoints[0].X, worldPoints[0].Y), IsClosed = false };
+            PolyLineSegment segment = new PolyLineSegment();
+            for (int i = 1; i < worldPoints.Count; i++)
+                segment.Points.Add(new Point(worldPoints[i].X, worldPoints[i].Y));
+            figure.Segments.Add(segment);
+
+            PathGeometry geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+
+            return new Path { Data = geometry, Stroke = this.LineColor, StrokeThickness = 2 };
+        }
+
+        private void BuildLocalBasis(Vector2 origin, Vector2 target, out Vector2 xAxis, out Vector2 yAxis, out double length)
+        {
+            Vector2 ab = target - origin;
+            length = ab.Magnitude();
+            xAxis = new Vector2(ab.X / length, ab.Y / length);
+            yAxis = new Vector2(-xAxis.Y, xAxis.X);
+        }
+
+        private double Dot(Vector2 a, Vector2 b)
+        {
+            return a.X * b.X + a.Y * b.Y;
+        }
+
+        private void SolveParabola(double x1, double y1, double x2, double y2, double x3, double y3)
+        {
+            double denom = (x1 - x2) * (x1 - x3) * (x2 - x3);
+            if (Math.Abs(denom) < 1e-8)
+            {
+                ParabolaA = ParabolaB = ParabolaC = 0;
+                return;
+            }
+            ParabolaA = (x3 * (y2 - y1) + x2 * (y1 - y3) + x1 * (y3 - y2)) / denom;
+            ParabolaB = (x3 * x3 * (y1 - y2) + x2 * x2 * (y3 - y1) + x1 * x1 * (y2 - y3)) / denom;
+            ParabolaC = (x2 * x3 * (x2 - x3) * y1 + x3 * x1 * (x3 - x1) * y2 + x1 * x2 * (x1 - x2) * y3) / denom;
+        }
+
+        private List<Vector2> SampleParabolaWorldPoints(Vector2 origin, Vector2 xAxis, Vector2 yAxis, double chordLength, int count)
+        {
+            var points = new List<Vector2>(count + 1);
+            for (int i = 0; i <= count; i++)
+            {
+                double t = (double)i / count;
+                double yNorm = ParabolaA * t * t + ParabolaB * t + ParabolaC;
+                points.Add(origin + new Vector2(
+                    xAxis.X * t * chordLength + yAxis.X * yNorm * chordLength,
+                    xAxis.Y * t * chordLength + yAxis.Y * yNorm * chordLength));
+            }
+            return points;
+        }
+
+        // function to calculate results
+        private void CalculateParabolicArcResults()
+        {
+            double pChordLength = (PointB - PointA).Magnitude();
+            double rise = (PointC - Midpoint).Magnitude();
+
+            RiseSpanRatioResult = pChordLength > 0.00001 ? Math.Round(rise / pChordLength, 3) : 0;
+
+            // Vertex curvature: κ = |2a| at x=0 (where y'=0)
+            VertexCurvatureResult = Math.Round(Math.Abs(2 * ParabolaA), 5);
+
+            XYFunctionResult = $"y = {ParabolaA:F3}x² + {ParabolaB:F3}x + {ParabolaC:F3}";
+
+            BuildLocalBasis(PointA, PointB, out Vector2 xAxis, out Vector2 yAxis, out double chordLength);
+            List<Vector2> worldPoints = SampleParabolaWorldPoints(PointA, xAxis, yAxis, chordLength, 64);
+            double arcLength = ComputeArcLength(worldPoints);
+
+            PChordArcRatioResult = arcLength > 0.00001 ? Math.Round(pChordLength / arcLength, 3) : 0;
+        }
+        #endregion
+        #endregion
+
 
         #region n-point spline section
         //-----N-POINT SPLINE SECTION-----//
@@ -631,71 +913,20 @@ namespace DinoLino.Utilities.Modes
 
         private double CalculateSChordArcRatio(List<Vector2> densePoints, List<Vector2> controlPoints)
         {
-            // arc length = sum of distances between dense interpolated points
-            double arcLength = 0;
-            for (int i = 1; i < densePoints.Count; i++)
-            {
-                Vector2 seg = densePoints[i] - densePoints[i - 1];
-                arcLength += seg.Magnitude();
-            }
-
-            // chord length = straight line from first to last control point
-            Vector2 chord = controlPoints[controlPoints.Count - 1] - controlPoints[0];
-            double chordLength = chord.Magnitude();
-
+            double arcLength = ComputeArcLength(densePoints);
+            double chordLength = (controlPoints[controlPoints.Count - 1] - controlPoints[0]).Magnitude();
             return chordLength > 0.00001 ? Math.Round(arcLength / chordLength, 2) : 0;
         }
         #endregion
 
-        #region curvature results
-        //-----RESULTS-----//
-        private void CalculateAndUpdateResults()
+        #region bind results
+        //-----BIND RESULTS-----//
+        public void BindCurvatureResults(
+            Label centralAngleOutput, Label chordArcRatioOutput, Label aspectRatioOutput, // circular arc metadata
+            Label xyFunctionOutput, Label pChordArcRatioOutput, Label riseSpanRatioOutput, Label vertexCurvatureOutput, // parabolic arc metadata
+            Label turningAngleOutput, Label sChordArcRatioOutput) // spline metadata
         {
-            // use Atan2 to get absolute polar angles
-            double angleStart = Math.Atan2(PointA.Y - Intersection.Y, PointA.X - Intersection.X);
-            double angleEnd = Math.Atan2(PointB.Y - Intersection.Y, PointB.X - Intersection.X);
-            double angleC = Math.Atan2(PointC.Y - Intersection.Y, PointC.X - Intersection.X);
-
-            // Normalize angles to 0-360
-            double diff = (angleEnd - angleStart) * (180 / Math.PI);
-            if (diff < 0) diff += 360;
-
-            // Determine if PointC lies within that sweep
-            double diffC = (angleC - angleStart) * (180 / Math.PI);
-            if (diffC < 0) diffC += 360;
-
-            CentralAngleResult = Math.Round(diff, 2);
-
-            if (IsPointInTriangle(Intersection, PointA, PointB, PointC))
-            {
-                if (CentralAngleResult < 180) CentralAngleResult = 360 - CentralAngleResult;
-            }
-
-            // Aspect Ratio calculation
-
-            double chordLength = (PointB - PointA).Magnitude();
-
-            // bisector = midpoint → C
-            double bisectorLength = (PointC - Midpoint).Magnitude();
-
-            AspectRatioResult = bisectorLength > 0.00001
-                ? Math.Round(chordLength / bisectorLength, 2)
-                : 0;
-
-            // Chord-Arc Ratio calculation
-            double radius = (PointA - Intersection).Magnitude();
-            double centralAngleRadians = CentralAngleResult * Math.PI / 180.0;
-            double arcLength = radius * centralAngleRadians;
-
-            ChordArcRatioResult = arcLength > 0.00001
-                ? Math.Round(chordLength / arcLength, 2)
-                : 0;
-        }
-
-        // Parameters: 3-point arc outputs (centralAngle, aspectRatio, chordArcRatio)
-        //             n-point spline outputs (turningAngle, sChordArcRatio)
-        public void BindCurvatureResults(Label centralAngleOutput, Label aspectRatioOutput, Label turningAngleOutput, Label sChordArcRatioOutput, Label chordArcRatioOutput)
-        {
+            // circular arc metadata
             Binding centralAngleBind = new Binding(nameof(CentralAngleResult));
             centralAngleOutput.SetBinding(Label.ContentProperty, centralAngleBind);
             centralAngleOutput.DataContext = this;
@@ -708,6 +939,24 @@ namespace DinoLino.Utilities.Modes
             chordArcRatioOutput.SetBinding(Label.ContentProperty, chordArcRatioBind);
             chordArcRatioOutput.DataContext = this;
 
+            // parabolic arc metadata
+            Binding xyFunctionBind = new Binding(nameof(XYFunctionResult));
+            xyFunctionOutput.SetBinding(Label.ContentProperty, xyFunctionBind);
+            xyFunctionOutput.DataContext = this;
+
+            Binding pChordArcRatioBind = new Binding(nameof(PChordArcRatioResult));
+            pChordArcRatioOutput.SetBinding(Label.ContentProperty, pChordArcRatioBind);
+            pChordArcRatioOutput.DataContext = this;
+
+            Binding riseSpanRatioBind = new Binding(nameof(RiseSpanRatioResult));
+            riseSpanRatioOutput.SetBinding(Label.ContentProperty, riseSpanRatioBind);
+            riseSpanRatioOutput.DataContext = this;
+
+            Binding vertexCurvatureBind = new Binding(nameof(VertexCurvatureResult));
+            vertexCurvatureOutput.SetBinding(Label.ContentProperty, vertexCurvatureBind);
+            vertexCurvatureOutput.DataContext = this;
+
+            // spline metadata
             Binding turningAngleBind = new Binding(nameof(TurningAngleResult));
             turningAngleOutput.SetBinding(Label.ContentProperty, turningAngleBind);
             turningAngleOutput.DataContext = this;
