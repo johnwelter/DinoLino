@@ -40,43 +40,8 @@
                     <RadioButton Content="_Black" Tag="Black" GroupName="LineColors" Click="Menu_Color_Click"/>
                     <RadioButton Content="_White" Tag="White" GroupName="LineColors" Click="Menu_Color_Click"/>
                 </MenuItem>
-                <MenuItem Header="_Font Size" x:Name="UI_FontSize" MouseLeave="Menu_MouseLeave">
-                    <StackPanel Orientation="Horizontal" Margin="10,5,10,5">
-                        <TextBlock Text="Font Size" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <Slider x:Name="UI_FontSizeValue" Minimum="11" Maximum="26" Value="16" Width="150" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="UI_FontSize_ValueChanged"/>
-                        <TextBlock x:Name="UI_FontSizeeText" Text="16" Width="40" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </MenuItem>
-                <MenuItem Header="_Font Type" x:Name="UI_FontType" MouseLeave="Menu_MouseLeave">
-                    <RadioButton Content="_Arial" GroupName="FontTypes" Tag="Arial" IsChecked="True" Click="Menu_FontType_Click"/>
-                    <RadioButton Content="_Lexend" GroupName="FontTypes" Tag="Lexend" Click="Menu_FontType_Click"/>
-                    <RadioButton Content="_OpenDyslexic" GroupName="FontTypes" Tag="OpenDyslexic" Click="Menu_FontType_Click"/>
-                    <RadioButton Content="_Verdana" GroupName="FontTypes" Tag="Verdana" Click="Menu_FontType_Click"/>
-                    <RadioButton Content="_Calibri" GroupName="FontTypes" Tag="Calibri" Click="Menu_FontType_Click"/>
-                    <RadioButton Content="_Tahoma" GroupName="FontTypes" Tag="Tahoma" Click="Menu_FontType_Click"/>
-                    <RadioButton Content="_Century Gothic" GroupName="FontTypes" Tag="Century Gothic" Click="Menu_FontType_Click"/>
-                </MenuItem>
-                <MenuItem Header="_Contrast" x:Name="UI_ContrastMenu">
-                    <StackPanel Orientation="Horizontal" Margin="10,5,10,5">
-                        <TextBlock Text="Contrast:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <Slider x:Name="UI_ContrastSlider" Minimum="-100" Maximum="100" Value="0" Width="150" TickFrequency="10" IsSnapToTickEnabled="False" ValueChanged="UI_ContrastSlider_ValueChanged"/>
-                        <TextBlock x:Name="UI_ContrastValueText" Text="0" Width="40" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </MenuItem>
-                <MenuItem Header="_Brightness" x:Name="UI_BrightnessMenu">
-                    <StackPanel Orientation="Horizontal" Margin="10,5,10,5">
-                        <TextBlock Text="Brightness:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <Slider x:Name="UI_BrightnessSlider" Minimum="-100" Maximum="100" Value="0" Width="150" TickFrequency="10" IsSnapToTickEnabled="False" ValueChanged="UI_BrightnessSlider_ValueChanged"/>
-                        <TextBlock x:Name="UI_BrightnessValueText" Text="0" Width="40" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </MenuItem>
-                <MenuItem Header="_Saturation" x:Name="UI_SaturationMenu">
-                    <StackPanel Orientation="Horizontal" Margin="10,5,10,5">
-                        <TextBlock Text="Saturation:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <Slider x:Name="UI_SaturationSlider" Minimum="-100" Maximum="100" Value="0" Width="150" TickFrequency="10" IsSnapToTickEnabled="False" ValueChanged="UI_SaturationSlider_ValueChanged"/>
-                        <TextBlock x:Name="UI_SaturationValueText" Text="0" Width="40" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </MenuItem>
+                <MenuItem Header="_Font" Click="Menu_Font"/>
+                <MenuItem Header="_Picture Adjustment" Click="Menu_PictureAdjustment"/>
             </MenuItem>
             <MenuItem Header="_Help" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_About" Click="Menu_About"/>

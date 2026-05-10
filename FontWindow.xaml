@@ -1,0 +1,41 @@
+<Window x:Class="DinoLino.FontWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Font Settings"
+        MinWidth="200"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="CanResize">
+    <StackPanel Margin="16">
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="Font Size" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <ComboBox x:Name="UI_FontSizeCombo" MinWidth="100" IsEditable="True" SelectedIndex="1" SelectionChanged="FontSize_SelectionChanged" Margin="4,0,0,0">
+                <ComboBoxItem Content="12"/>
+                <ComboBoxItem Content="14"/>
+                <ComboBoxItem Content="16"/>
+                <ComboBoxItem Content="18"/>
+                <ComboBoxItem Content="20"/>
+                <ComboBoxItem Content="22"/>
+                <ComboBoxItem Content="24"/>
+                <ComboBoxItem Content="26"/>
+                <ComboBoxItem Content="28"/>
+                <ComboBoxItem Content="30"/>
+            </ComboBox>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+            <TextBlock Text="Font Type" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <ComboBox x:Name="UI_FontTypeCombo" MinWidth="160" SelectedIndex="0" SelectionChanged="FontType_SelectionChanged">
+                <ComboBoxItem Content="Arial"/>
+                <ComboBoxItem Content="OpenDyslexic"/>
+                <ComboBoxItem Content="Lexend"/>
+                <ComboBoxItem Content="Verdana"/>
+                <ComboBoxItem Content="Calibri"/>
+                <ComboBoxItem Content="Tahoma"/>
+                <ComboBoxItem Content="Century Gothic"/>
+            </ComboBox>
+        </StackPanel>
+
+        <Button Content="Close" MinWidth="80" HorizontalAlignment="Right" Click="Close_Click"/>
+    </StackPanel>
+</Window>

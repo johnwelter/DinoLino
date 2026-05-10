@@ -4,8 +4,6 @@ using DinoLino.Utilities.Modes;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
-using System.Security.Policy;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -35,6 +33,11 @@ namespace DinoLino
 
         // image adjuster field
         private ImageAdjuster _imageAdjuster = new ImageAdjuster();
+
+        // Picture adjustment state
+        private double _currentContrast = 0;
+        private double _currentBrightness = 0;
+        private double _currentSaturation = 0;
 
         // Current working image in the workspace
         public BitmapImage WorkingImage;
@@ -330,61 +333,46 @@ namespace DinoLino
             }
         }
 
-        private void UI_FontSize_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        private void Menu_Font(object sender, RoutedEventArgs e)
         {
-            if (UI_ControlPanel == null || UI_FontSizeeText == null)
-                return;
+            FontWindow fontWindow = new FontWindow(_currentFontSize, _currentFont);
+            fontWindow.FontSize = _currentFontSize;
+            fontWindow.FontFamily = _currentFont;
 
-            double size = e.NewValue;
-
-            UI_FontSizeeText.Text = size.ToString("0");
-
-            TextElement.SetFontSize(UI_ControlPanel, size);
-            TextElement.SetFontSize(UI_WorkSpace, size);
-            _currentFontSize = size;
-        }
-
-        private void Menu_FontType_Click(object sender, RoutedEventArgs e)
-        {
-            RadioButton rb = sender as RadioButton;
-
-            if (rb != null)
+            fontWindow.OnFontSizeChanged = size =>
             {
-                string fontName = rb.Tag.ToString();
-                _currentFont = new FontFamily(fontName);
-                FontFamily newFont = new FontFamily(fontName);
-                TextElement.SetFontFamily(UI_ControlPanel, newFont);
-            }
-        }
+                _currentFontSize = size;
+                TextElement.SetFontSize(UI_ControlPanel, size);
+                fontWindow.FontSize = size;
+            };
 
-        private void UI_ContrastSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-        {
-            if (UI_ContrastValueText != null)
-                UI_ContrastValueText.Text = e.NewValue.ToString("0");
-            _imageAdjuster.RequestAdjustment(
-                UI_ContrastSlider.Value / 100.0,
-                UI_BrightnessSlider.Value / 100.0,
-                UI_SaturationSlider.Value / 100.0);
-        }
+            fontWindow.OnFontFamilyChanged = family =>
+            {
+                _currentFont = family;
+                TextElement.SetFontFamily(UI_ControlPanel, family);
+                fontWindow.FontFamily = family;
+            };
 
-        private void UI_BrightnessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-        {
-            if (UI_BrightnessValueText != null)
-                UI_BrightnessValueText.Text = e.NewValue.ToString("0");
-            _imageAdjuster.RequestAdjustment(
-                UI_ContrastSlider.Value / 100.0,
-                UI_BrightnessSlider.Value / 100.0,
-                UI_SaturationSlider.Value / 100.0);
+            fontWindow.Show(); // use Show() instead of ShowDialog() so the user can adjust font while seeing the main window update live
         }
-
-        private void UI_SaturationSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        private void Menu_PictureAdjustment(object sender, RoutedEventArgs e)
         {
-            if (UI_SaturationValueText != null)
-                UI_SaturationValueText.Text = e.NewValue.ToString("0");
-            _imageAdjuster.RequestAdjustment(
-                UI_ContrastSlider.Value / 100.0,
-                UI_BrightnessSlider.Value / 100.0,
-                UI_SaturationSlider.Value / 100.0);
+            PictureAdjustmentWindow adjustWindow = new PictureAdjustmentWindow(_currentContrast, _currentBrightness, _currentSaturation);
+            adjustWindow.FontSize = _currentFontSize;
+            adjustWindow.FontFamily = _currentFont;
+
+            adjustWindow.OnAdjustmentChanged = (contrast, brightness, saturation) =>
+            {
+                _currentContrast = contrast;
+                _currentBrightness = brightness;
+                _currentSaturation = saturation;
+                _imageAdjuster.RequestAdjustment(
+                    contrast / 100.0,
+                    brightness / 100.0,
+                    saturation / 100.0);
+            };
+
+            adjustWindow.Show();
         }
         #endregion
 
