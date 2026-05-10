@@ -5,8 +5,9 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:DinoLino"
         mc:Ignorable="d"
-        Title="About" Height="224" Width="323"
-        ResizeMode="NoResize">
+        Title="About" MinHeight="224" MinWidth="323"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="CanResize">
     <Grid>
         <StackPanel>
             <Grid>

@@ -1,10 +1,11 @@
 ﻿using DinoLino.DataTypes;
 using DinoLino.Utilities;
 using DinoLino.Utilities.Modes;
-using DinoLino.Utilities.Operations;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
+using System.Security.Policy;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -25,6 +26,15 @@ namespace DinoLino
 
         // Tracks how many images have been opened
         private int _specimenCount = 0;
+
+        // store selected font type
+        private FontFamily _currentFont = new FontFamily("Arial");
+
+        // store selected font size
+        private double _currentFontSize = 14;
+
+        // image adjuster field
+        private ImageAdjuster _imageAdjuster = new ImageAdjuster();
 
         // Current working image in the workspace
         public BitmapImage WorkingImage;
@@ -47,6 +57,8 @@ namespace DinoLino
         public MainWindow()
         {
             InitializeComponent();
+
+            _imageAdjuster.OnAdjustmentApplied = bitmap => UI_WorkImage.Source = bitmap;
 
             // Keyboard shortcuts
             this.PreviewKeyDown += MainWindow_KeyDown;
@@ -200,11 +212,29 @@ namespace DinoLino
 
             ResetWorkSpaceZoom();
             ClearWorkspace();
+            _imageAdjuster.CacheImage(WorkingImage);
+        }
+
+        private void SpecimenCount_Up(object sender, RoutedEventArgs e)
+        {
+            _specimenCount++;
+            UI_SpecimenNameBox.Text = $"Specimen {_specimenCount}";
+        }
+
+        private void SpecimenCount_Down(object sender, RoutedEventArgs e)
+        {
+            if (_specimenCount > 1)
+            {
+                _specimenCount--;
+                UI_SpecimenNameBox.Text = $"Specimen {_specimenCount}";
+            }
         }
 
         private void Menu_About(object sender, RoutedEventArgs e)
         {
             AboutWindow about = new AboutWindow();
+            about.FontSize = _currentFontSize;
+            about.FontFamily = _currentFont;
             about.ShowDialog();
         }
 
@@ -212,6 +242,8 @@ namespace DinoLino
         private void Menu_UserGuide(object sender, RoutedEventArgs e)
         {
             UserGuideWindow userguide = new UserGuideWindow();
+            userguide.FontFamily = _currentFont;
+            userguide.FontSize = _currentFontSize;
             userguide.ShowDialog();
         }
 
@@ -298,12 +330,61 @@ namespace DinoLino
             }
         }
 
-        private void Menu_FontSize_Click(object sender, RoutedEventArgs e)
+        private void UI_FontSize_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            if (sender is RadioButton rb && double.TryParse(rb.Tag.ToString(), out double size))
+            if (UI_ControlPanel == null || UI_FontSizeeText == null)
+                return;
+
+            double size = e.NewValue;
+
+            UI_FontSizeeText.Text = size.ToString("0");
+
+            TextElement.SetFontSize(UI_ControlPanel, size);
+            TextElement.SetFontSize(UI_WorkSpace, size);
+            _currentFontSize = size;
+        }
+
+        private void Menu_FontType_Click(object sender, RoutedEventArgs e)
+        {
+            RadioButton rb = sender as RadioButton;
+
+            if (rb != null)
             {
-                TextElement.SetFontSize(UI_ControlPanel, size);
+                string fontName = rb.Tag.ToString();
+                _currentFont = new FontFamily(fontName);
+                FontFamily newFont = new FontFamily(fontName);
+                TextElement.SetFontFamily(UI_ControlPanel, newFont);
             }
+        }
+
+        private void UI_ContrastSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (UI_ContrastValueText != null)
+                UI_ContrastValueText.Text = e.NewValue.ToString("0");
+            _imageAdjuster.RequestAdjustment(
+                UI_ContrastSlider.Value / 100.0,
+                UI_BrightnessSlider.Value / 100.0,
+                UI_SaturationSlider.Value / 100.0);
+        }
+
+        private void UI_BrightnessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (UI_BrightnessValueText != null)
+                UI_BrightnessValueText.Text = e.NewValue.ToString("0");
+            _imageAdjuster.RequestAdjustment(
+                UI_ContrastSlider.Value / 100.0,
+                UI_BrightnessSlider.Value / 100.0,
+                UI_SaturationSlider.Value / 100.0);
+        }
+
+        private void UI_SaturationSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (UI_SaturationValueText != null)
+                UI_SaturationValueText.Text = e.NewValue.ToString("0");
+            _imageAdjuster.RequestAdjustment(
+                UI_ContrastSlider.Value / 100.0,
+                UI_BrightnessSlider.Value / 100.0,
+                UI_SaturationSlider.Value / 100.0);
         }
         #endregion
 
