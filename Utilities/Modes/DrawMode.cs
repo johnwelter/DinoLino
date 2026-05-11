@@ -15,6 +15,7 @@ namespace DinoLino.Utilities.Modes
     {
         #region Shared Draw Infrastructure
         //-----Shared Code Across Draw Operations-----//
+        public override UserControl CreateControlPanel() => new DrawControlPanel(this);
         public override string TabName => "Draw";
         public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
 
@@ -553,20 +554,6 @@ namespace DinoLino.Utilities.Modes
                 RelativeAreaResult = Math.Round(area / prev.ShapeArea, 2);
             else
                 RelativeAreaResult = "N/A";
-        }
-
-        public void BindDrawResults(
-            System.Windows.Controls.Label DrawAspectRatioOutput,
-            System.Windows.Controls.Label ShapeAreaOutput,
-            System.Windows.Controls.Label lineLengthRatioOutput)
-        {
-            DrawAspectRatioOutput.DataContext = this;
-            ShapeAreaOutput.DataContext = this;
-            lineLengthRatioOutput.DataContext = this;
-
-            DrawAspectRatioOutput.SetBinding(Label.ContentProperty, new Binding(nameof(DrawAspectRatioResult)));
-            ShapeAreaOutput.SetBinding(Label.ContentProperty, new Binding(nameof(RelativeAreaResult)));
-            lineLengthRatioOutput.SetBinding(Label.ContentProperty, new Binding(nameof(LineLengthRatioResult)));
         }
         #endregion
     }

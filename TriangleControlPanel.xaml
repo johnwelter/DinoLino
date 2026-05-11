@@ -1,0 +1,26 @@
+<UserControl x:Class="DinoLino.Utilities.Modes.TriangleControlPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel>
+        <StackPanel Orientation="Horizontal">
+            <Label Content="Angle A:" FontWeight="Bold"/>
+            <Label Content="{Binding AngleAResult}" Width="175"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal">
+            <Label Content="Angle B:" FontWeight="Bold"/>
+            <Label Content="{Binding AngleBResult}" Width="175"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal">
+            <Label Content="Angle C:" FontWeight="Bold"/>
+            <Label Content="{Binding AngleCResult}" Width="175"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal">
+            <Label Content="Aspect Ratio:" FontWeight="Bold"/>
+            <Label Content="{Binding TriAspectRatioResult}" Width="175"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal">
+            <Label Content="Relative Size:" FontWeight="Bold"/>
+            <Label Content="{Binding RelativeAreaResult}" Width="175"/>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

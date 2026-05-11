@@ -1,0 +1,48 @@
+<UserControl x:Class="DinoLino.Utilities.Modes.DrawControlPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Margin="0,0,10,20">
+        <RadioButton Content="Draw Shape" Tag="Shape" GroupName="DrawGroup"
+                     Checked="DrawMethod_Checked" FontWeight="Bold" Margin="0,16,10,10"/>
+        <StackPanel Margin="14,0,0,0">
+            <RadioButton Content="Rectangle" Tag="Rectangle" GroupName="Draw"
+                         Checked="Shape_Checked" MinHeight="25"/>
+            <RadioButton Content="Square" Tag="Square" GroupName="Draw"
+                         Checked="Shape_Checked" MinHeight="25"/>
+            <RadioButton Content="Ellipse" Tag="Ellipse" GroupName="Draw"
+                         Checked="Shape_Checked" MinHeight="25"/>
+            <RadioButton Content="Circle" Tag="Circle" GroupName="Draw"
+                         Checked="Shape_Checked" MinHeight="25"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <Label Content="Aspect Ratio:"/>
+            <Label Content="{Binding DrawAspectRatioResult}" Width="175"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <Label Content="Relative Size:"/>
+            <Label Content="{Binding RelativeAreaResult}" Width="175"/>
+        </StackPanel>
+
+        <RadioButton Content="Draw Lines" Tag="Line" GroupName="DrawGroup"
+                     Checked="DrawMethod_Checked" MinHeight="25" FontWeight="Bold" Margin="0,10,0,0"/>
+        <StackPanel Margin="14,0,0,0">
+            <RadioButton Content="Free" Tag="None" GroupName="LineConstraint"
+                         Checked="LineConstraint_Checked" MinHeight="22"/>
+            <RadioButton Content="Parallel" Tag="Parallel" GroupName="LineConstraint"
+                         Checked="LineConstraint_Checked" MinHeight="22"/>
+            <RadioButton Content="Perpendicular" Tag="Perpendicular" GroupName="LineConstraint"
+                         Checked="LineConstraint_Checked" MinHeight="22"/>
+            <StackPanel Orientation="Horizontal">
+                <RadioButton Content="Angle" Tag="AngleLocked" GroupName="LineConstraint"
+                             Checked="LineConstraint_Checked" MinHeight="25" VerticalAlignment="Center"/>
+                <TextBox x:Name="UI_DrawAngleValue" Width="33" MinHeight="22"
+                         Margin="16,-8,0,0" VerticalAlignment="Center"
+                         TextChanged="DrawAngleValue_TextChanged"/>
+            </StackPanel>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <Label Content="Line Ratio:"/>
+            <Label Content="{Binding LineLengthRatioResult}" Width="175"/>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

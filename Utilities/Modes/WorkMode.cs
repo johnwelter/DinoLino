@@ -6,12 +6,15 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 
 namespace DinoLino.Utilities.Modes
 {
     public abstract class WorkMode : INotifyPropertyChanged
     {
+        public abstract UserControl CreateControlPanel();
+
         // Each mode declares the tab header it corresponds to
         public abstract string TabName { get; }
 

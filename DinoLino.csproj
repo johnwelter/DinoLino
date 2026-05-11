@@ -59,12 +59,21 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Compile Include="CurvatureControlPanel.xaml.cs">
+      <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>
+    </Compile>
     <Compile Include="DataTypes\DataTypes.cs" />
+    <Compile Include="DrawControlPanel.xaml.cs">
+      <DependentUpon>DrawControlPanel.xaml</DependentUpon>
+    </Compile>
     <Compile Include="FontWindow.xaml.cs">
       <DependentUpon>FontWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="PictureAdjustmentWindow.xaml.cs">
       <DependentUpon>PictureAdjustmentWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="TriangleControlPanel.xaml.cs">
+      <DependentUpon>TriangleControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="UserGuide.xaml.cs">
       <DependentUpon>UserGuide.xaml</DependentUpon>
@@ -82,8 +91,14 @@
     </Compile>
     <Compile Include="Utilities\Operations.cs" />
     <Compile Include="Utilities\UndoRedoManager.cs" />
+    <Page Include="CurvatureControlPanel.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="Dictionary1.xaml">
       <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="DrawControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="FontWindow.xaml">
@@ -106,6 +121,9 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="PictureAdjustmentWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="TriangleControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="UserGuide.xaml">

@@ -86,31 +86,25 @@ namespace DinoLino
 
             // Initiate curvature mode and make appropriate bindings
             CurvatureMode = new();
-            CurvatureMode.BindCurvatureResults(
-                UI_CurveAngleOutputValue, UI_ChordArcRatioOutputValue, UI_AspectRatioOutputValue, // circular arc metadata
-                UI_XYFunctionOutputValue, UI_PChordArcRatioOutputValue, UI_RiseSpanRatioOutputValue, UI_VertexCurvatureOutputValue, // parabolic arc metadata
-                UI_TurningAngleOutputValue, UI_SChordArcRatioOutputValue); // spline metadata
-
-            GetAngleMode = new();
-            GetAngleMode.BindAngleResults(UI_TriAngleOutputValue1, UI_TriAngleOutputValue2, UI_TriAngleOutputValue3, UI_TriAspectRatioValue, UI_TriAreaRatioValue);
-
+            GetAngleMode = new();    
             DrawMode = new();
-            DrawMode.BindDrawResults(UI_DrawAspectRatioOutputValue, UI_ShapeAreaOutputValue, UI_LineLengthRatioOutputValue);
 
-            UI_DrawAngleValue.TextChanged += DrawAngleValue_TextChanged;
-
-            // Initialize list of all modes
-            AllWorkModes = new List<WorkMode> { CurvatureMode, GetAngleMode, DrawMode };
-
-            // Set the current work mode to update
-            CurrentWorkMode = CurvatureMode;
-            BindUndoRedoMenuItems();
 
             // Initialize the global undo redo manager and link to all modes
             UndoRedoManager = new UndoRedoManager();
             CurvatureMode.UndoRedoManager = UndoRedoManager;
             GetAngleMode.UndoRedoManager = UndoRedoManager;
             DrawMode.UndoRedoManager = UndoRedoManager;
+
+            // Initialize list of all modes
+            AllWorkModes = new List<WorkMode> { CurvatureMode, GetAngleMode, DrawMode };
+
+            // Set the current work mode to update
+            CurrentWorkMode = CurvatureMode;
+
+            UI_ModePanel.Content = CurrentWorkMode.CreateControlPanel();
+
+            BindUndoRedoMenuItems();
 
             // Initialize image zoom
             UI_WorkImage.InitializeGroupTransform(new Point(0, 0));
@@ -216,11 +210,10 @@ namespace DinoLino
                 WorkingImage = new BitmapImage(new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));
                 UI_WorkImage.Source = WorkingImage;
                 SpecimenManager.OnImageOpened();
+                ResetWorkSpaceZoom();
+                ClearWorkspace();
+                _imageAdjuster.CacheImage(WorkingImage);
             }
-
-            ResetWorkSpaceZoom();
-            ClearWorkspace();
-            _imageAdjuster.CacheImage(WorkingImage);
         }
 
         private void Menu_About(object sender, RoutedEventArgs e)
@@ -380,12 +373,14 @@ namespace DinoLino
             CurrentWorkMode = AllWorkModes.FirstOrDefault(m => m.TabName == tab.Header.ToString())
                               ?? CurrentWorkMode;
 
+            UI_ModePanel.Content = CurrentWorkMode.CreateControlPanel();
+
             CurrentWorkMode?.ResetDrawingState();
             BindUndoRedoMenuItems();
         }
         #endregion
 
-            #region Work Space UI Functions
+        #region Work Space UI Functions
 
         private void WorkSpace_Click(object sender, MouseButtonEventArgs e)
         {
@@ -448,32 +443,6 @@ namespace DinoLino
         private void WorkSpace_ScrollZoom(object sender, MouseWheelEventArgs e)
         {
             UpdateWorkSpaceZoom(e.Delta, e.GetPosition(UI_WorkImage));
-        }
-
-        // radio buttons
-        // Draw Mode
-
-        private void DrawMethod_Checked(object sender, RoutedEventArgs e) => HandleRadioSelection(sender, DrawMode, (m, tag) => m.SelectDrawMethod(tag));
-
-        private void Shape_Checked(object sender, RoutedEventArgs e) => HandleRadioSelection(sender, DrawMode, (m, tag) => m.SelectShape(tag));
-
-        private void DrawAngleValue_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            DrawMode.UpdateAngle(UI_DrawAngleValue.Text);
-        }
-
-        private void LineConstraint_Checked(object sender, RoutedEventArgs e) => HandleRadioSelection(sender, DrawMode, (m, tag) => m.SelectLineConstraint(tag));
-
-        // Curvature Mode
-        private void Curvature_Checked(object sender, RoutedEventArgs e) => HandleRadioSelection(sender, CurvatureMode, (m, tag) => m.SelectCurvature(tag));
-
-        private void HandleRadioSelection<TMode>(object sender, TMode mode, Action<TMode, string?> selector) where TMode : class
-        {
-            if (mode == null) return;
-            if (sender is not RadioButton rb) return;
-
-            var tag = rb.Tag as string ?? rb.Tag?.ToString();
-            selector(mode, tag);
         }
         #endregion
     }

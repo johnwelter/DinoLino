@@ -14,7 +14,7 @@ namespace DinoLino.Utilities.Modes
     {
         #region Shared Curvature Infrastructure
         //-----BROAD/SHARED CURVATURE SECTION-----//
-
+        public override UserControl CreateControlPanel() => new CurvatureControlPanel(this);
         public override string TabName => "Curvature";
         public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
 
@@ -971,51 +971,7 @@ namespace DinoLino.Utilities.Modes
         #endregion
 
         #region bind results
-        //-----BIND RESULTS-----//
-        public void BindCurvatureResults(
-            Label centralAngleOutput, Label chordArcRatioOutput, Label aspectRatioOutput, // circular arc metadata
-            Label xyFunctionOutput, Label pChordArcRatioOutput, Label riseSpanRatioOutput, Label vertexCurvatureOutput, // parabolic arc metadata
-            Label turningAngleOutput, Label sChordArcRatioOutput) // spline metadata
-        {
-            // circular arc metadata
-            Binding centralAngleBind = new Binding(nameof(CentralAngleResult));
-            centralAngleOutput.SetBinding(Label.ContentProperty, centralAngleBind);
-            centralAngleOutput.DataContext = this;
-
-            Binding ratioBind = new Binding(nameof(AspectRatioResult));
-            aspectRatioOutput.SetBinding(Label.ContentProperty, ratioBind);
-            aspectRatioOutput.DataContext = this;
-
-            Binding chordArcRatioBind = new Binding(nameof(ChordArcRatioResult));
-            chordArcRatioOutput.SetBinding(Label.ContentProperty, chordArcRatioBind);
-            chordArcRatioOutput.DataContext = this;
-
-            // parabolic arc metadata
-            Binding xyFunctionBind = new Binding(nameof(XYFunctionResult));
-            xyFunctionOutput.SetBinding(Label.ContentProperty, xyFunctionBind);
-            xyFunctionOutput.DataContext = this;
-
-            Binding pChordArcRatioBind = new Binding(nameof(PChordArcRatioResult));
-            pChordArcRatioOutput.SetBinding(Label.ContentProperty, pChordArcRatioBind);
-            pChordArcRatioOutput.DataContext = this;
-
-            Binding riseSpanRatioBind = new Binding(nameof(RiseSpanRatioResult));
-            riseSpanRatioOutput.SetBinding(Label.ContentProperty, riseSpanRatioBind);
-            riseSpanRatioOutput.DataContext = this;
-
-            Binding vertexCurvatureBind = new Binding(nameof(VertexCurvatureResult));
-            vertexCurvatureOutput.SetBinding(Label.ContentProperty, vertexCurvatureBind);
-            vertexCurvatureOutput.DataContext = this;
-
-            // spline metadata
-            Binding turningAngleBind = new Binding(nameof(TurningAngleResult));
-            turningAngleOutput.SetBinding(Label.ContentProperty, turningAngleBind);
-            turningAngleOutput.DataContext = this;
-
-            Binding sChordArcRatioBind = new Binding(nameof(SChordArcRatioResult));
-            sChordArcRatioOutput.SetBinding(Label.ContentProperty, sChordArcRatioBind);
-            sChordArcRatioOutput.DataContext = this;
-        }
+        
         #endregion
     }
 }

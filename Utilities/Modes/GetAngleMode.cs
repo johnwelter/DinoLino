@@ -12,6 +12,7 @@ namespace DinoLino.Utilities.Modes
 {
     public class GetAngleMode : WorkMode
     {
+        public override UserControl CreateControlPanel() => new TriangleControlPanel(this);
         public override string TabName => "Triangle";
         public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
 
@@ -313,26 +314,6 @@ namespace DinoLino.Utilities.Modes
                 RelativeAreaResult = Math.Round(area / previousTriangle.TriArea, 2);
             else
                 RelativeAreaResult = "N/A"; // no previous triangle to compare to
-        }
-
-        public void BindAngleResults(
-            System.Windows.Controls.Label angleAOutput,
-            System.Windows.Controls.Label angleBOutput, 
-            System.Windows.Controls.Label angleCOutput,
-            System.Windows.Controls.Label TriAspectRatioOutput,
-            System.Windows.Controls.Label TriAreaOutput)
-        {
-            angleAOutput.DataContext = this;
-            angleBOutput.DataContext = this;
-            angleCOutput.DataContext = this;
-            TriAspectRatioOutput.DataContext = this;
-            TriAreaOutput.DataContext = this;
-
-            angleAOutput.SetBinding(Label.ContentProperty, new Binding(nameof(AngleAResult)));
-            angleBOutput.SetBinding(Label.ContentProperty, new Binding(nameof(AngleBResult)));
-            angleCOutput.SetBinding(Label.ContentProperty, new Binding(nameof(AngleCResult)));
-            TriAspectRatioOutput.SetBinding(Label.ContentProperty, new Binding(nameof(TriAspectRatioResult)));
-            TriAreaOutput.SetBinding(Label.ContentProperty, new Binding(nameof(RelativeAreaResult)));
         }
     }
 }
