@@ -107,7 +107,7 @@
                             <StackPanel x:Name="UI_CurvatureOutputs" Grid.Row="1">
 
                                 <!-- NOTE: This stack panel can be duplicated to add more results. just remember to give them new names!-->
-                                <RadioButton Content="Circular Arc" GroupName="Curve" x:Name="UI_Arc3Point" Checked="CircularArc_Checked" MinHeight="25" FontWeight="Bold"/>
+                                <RadioButton Content="Circular Arc" GroupName="Curve" x:Name="UI_Arc3Point" Checked="Curvature_Checked" MinHeight="25" FontWeight="Bold"/>
                                 <StackPanel x:Name="UI_CurveAngleOutput" Orientation="Horizontal" Margin ="10,0,0,0">
                                     <Label x:Name="UI_CurveAngleOutputLabel" Content="Central Angle:"/>
                                     <Label x:Name="UI_CurveAngleOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175"/>
@@ -120,7 +120,7 @@
                                     <Label x:Name="UI_AspectRatioOutputLabel" Content="Aspect Ratio:" HorizontalAlignment="Left" VerticalAlignment="Bottom"/>
                                     <Label x:Name="UI_AspectRatioOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175"/>
                                 </StackPanel>
-                                <RadioButton Content="Parabolic Arc" GroupName="Curve" x:Name="UI_ParArc3Point" Checked="ParabolicArc_Checked" MinHeight="25" FontWeight="Bold" Margin="0,10,0,0"/>
+                                <RadioButton Content="Parabolic Arc" GroupName="Curve" x:Name="UI_ParArc3Point" Checked="Curvature_Checked" MinHeight="25" FontWeight="Bold" Margin="0,10,0,0"/>
                                 <StackPanel x:Name="UI_XYFunctionOutput" Orientation="Horizontal" Margin ="10,0,0,0">
                                     <Label x:Name="UI_XYFunctionOutputLabel" Content=""/>
                                     <Label x:Name="UI_XYFunctionOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175"/>
@@ -137,7 +137,7 @@
                                     <Label x:Name="UI_VertexCurvatureOutputLabel" Content="Vertex Curv.:" HorizontalAlignment="Left" VerticalAlignment="Bottom"/>
                                     <Label x:Name="UI_VertexCurvatureOutputValue" Content="NA" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="175"/>
                                 </StackPanel>
-                                <RadioButton Content="n-Point Spline" GroupName="Curve" x:Name="UI_SplineNPoint" Checked="nPointSpline_Checked" MinHeight="25" FontWeight="Bold" Margin="0,10,0,0"/>
+                                <RadioButton Content="n-Point Spline" GroupName="Curve" x:Name="UI_SplineNPoint" Checked="Curvature_Checked" MinHeight="25" FontWeight="Bold" Margin="0,10,0,0"/>
                                 <StackPanel x:Name="UI_TurningAngleOutput" Orientation="Horizontal" Margin ="10,0,0,0">
                                     <Label x:Name="UI_TurningAngleOutputLabel" Content="Turning Angle:"/>
                                     <!-- Note: turning angle isn't exactly the right term but idk if I can add greek letters -->

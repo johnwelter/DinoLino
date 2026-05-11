@@ -42,6 +42,32 @@ namespace DinoLino.Utilities.Modes
             };
         }
 
+        // switch between operations
+        public void SelectMethod(string method)
+        {
+            switch (method)
+            {
+                case "None":
+                    CurrentMethod = CurvatureMethod.None;
+                    break;
+
+                case "CircularArc":
+                    CurrentMethod = CurvatureMethod.CircularArc;
+                    break;
+
+                case "ParabolicArc":
+                    CurrentMethod = CurvatureMethod.ParabolicArc;
+                    break;
+
+                case "NPointSpline":
+                    CurrentMethod = CurvatureMethod.NPointSpline;
+                    break;
+            }
+
+            CurrentStep = 0;
+            ResetDrawingState();
+        }
+
         public override Vector2 ProcessMouseMovement(Vector2 mousePos)
         {
             if (CurrentMethod == CurvatureMethod.None)
@@ -518,7 +544,7 @@ namespace DinoLino.Utilities.Modes
             get => _vertexCurvatureResult;
             set { _vertexCurvatureResult = value; OnPropertyChanged(nameof(VertexCurvatureResult)); }
         }
-      
+
         private List<UIElement> ProcessParArcClick(Vector2 mousePos)
         {
             List<UIElement> outputElements = new List<UIElement>();

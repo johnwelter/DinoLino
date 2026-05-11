@@ -20,9 +20,10 @@ namespace DinoLino
     /// </summary>
     public partial class MainWindow : Window
     {
+        // Undo Redo Manager fields 
         public UndoRedoManager UndoRedoManager;
 
-        // SpecimenManager
+        // Specimen Manager fields
         public SpecimenManager SpecimenManager = new SpecimenManager();
         private void SpecimenCount_Up(object sender, RoutedEventArgs e) => SpecimenManager.Increment();
         private void SpecimenCount_Down(object sender, RoutedEventArgs e) => SpecimenManager.Decrement();
@@ -33,7 +34,7 @@ namespace DinoLino
         // store selected font size
         private double _currentFontSize = 14;
 
-        // image adjuster field
+        // image adjuster fields
         private ImageAdjuster _imageAdjuster = new ImageAdjuster();
 
         // Picture adjustment state
@@ -469,20 +470,12 @@ namespace DinoLino
 
         private void DrawMethod_Checked(object sender, RoutedEventArgs e)
         {
-            if (sender is RadioButton rb && Enum.TryParse(rb.Tag.ToString(), out DrawMode.DrawMethod selectedMethod))
-            {
-                DrawMode.CurrentMethod = selectedMethod;
-                DrawMode.ResetDrawingState();
-            }
+            if (sender is RadioButton rb) DrawMode.SelectDrawMethod(rb.Tag?.ToString());
         }
 
         private void Shape_Checked(object sender, RoutedEventArgs e)
         {
-            if (sender is RadioButton rb && Enum.TryParse(rb.Tag.ToString(), out DrawMode.ShapeConstraint selectedShape))
-            {
-                DrawMode.CurrentShape = selectedShape;
-                DrawMode.ResetDrawingState();
-            }
+            if (sender is RadioButton rb) DrawMode.SelectShape(rb.Tag?.ToString());
         }
 
         private void DrawAngleValue_TextChanged(object sender, TextChangedEventArgs e)
@@ -493,39 +486,14 @@ namespace DinoLino
         private void LineConstraint_Checked(object sender, RoutedEventArgs e)
         {
             if (DrawMode == null) return; // guard for initialization ordering
-
-            if (sender is RadioButton rb && Enum.TryParse(rb.Tag.ToString(), out DrawMode.LineConstraint selectedConstraint))
-            {
-                DrawMode.CurrentLineType = selectedConstraint;
-                DrawMode.ResetDrawingState();
-            }
+            if (sender is RadioButton rb) DrawMode.SelectLineConstraint(rb.Tag?.ToString());
         }
 
         // Curvature Mode
-        private void CurvNone_Checked(object sender, RoutedEventArgs e)
+        private void Curvature_Checked(object sender, RoutedEventArgs e)
         {
-            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.None;
-            CurvatureMode.ResetDrawingState();
-        }
-
-        private void CircularArc_Checked(object sender, RoutedEventArgs e)
-        {
-            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.CircularArc;
-            CurvatureMode.CurrentStep = 0;
-            CurvatureMode.ResetDrawingState();
-        }
-
-        private void ParabolicArc_Checked(object sender, RoutedEventArgs e)
-        {
-            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.ParabolicArc;
-            CurvatureMode.CurrentStep = 0;
-            CurvatureMode.ResetDrawingState();
-        }
-
-        private void nPointSpline_Checked(object sender, RoutedEventArgs e)
-        {
-            CurvatureMode.CurrentMethod = CurvatureMode.CurvatureMethod.NPointSpline;
-            CurvatureMode.ResetDrawingState();
+            if (sender is RadioButton rb)
+                CurvatureMode.SelectMethod(rb.Tag?.ToString());
         }
         #endregion
     }

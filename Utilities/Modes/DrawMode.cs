@@ -55,6 +55,16 @@ namespace DinoLino.Utilities.Modes
                 _ => mousePos
             };
         }
+
+        public void SelectDrawMethod(string tag)
+        {
+            if (Enum.TryParse(tag, out DrawMethod method))
+            {
+                CurrentMethod = method;
+                ResetDrawingState();
+            }
+        }
+
         private void FinishOperation()
         {
             CurrentOperation.Clear();
@@ -145,6 +155,16 @@ namespace DinoLino.Utilities.Modes
             {
                 _relativeAreaResult = value;
                 OnPropertyChanged(nameof(RelativeAreaResult));
+            }
+        }
+
+        // switch to shape operation
+        public void SelectShape(string tag)
+        {
+            if (Enum.TryParse(tag, out ShapeConstraint shape))
+            {
+                CurrentShape = shape;
+                ResetDrawingState();
             }
         }
 
@@ -294,6 +314,16 @@ namespace DinoLino.Utilities.Modes
             {
                 _lineLengthRatioResult = value;
                 OnPropertyChanged(nameof(LineLengthRatioResult));
+            }
+        }
+
+        // switch to line operation
+        public void SelectLineConstraint(string tag)
+        {
+            if (Enum.TryParse(tag, out LineConstraint constraint))
+            {
+                CurrentLineType = constraint;
+                ResetDrawingState();
             }
         }
 
