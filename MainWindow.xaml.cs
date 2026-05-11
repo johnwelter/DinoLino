@@ -22,8 +22,10 @@ namespace DinoLino
     {
         public UndoRedoManager UndoRedoManager;
 
-        // Tracks how many images have been opened
-        private int _specimenCount = 0;
+        // SpecimenManager
+        public SpecimenManager SpecimenManager = new SpecimenManager();
+        private void SpecimenCount_Up(object sender, RoutedEventArgs e) => SpecimenManager.Increment();
+        private void SpecimenCount_Down(object sender, RoutedEventArgs e) => SpecimenManager.Decrement();
 
         // store selected font type
         private FontFamily _currentFont = new FontFamily("Arial");
@@ -62,6 +64,7 @@ namespace DinoLino
             InitializeComponent();
 
             _imageAdjuster.OnAdjustmentApplied = bitmap => UI_WorkImage.Source = bitmap;
+            SpecimenManager.BindToTextBox(UI_SpecimenNameBox);
 
             // Keyboard shortcuts
             this.PreviewKeyDown += MainWindow_KeyDown;
@@ -206,31 +209,15 @@ namespace DinoLino
 
             if (openFileDialog.ShowDialog() == true)
             {
-                _specimenCount++;
 
                 WorkingImage = new BitmapImage(new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));
                 UI_WorkImage.Source = WorkingImage;
-                UI_SpecimenNameBox.Text = $"Specimen {_specimenCount}";
+                SpecimenManager.OnImageOpened();
             }
 
             ResetWorkSpaceZoom();
             ClearWorkspace();
             _imageAdjuster.CacheImage(WorkingImage);
-        }
-
-        private void SpecimenCount_Up(object sender, RoutedEventArgs e)
-        {
-            _specimenCount++;
-            UI_SpecimenNameBox.Text = $"Specimen {_specimenCount}";
-        }
-
-        private void SpecimenCount_Down(object sender, RoutedEventArgs e)
-        {
-            if (_specimenCount > 1)
-            {
-                _specimenCount--;
-                UI_SpecimenNameBox.Text = $"Specimen {_specimenCount}";
-            }
         }
 
         private void Menu_About(object sender, RoutedEventArgs e)

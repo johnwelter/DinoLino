@@ -65,9 +65,9 @@ namespace DinoLino.Utilities.Modes
                     // add normalized direction + scale to midpoint to get new point
 
                     Vector2 toMouse = mousePos - Midpoint;
-                    double newMag = Orthoganal | toMouse;
+                    double newMag = Orthogonal | toMouse;
 
-                    Vector2 newDist = Orthoganal * newMag;
+                    Vector2 newDist = Orthogonal * newMag;
 
                     CurrentUILine.X2 = Midpoint.X + newDist.X;
                     CurrentUILine.Y2 = Midpoint.Y + newDist.Y;
@@ -185,7 +185,7 @@ namespace DinoLino.Utilities.Modes
         public Vector2 PointA;
         public Vector2 PointB;
         public Vector2 Midpoint;
-        public Vector2 Orthoganal;
+        public Vector2 Orthogonal;
         public Vector2 PointC;
         public Vector2 Intersection;
         public Vector2 ACMid;
@@ -215,11 +215,11 @@ namespace DinoLino.Utilities.Modes
             outputElements.Add(CurrentUILine);
             CurrentOperation.Add(CurrentUILine);
 
-            // make the orthoganal
+            // make the orthogonal
             Vector3 p1 = new Vector3(PointA.X, PointA.Y, 1);
             Vector3 p2 = new Vector3(PointB.X, PointB.Y, 1);
-            Orthoganal = (p1 ^ p2).ToVector2();
-            Orthoganal.Normalize();
+            Orthogonal = (p1 ^ p2).ToVector2();
+            Orthogonal.Normalize();
 
             CurrentStep++;
         }

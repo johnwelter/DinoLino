@@ -31,8 +31,7 @@
                 <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"/>
             </MenuItem>
             <MenuItem Header="_View" MouseLeave="Menu_MouseLeave">
-                <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps">
-                    <MenuItem Header="_Yes" IsCheckable="True" IsChecked="True" Click="Menu_SeePrevOps"/>
+                <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="True" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave">
                 </MenuItem>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>
@@ -76,7 +75,7 @@
                 <!-- Controls that aren't dependent on mode type  -->
                 <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
                 <StackPanel x:Name="UI_GlobalControls" Orientation="Horizontal" Margin="10,10,10,5">
-                    <TextBox x:Name="UI_SpecimenNameBox" Text="Specimen 1" MaxLength="20"
+                    <TextBox x:Name="UI_SpecimenNameBox" MaxLength="20"
                              VerticalAlignment="Center"
                              MinWidth="100"/>
                     <StackPanel Orientation="Vertical" Margin="8,1,0,1">

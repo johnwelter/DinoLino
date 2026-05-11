@@ -75,6 +75,7 @@
     <Compile Include="Utilities\Modes\GetAngleMode.cs" />
     <Compile Include="Utilities\Modes\CurvatureMode.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
+    <Compile Include="Utilities\SpecimenManager.cs" />
     <Compile Include="Utilities\Stats.cs" />
     <Compile Include="About.xaml.cs">
       <DependentUpon>About.xaml</DependentUpon>
