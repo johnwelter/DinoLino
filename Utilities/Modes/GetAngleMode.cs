@@ -12,6 +12,9 @@ namespace DinoLino.Utilities.Modes
 {
     public class GetAngleMode : WorkMode
     {
+        public override string TabName => "Triangle";
+        public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
+
         public override void ClearMetadata()
         {
             AngleAResult = 0;
@@ -21,7 +24,7 @@ namespace DinoLino.Utilities.Modes
             RelativeAreaResult = "N/A";
         }
 
-        public TextBlock MakeLabel(string text, Vector2 pos)
+        private TextBlock MakeLabel(string text, Vector2 pos)
         {
             TextBlock label = new TextBlock();
             label.Text = text;

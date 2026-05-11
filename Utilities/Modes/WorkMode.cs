@@ -10,8 +10,14 @@ using System.Windows.Media;
 
 namespace DinoLino.Utilities.Modes
 {
-    public class WorkMode : INotifyPropertyChanged
+    public abstract class WorkMode : INotifyPropertyChanged
     {
+        // Each mode declares the tab header it corresponds to
+        public abstract string TabName { get; }
+
+        // Returns true when the mode is at the start of a new operation.
+        public virtual bool IsStartingNewOperation => CurrentStep == 0;
+
         public UndoRedoManager UndoRedoManager { get; set; }
         // Toggling whether or not previous operations are visible
         public bool SeePreviousOperations { get; set; } = true;

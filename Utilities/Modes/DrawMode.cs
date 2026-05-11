@@ -2,7 +2,6 @@
 using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.Eventing.Reader;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -16,6 +15,9 @@ namespace DinoLino.Utilities.Modes
     {
         #region Shared Draw Infrastructure
         //-----Shared Code Across Draw Operations-----//
+        public override string TabName => "Draw";
+        public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
+
         public override void ClearMetadata()
         {
             DrawAspectRatioResult = 0;

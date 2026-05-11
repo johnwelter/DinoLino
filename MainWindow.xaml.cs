@@ -4,6 +4,7 @@ using DinoLino.Utilities.Modes;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -20,6 +21,7 @@ namespace DinoLino
     /// </summary>
     public partial class MainWindow : Window
     {
+
         // Undo Redo Manager fields 
         public UndoRedoManager UndoRedoManager;
 
@@ -372,26 +374,14 @@ namespace DinoLino
 
         private void ControlTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (UI_ControlTabs.SelectedItem is TabItem tab)
-            {
-                switch (tab.Header.ToString())
-                {
-                    case "Curvature":
-                        CurrentWorkMode = CurvatureMode;
-                        break;
+            if (UI_ControlTabs.SelectedItem is not TabItem tab) return;
 
-                    case "Triangle":
-                        CurrentWorkMode = GetAngleMode;
-                        break;
+            // Find the mode whose TabName matches the selected tab header
+            CurrentWorkMode = AllWorkModes.FirstOrDefault(m => m.TabName == tab.Header.ToString())
+                              ?? CurrentWorkMode;
 
-                    case "Draw":
-                        CurrentWorkMode = DrawMode; 
-                        break;
-                }
-
-                CurrentWorkMode?.ResetDrawingState(); // only reset in-progress click history
-                BindUndoRedoMenuItems();
-            }
+            CurrentWorkMode?.ResetDrawingState();
+            BindUndoRedoMenuItems();
         }
         #endregion
 
@@ -401,9 +391,7 @@ namespace DinoLino
         {
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
 
-            bool isStartingNewOperation = CurrentWorkMode.CurrentStep == 0 || CurrentWorkMode.CurrentStep == 3;
-
-            if (!CurrentWorkMode.SeePreviousOperations && isStartingNewOperation)
+            if (!CurrentWorkMode.SeePreviousOperations && CurrentWorkMode.IsStartingNewOperation)
             {
                 // don't use Children.Clear() because we want to keep the DotCursor
                 ClearWorkspaceVisualsOnly();
@@ -413,17 +401,14 @@ namespace DinoLino
             {
                 RemovePendingElements();
 
-                List<UIElement> elementsToAdd = CurrentWorkMode.ProcessDoubleClick(mousePos);
-                foreach (UIElement element in elementsToAdd)
+                foreach (UIElement element in CurrentWorkMode.ProcessDoubleClick(mousePos))
                     AddElementToWorkSpace(element);
                 return;
             }
 
             RemovePendingElements();
 
-            List<UIElement> elementsToAdd2 = CurrentWorkMode.ProcessClick(mousePos);
-
-            foreach (UIElement element in elementsToAdd2)
+            foreach (UIElement element in CurrentWorkMode.ProcessClick(mousePos))
             {
                 AddElementToWorkSpace(element);
             }
@@ -468,32 +453,27 @@ namespace DinoLino
         // radio buttons
         // Draw Mode
 
-        private void DrawMethod_Checked(object sender, RoutedEventArgs e)
-        {
-            if (sender is RadioButton rb) DrawMode.SelectDrawMethod(rb.Tag?.ToString());
-        }
+        private void DrawMethod_Checked(object sender, RoutedEventArgs e) => HandleRadioSelection(sender, DrawMode, (m, tag) => m.SelectDrawMethod(tag));
 
-        private void Shape_Checked(object sender, RoutedEventArgs e)
-        {
-            if (sender is RadioButton rb) DrawMode.SelectShape(rb.Tag?.ToString());
-        }
+        private void Shape_Checked(object sender, RoutedEventArgs e) => HandleRadioSelection(sender, DrawMode, (m, tag) => m.SelectShape(tag));
 
         private void DrawAngleValue_TextChanged(object sender, TextChangedEventArgs e)
         {
             DrawMode.UpdateAngle(UI_DrawAngleValue.Text);
         }
 
-        private void LineConstraint_Checked(object sender, RoutedEventArgs e)
-        {
-            if (DrawMode == null) return; // guard for initialization ordering
-            if (sender is RadioButton rb) DrawMode.SelectLineConstraint(rb.Tag?.ToString());
-        }
+        private void LineConstraint_Checked(object sender, RoutedEventArgs e) => HandleRadioSelection(sender, DrawMode, (m, tag) => m.SelectLineConstraint(tag));
 
         // Curvature Mode
-        private void Curvature_Checked(object sender, RoutedEventArgs e)
+        private void Curvature_Checked(object sender, RoutedEventArgs e) => HandleRadioSelection(sender, CurvatureMode, (m, tag) => m.SelectCurvature(tag));
+
+        private void HandleRadioSelection<TMode>(object sender, TMode mode, Action<TMode, string?> selector) where TMode : class
         {
-            if (sender is RadioButton rb)
-                CurvatureMode.SelectMethod(rb.Tag?.ToString());
+            if (mode == null) return;
+            if (sender is not RadioButton rb) return;
+
+            var tag = rb.Tag as string ?? rb.Tag?.ToString();
+            selector(mode, tag);
         }
         #endregion
     }

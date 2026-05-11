@@ -7,7 +7,6 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using System.Xml;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -15,6 +14,9 @@ namespace DinoLino.Utilities.Modes
     {
         #region Shared Curvature Infrastructure
         //-----BROAD/SHARED CURVATURE SECTION-----//
+
+        public override string TabName => "Curvature";
+        public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
 
         // enum for toggling between curvature methods
         public enum CurvatureMethod
@@ -31,6 +33,28 @@ namespace DinoLino.Utilities.Modes
         // Current UI line to modify during mouse move
         private Line CurrentUILine = null;
 
+        public void SelectCurvature(string? option)
+        {
+            if (!Enum.TryParse<CurvatureMethod>(option, ignoreCase: true, out var selection))
+                return;
+
+            switch (selection)
+            {
+                case CurvatureMethod.None:
+                    SelectNone();
+                    break;
+                case CurvatureMethod.CircularArc:
+                    SelectCircularArc();
+                    break;
+                case CurvatureMethod.ParabolicArc:
+                    SelectParabolicArc();
+                    break;
+                case CurvatureMethod.NPointSpline:
+                    SelectNPointSpline();
+                    break;
+            }
+        }
+
         public override List<UIElement> ProcessClick(Vector2 mousePos)
         {
             return CurrentMethod switch
@@ -42,29 +66,10 @@ namespace DinoLino.Utilities.Modes
             };
         }
 
-        // switch between operations
-        public void SelectMethod(string method)
+        // no operation selected 
+        public void SelectNone()
         {
-            switch (method)
-            {
-                case "None":
-                    CurrentMethod = CurvatureMethod.None;
-                    break;
-
-                case "CircularArc":
-                    CurrentMethod = CurvatureMethod.CircularArc;
-                    break;
-
-                case "ParabolicArc":
-                    CurrentMethod = CurvatureMethod.ParabolicArc;
-                    break;
-
-                case "NPointSpline":
-                    CurrentMethod = CurvatureMethod.NPointSpline;
-                    break;
-            }
-
-            CurrentStep = 0;
+            CurrentMethod = CurvatureMethod.None;
             ResetDrawingState();
         }
 
@@ -287,6 +292,14 @@ namespace DinoLino.Utilities.Modes
                 _aspectRatioResult = value;
                 OnPropertyChanged(nameof(AspectRatioResult));
             }
+        }
+
+        // switch to circular arc operation
+        public void SelectCircularArc()
+        {
+            CurrentMethod = CurvatureMethod.CircularArc;
+            CurrentStep = 0;
+            ResetDrawingState();
         }
 
         private List<UIElement> ProcessCircArcClick(Vector2 mousePos)
@@ -545,6 +558,14 @@ namespace DinoLino.Utilities.Modes
             set { _vertexCurvatureResult = value; OnPropertyChanged(nameof(VertexCurvatureResult)); }
         }
 
+        // switch to parabolic arc operation
+        public void SelectParabolicArc()
+        {
+            CurrentMethod = CurvatureMethod.ParabolicArc;
+            CurrentStep = 0;
+            ResetDrawingState();
+        }
+
         private List<UIElement> ProcessParArcClick(Vector2 mousePos)
         {
             List<UIElement> outputElements = new List<UIElement>();
@@ -575,9 +596,6 @@ namespace DinoLino.Utilities.Modes
 
                     // calculate results
                     CalculateParabolicArcResults();
-
-                    Console.WriteLine(XYFunctionResult);
-                    Console.WriteLine(PChordArcRatioResult);
 
                     CurrentStep++;
 
@@ -780,6 +798,13 @@ namespace DinoLino.Utilities.Modes
             }
 
             return output;
+        }
+
+        // switch to n-point spline operation
+        public void SelectNPointSpline()
+        {
+            CurrentMethod = CurvatureMethod.NPointSpline;
+            ResetDrawingState();
         }
 
         public override List<UIElement> ProcessDoubleClick(Vector2 mousePos)
