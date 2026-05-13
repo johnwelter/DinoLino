@@ -7,6 +7,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Shapes;
+using static DinoLino.Utilities.Modes.CurvatureMode;
+using static DinoLino.Utilities.Modes.DrawMode;
 
 
 namespace DinoLino.Utilities.Modes
@@ -33,7 +35,22 @@ namespace DinoLino.Utilities.Modes
             Shape,
             Line
         }
-        public DrawMethod CurrentMethod { get; set; } = DrawMethod.None;
+        private DrawMethod _currentMethod { get; set; } = DrawMethod.None;
+
+        public DrawMethod CurrentMethod
+        {
+            get => _currentMethod;
+            set
+            {
+                _currentMethod = value;
+                OnPropertyChanged(nameof(CurrentMethod));
+                OnPropertyChanged(nameof(IsShapeSelected));
+                OnPropertyChanged(nameof(IsLineSelected));
+            }
+        }
+
+        public bool IsShapeSelected => CurrentMethod == DrawMethod.Shape;
+        public bool IsLineSelected => CurrentMethod == DrawMethod.Line;
 
         // Tracking drawn elements
         private List<UIElement> CurrentOperation = new();

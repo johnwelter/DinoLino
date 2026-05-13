@@ -28,7 +28,23 @@ namespace DinoLino.Utilities.Modes
         }
 
         // set default nethod to none until selection made
-        public CurvatureMethod CurrentMethod { get; set; } = CurvatureMethod.None;
+        private CurvatureMethod _currentMethod { get; set; } = CurvatureMethod.None;
+        public CurvatureMethod CurrentMethod
+        {
+            get => _currentMethod;
+            set
+            {
+                _currentMethod = value;
+                OnPropertyChanged(nameof(CurrentMethod));
+                OnPropertyChanged(nameof(IsCircularArcSelected));
+                OnPropertyChanged(nameof(IsParabolicArcSelected));
+                OnPropertyChanged(nameof(IsNPointSplineSelected));
+            }
+        }
+
+        public bool IsCircularArcSelected => CurrentMethod == CurvatureMethod.CircularArc;
+        public bool IsParabolicArcSelected => CurrentMethod == CurvatureMethod.ParabolicArc;
+        public bool IsNPointSplineSelected => CurrentMethod == CurvatureMethod.NPointSpline;
 
         // Current UI line to modify during mouse move
         private Line CurrentUILine = null;
@@ -970,8 +986,5 @@ namespace DinoLino.Utilities.Modes
         }
         #endregion
 
-        #region bind results
-        
-        #endregion
     }
 }
