@@ -24,16 +24,27 @@ CURVATURE MODE:
 
 Geometric calculations to calculate curvature 
 
-3-Point Arc: 
+----- Circular Arc -----
 
 Approximate a curve as the arc of a circle using three points. 
 Click twice to draw a line from each end of the curve (your 'chord'), then click a third time in the midpoint of the curve to draw the chord bisector (your 'sagitta'). 
 Click again after arc completion to begin another operation.
 
 Central Angle: A measure of curvature. The central angle of a circular arc drawn using three points. 
-Aspect ratio: Length of the first line drawn (chord) divided by length of the second line (sagitta).
+Chord-Arc Ratio: A measure of curvature. The length of the first line drawn (chord) divided by arc length.
+Rise-Span ratio: Length of the first line drawn (chord) divided by the length of its bisector (sagitta).
 
-n-Point Spline:
+----- Parabolic Arc -----
+
+Approximate a curve as a parabola using three points.
+Click twice to draw a line from each end of the curve (your 'chord'), then click a third time in the midpoint of the curve to draw the chord bisector (your 'sagitta').
+Click again after arc completion to begin another operation.
+
+Chord-Arc Ratio: A measure of curvature. The length of the first line drawn (chord) divided by arc length.
+Rise-Span Ratio: Length of the first line drawn (chord) divided by the length of its bisector (sagitta).
+Vertex Curvature:
+
+----- n-Point Spline -----
 
 Click any amount of times along the curve, and finalize with a double click. This creates an n-point Catmull-Rom spline. Clicking again after spline completion begins another operation.
 
@@ -58,11 +69,36 @@ DRAW MODE:
 
 Draw basic shapes and lines on the image and return their relative proportions.
 
-For shapes, click once to begin drawing, drag to determine size and shape, and click a second time to finish.
-For lines, click twice anywhere on the image to draw a straight line between two points.
-For angles, type the desired angle in the text box. Click twice anywhere on the image draw line AB. Line BC will be constrained to the specified angle. Click a third time to finish.
+----- Draw Shapes -----
+Click once to begin drawing a geometric shape, drag to determine size and shape, and click a second time to finish.
 
 Aspect Ratio: Width of the drawn shape divided by its height. NA for lines and angles.
 Relative Size: Area of the drawn shape divided by the area of the previous shape. NA for lines and angles.
+
+----- Draw Lines -----
+Click twice anywhere on the image to draw a straight line between two points.
+For angles, type the desired angle in the text box. Click twice anywhere on the image draw line AB. Line BC will be constrained to the specified angle. Click a third time to finish.
+
 Line Ratio: Length of the drawn line divided by the length of the previous line. NA for shapes.
+
 ------------------------------------------------------------------------------------------------
+OUTLINE MODE:
+
+------------------------------------------------------------------------------------------------
+VIEW:
+
+Adjust various properties using the View drop-down menu items.
+
+----- See Previous Operations ----- 
+Toggle on or off to keep drawn elements of previous operations on the screen.
+
+----- Line Color ----- 
+Adjust color of drawn elements. Multiple options are available to accommodate colorblindness and ensure visibility on any image.
+
+----- Font ----- 
+Adjust font size or font family. Dyslexia-friendly fonts are available. 
+If needed, you may accommodate very large font sizes by resizing the sidebar or program window with clicking and dragging.
+
+----- Picture Adjustment ----- 
+Adjust brightness, contrast, or saturation of the uploaded image. Zero is the default value for all parameters.
+

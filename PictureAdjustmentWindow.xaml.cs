@@ -91,9 +91,13 @@ namespace DinoLino
                 UI_SaturationSlider.Value);
         }
 
-        private void Close_Click(object sender, RoutedEventArgs e)
+        private void Reset_ImageValues(object sender, RoutedEventArgs e)
         {
-            Close();
+            // Reset sliders
+            UI_ContrastSlider.Value = UI_BrightnessSlider.Value = UI_SaturationSlider.Value = 0;
+
+            // Reset textboxes
+            UI_ContrastText.Text = UI_BrightnessText.Text = UI_SaturationText.Text = "0";
         }
     }
 }

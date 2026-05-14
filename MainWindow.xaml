@@ -36,11 +36,16 @@
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>
                     <RadioButton Content="_Blue" Tag="Blue" GroupName="LineColors" Click="Menu_Color_Click"/>
+                    <RadioButton Content="_Orange" Tag="Orange" GroupName="LineColors" Click="Menu_Color_Click"/>
+                    <RadioButton Content="_Green" Tag="Green" GroupName="LineColors" Click="Menu_Color_Click"/>
                     <RadioButton Content="_Black" Tag="Black" GroupName="LineColors" Click="Menu_Color_Click"/>
+                    <RadioButton Content="_Grey" Tag="Gray" GroupName="LineColors" Click="Menu_Color_Click"/>
                     <RadioButton Content="_White" Tag="White" GroupName="LineColors" Click="Menu_Color_Click"/>
+                    <RadioButton Content="_Brown" Tag="Brown" GroupName="LineColors" Click="Menu_Color_Click"/>
                 </MenuItem>
                 <MenuItem Header="_Font" Click="Menu_Font"/>
-                <MenuItem Header="_Picture Adjustment" Click="Menu_PictureAdjustment"/>
+                <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"/>
+                <MenuItem Header="_DownSample" Click="Menu_DownSample"/>
             </MenuItem>
             <MenuItem Header="_Help" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_About" Click="Menu_About"/>
@@ -92,6 +97,7 @@
                     <TabItem Header="Curvature"/>
                     <TabItem Header="Triangle"/>
                     <TabItem Header="Draw"/>
+                    <TabItem Header="Outline"/>
                 </TabControl>
                 <ContentControl x:Name="UI_ModePanel" Margin="0,0,0,10"/>
                 <Button x:Name="UI_AAClearButton" Content="Clear" Margin="36,10,36,10" MinHeight="36" VerticalAlignment="Top" Click="GlobalTools_Clear"/>

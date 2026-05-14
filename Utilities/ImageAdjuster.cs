@@ -20,7 +20,7 @@ namespace DinoLino
         private DispatcherTimer _adjustmentTimer;
         private double _pendingContrast;
         private double _pendingBrightness;
-        private double _pendingSaturation;    
+        private double _pendingSaturation;
 
         public bool HasImage => _originalPixels != null;
 
@@ -109,6 +109,50 @@ namespace DinoLino
                                           _dpiX, _dpiY, _originalPixelFormat, null);
             wb.WritePixels(new Int32Rect(0, 0, _originalPixelWidth, _originalPixelHeight),
                            adjustedPixels, _originalStride, 0);
+            return wb;
+        }
+
+        private long CountPixels()
+        {
+            if (!HasImage) return 0;
+            return (long)_originalPixelWidth * _originalPixelHeight;
+        }
+
+        public WriteableBitmap DownSample(long targetPixelCount)
+        {
+            if (!HasImage) return null;
+
+            long current = CountPixels();
+            if (targetPixelCount <= 0 || targetPixelCount >= current) return null;
+
+            double scale = Math.Sqrt((double)targetPixelCount / current);
+            int newWidth = Math.Max(1, (int)Math.Round(_originalPixelWidth * scale));
+            int newHeight = Math.Max(1, (int)Math.Round(_originalPixelHeight * scale));
+
+            int bytesPerPixel = (_originalPixelFormat.BitsPerPixel + 7) / 8;
+            int newStride = (newWidth * _originalPixelFormat.BitsPerPixel + 7) / 8;
+            byte[] newPixels = new byte[newStride * newHeight];
+
+            Parallel.For(0, newHeight, y =>
+            {
+                int srcY = (int)Math.Floor((double)y / newHeight * _originalPixelHeight);
+                srcY = Math.Min(srcY, _originalPixelHeight - 1);
+
+                for (int x = 0; x < newWidth; x++)
+                {
+                    int srcX = (int)Math.Floor((double)x / newWidth * _originalPixelWidth);
+                    srcX = Math.Min(srcX, _originalPixelWidth - 1);
+
+                    int srcIndex = srcY * _originalStride + srcX * bytesPerPixel;
+                    int dstIndex = y * newStride + x * bytesPerPixel;
+
+                    for (int c = 0; c < bytesPerPixel; c++)
+                        newPixels[dstIndex + c] = _originalPixels[srcIndex + c];
+                }
+            });
+
+            var wb = new WriteableBitmap(newWidth, newHeight, _dpiX, _dpiY, _originalPixelFormat, null);
+            wb.WritePixels(new Int32Rect(0, 0, newWidth, newHeight), newPixels, newStride, 0);
             return wb;
         }
     }

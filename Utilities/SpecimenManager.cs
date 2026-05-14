@@ -67,9 +67,13 @@ namespace DinoLino.Utilities
 
         // Called when a new image is opened. Increments the counter and
         // resets to the auto-generated name.
+        private bool _hasOpenedImage = false;
         public void OnImageOpened()
         {
-            Increment();
+            if (_hasOpenedImage)
+                Increment();
+            else
+                _hasOpenedImage = true;
         }
 
         // Wires the manager to the TextBox so edits flow both ways.

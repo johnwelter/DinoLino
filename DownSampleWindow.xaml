@@ -1,0 +1,70 @@
+﻿<Window x:Class="DinoLino.DownSampleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:DinoLino"
+        mc:Ignorable="d"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        Title="Downsample Image"
+        MinHeight="210"
+        MinWidth="320"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="CanResize">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="16"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="16"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="100"/>
+            <ColumnDefinition Width="20"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="100"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="5"
+                   Text="Decimate by:" FontWeight="Bold" Margin="0,0,0,10"/>
+
+        <!-- Pixel Count label + box -->
+        <TextBlock Grid.Row="1" Grid.Column="0"
+                   Text="Pixel Count:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <TextBox x:Name="UI_PixelNumberBox"
+                 Grid.Row="1" Grid.Column="1"
+                 KeyUp="PixelNumber_KeyUp"
+                 LostFocus="PixelNumber_LostFocus"
+                 MaxLength="20" VerticalAlignment="Center"/>
+
+        <!-- Percentage label + box -->
+        <TextBlock Grid.Row="1" Grid.Column="3"
+                   Text="Percentage:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <TextBox x:Name="UI_PixelPercentBox"
+                 Grid.Row="1" Grid.Column="4"
+                 KeyUp="PixelPercent_KeyUp"
+                 LostFocus="PixelPercent_LostFocus"
+                 MaxLength="10" VerticalAlignment="Center"/>
+
+        <!-- Current pixel count display (only updates on Accept) -->
+        <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                   Text="Current Pixel Count:" FontWeight="Bold"
+                   VerticalAlignment="Center" Margin="0,12,0,0"/>
+        <Label x:Name="UI_CurrentPixelCountLabel"
+               Grid.Row="3" Grid.Column="2" Grid.ColumnSpan="3"
+               VerticalAlignment="Center" Margin="0,12,0,0"/>
+
+        <!-- Buttons -->
+        <Button Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="2"
+        Content="Accept" MinWidth="85" MinHeight="40"
+        Click="Accept_PixelCount" Margin="25,0,10,-17"/>
+        <Button Grid.Row="7" Grid.Column="3" Grid.ColumnSpan="2"
+        Content="Reset" MinWidth="85" MinHeight="40"
+        Click="Reset_PixelCount" Margin="10,0,25,-17"/>
+    </Grid>
+</Window>

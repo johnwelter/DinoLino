@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Picture Adjustment"
         MinWidth="360"
-        MinHeight="160"
+        MinHeight="210"
         SizeToContent="WidthAndHeight"
         ResizeMode="CanResize">
     <Grid Margin="16">
@@ -52,10 +52,10 @@
         <TextBox Grid.Row="2" Grid.Column="2" x:Name="UI_SaturationText"
                 Text="0" Width="45" VerticalAlignment="Center" Margin="10,0,0,16"
                 KeyUp="Saturation_KeyUp" LostFocus="Saturation_LostFocus"/>
-
-        <!-- Close button -->
-        <Button Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
-                Content="Close" MinWidth="80" HorizontalAlignment="Right"
-                Click="Close_Click"/>
+        
+        <!-- Reset button -->
+        <Button Grid.Row="3" Grid.Column="1"
+                Content="Reset" MinWidth="80" HorizontalAlignment="Center"
+                Click="Reset_ImageValues" Margin="0,34,0,-34"/>
     </Grid>
 </Window>

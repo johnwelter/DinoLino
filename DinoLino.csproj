@@ -63,6 +63,9 @@
       <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="DataTypes\DataTypes.cs" />
+    <Compile Include="DownSampleWindow.xaml.cs">
+      <DependentUpon>DownSampleWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="DrawControlPanel.xaml.cs">
       <DependentUpon>DrawControlPanel.xaml</DependentUpon>
     </Compile>
@@ -83,7 +86,11 @@
     <Compile Include="Utilities\Modes\DrawMode.cs" />
     <Compile Include="Utilities\Modes\GetAngleMode.cs" />
     <Compile Include="Utilities\Modes\CurvatureMode.cs" />
+    <Compile Include="Utilities\Modes\OutlineMode.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
+    <Compile Include="Utilities\OutlineControlPanel.xaml.cs">
+      <DependentUpon>OutlineControlPanel.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Utilities\SpecimenManager.cs" />
     <Compile Include="Utilities\Stats.cs" />
     <Compile Include="About.xaml.cs">
@@ -95,6 +102,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Dictionary1.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="DownSampleWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -128,6 +139,9 @@
     </Page>
     <Page Include="UserGuide.xaml">
       <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Utilities\OutlineControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>

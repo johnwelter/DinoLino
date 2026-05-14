@@ -114,4 +114,9 @@ namespace DinoLino.Utilities.Operations
             }
         }
     }
+
+    public class OutlineOperation : WorkOperation
+    {
+        public override void ApplyMetadataToMode() { }
+    }
 }

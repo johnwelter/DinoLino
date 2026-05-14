@@ -51,6 +51,7 @@ namespace DinoLino
         public CurvatureMode CurvatureMode;
         public GetAngleMode GetAngleMode;
         public DrawMode DrawMode;
+        public OutlineMode OutlineMode;
 
         // A list to hold all modes for global settings
         public List<WorkMode> AllWorkModes;
@@ -88,6 +89,7 @@ namespace DinoLino
             CurvatureMode = new();
             GetAngleMode = new();    
             DrawMode = new();
+            OutlineMode = new();
 
 
             // Initialize the global undo redo manager and link to all modes
@@ -95,9 +97,10 @@ namespace DinoLino
             CurvatureMode.UndoRedoManager = UndoRedoManager;
             GetAngleMode.UndoRedoManager = UndoRedoManager;
             DrawMode.UndoRedoManager = UndoRedoManager;
+            OutlineMode.UndoRedoManager = UndoRedoManager;
 
             // Initialize list of all modes
-            AllWorkModes = new List<WorkMode> { CurvatureMode, GetAngleMode, DrawMode };
+            AllWorkModes = new List<WorkMode> { CurvatureMode, GetAngleMode, DrawMode, OutlineMode };
 
             // Set the current work mode to update
             CurrentWorkMode = CurvatureMode;
@@ -111,11 +114,13 @@ namespace DinoLino
             UI_WorkBorder.InitializeGroupTransform(new Point(0, 0));
 
             // Create cursor for following mouse during angle analytics
-            UI_DotCursor = new Ellipse();
-            UI_DotCursor.Stroke = Brushes.White;
-            UI_DotCursor.StrokeThickness = 2;
-            UI_DotCursor.Height = 10;
-            UI_DotCursor.Width = 10;
+            UI_DotCursor = new Ellipse
+            {
+                Stroke = Brushes.White,
+                StrokeThickness = 2,
+                Height = 10,
+                Width = 10
+            };
             AddElementToWorkSpace(UI_DotCursor);
 
             //Reset the current work mode
@@ -213,7 +218,25 @@ namespace DinoLino
                 ResetWorkSpaceZoom();
                 ClearWorkspace();
                 _imageAdjuster.CacheImage(WorkingImage);
+                OutlineMode.SourceImage = WorkingImage;
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(SyncOutlineImageTransform));
             }
+        }
+
+        private void SyncOutlineImageTransform()
+        {
+            if (WorkingImage == null) return;
+            double displayW = UI_WorkImage.ActualWidth;
+            double displayH = UI_WorkImage.ActualHeight;
+            if (displayW <= 0 || displayH <= 0) return;
+
+            OutlineMode.ScaleX = displayW / WorkingImage.PixelWidth;
+            OutlineMode.ScaleY = displayH / WorkingImage.PixelHeight;
+
+            // Offset of the image within the canvas
+            var imagePos = UI_WorkImage.TranslatePoint(new Point(0, 0), UI_WorkCanvas);
+            OutlineMode.OffsetX = imagePos.X;
+            OutlineMode.OffsetY = imagePos.Y;
         }
 
         private void Menu_About(object sender, RoutedEventArgs e)
@@ -340,6 +363,12 @@ namespace DinoLino
         }
         private void Menu_PictureAdjustment(object sender, RoutedEventArgs e)
         {
+            if (WorkingImage == null)
+            {
+                MessageBox.Show("Please open an image first.", "No Image", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
             PictureAdjustmentWindow adjustWindow = new PictureAdjustmentWindow(_currentContrast, _currentBrightness, _currentSaturation);
             adjustWindow.FontSize = _currentFontSize;
             adjustWindow.FontFamily = _currentFont;
@@ -356,6 +385,32 @@ namespace DinoLino
             };
 
             adjustWindow.Show();
+        }
+
+        private void Menu_DownSample(object sender, RoutedEventArgs e)
+        {
+            if (WorkingImage == null)
+            {
+                MessageBox.Show("Please open an image first.", "No Image", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            long originalPixelCount = (long)WorkingImage.PixelWidth * WorkingImage.PixelHeight;
+
+            DownSampleWindow sampleWindow = new DownSampleWindow(originalPixelCount);
+            sampleWindow.FontSize = _currentFontSize;
+            sampleWindow.FontFamily = _currentFont;
+
+            sampleWindow.OnPixelsChanged = targetPixels =>
+            {
+                var result = _imageAdjuster.DownSample(targetPixels);
+                if (result != null)
+                    UI_WorkImage.Source = result;
+                else
+                    UI_WorkImage.Source = WorkingImage;
+            };
+
+            sampleWindow.Show();
         }
         #endregion
 
@@ -385,6 +440,9 @@ namespace DinoLino
         private void WorkSpace_Click(object sender, MouseButtonEventArgs e)
         {
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
+
+            if (CurrentWorkMode is OutlineMode)
+                SyncOutlineImageTransform();
 
             if (!CurrentWorkMode.SeePreviousOperations && CurrentWorkMode.IsStartingNewOperation)
             {
