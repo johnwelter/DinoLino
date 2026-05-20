@@ -495,6 +495,11 @@ namespace DinoLino
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
             Vector2 centeredCursorPos = CurrentWorkMode.ProcessMouseMovement(mousePos) - new Vector2(5, 5);
             UI_DotCursor.SetPosition(centeredCursorPos.X, centeredCursorPos.Y);
+            if (e.LeftButton == MouseButtonState.Pressed && CurrentWorkMode is OutlineMode om)
+            {
+                if (om.EraseOutlineMode)
+                    om.ProcessEraseDrag(mousePos);
+            }
         }
 
         // TODO: encapsulate and make generic someplace else

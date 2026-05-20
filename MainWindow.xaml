@@ -45,7 +45,7 @@
                 </MenuItem>
                 <MenuItem Header="_Font" Click="Menu_Font"/>
                 <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"/>
-                <MenuItem Header="_DownSample" Click="Menu_DownSample"/>
+                <MenuItem Header="_Decimate" Click="Menu_DownSample"/>
             </MenuItem>
             <MenuItem Header="_Help" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_About" Click="Menu_About"/>

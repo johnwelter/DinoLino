@@ -9,5 +9,10 @@ namespace DinoLino.Utilities.Modes
             InitializeComponent();
             DataContext = mode;
         }
+
+        private void RadioButton_Checked(object sender, System.Windows.RoutedEventArgs e)
+        {
+
+        }
     }
 }

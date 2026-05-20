@@ -30,6 +30,7 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
+        private Polyline _activePolyline = null;
         private byte[] _cachedPixels;
         private int _cachedStride;
         private int _cachedBpp;
@@ -90,11 +91,35 @@ namespace DinoLino.Utilities.Modes
         public double OffsetX { get; set; } = 0;
         public double OffsetY { get; set; } = 0;
 
+        public override void Reset()
+        {
+            base.Reset();
+            _activePolyline = null;
+        }
+        public bool DrawOutlineMode
+        {
+            get => !_eraseOutlineMode && !_smoothOutlineMode;
+            set
+            {
+                if (value)
+                {
+                    _eraseOutlineMode = false;
+                    _smoothOutlineMode = false;
+                    OnPropertyChanged(nameof(EraseOutlineMode));
+                    OnPropertyChanged(nameof(DrawOutlineMode));
+                    OnPropertyChanged(nameof(SmoothOutlineMode));
+                }
+            }
+        }
+
         // =====================
         // PROCESS CLICK
         // =====================
         public override List<UIElement> ProcessClick(Vector2 mousePos)
         {
+            // In erase or smooth mode, clicks should not draw a new outline
+            if (_eraseOutlineMode || _smoothOutlineMode) return new List<UIElement>();
+
             var output = new List<UIElement>();
             if (_cachedPixels == null) return output;
 
@@ -115,6 +140,7 @@ namespace DinoLino.Utilities.Modes
             work = ExtractLargestComponent(work);
             DistancePruneNarrowPassages(work);
             PreventSelfTouchingTopology(work);
+            PruneDeadEnds(work);
 
             work = KeepLargestComponent(work);
 
@@ -154,6 +180,8 @@ namespace DinoLino.Utilities.Modes
                 simplified[0].Y * ScaleY + OffsetY));
 
             output.Add(polyline);
+            _activePolyline = polyline;
+            _preSmoothSnapshot = new List<Point>(polyline.Points);
 
             CommitOperation(new OutlineOperation
             {
@@ -859,5 +887,289 @@ namespace DinoLino.Utilities.Modes
                 }
             }
         }
+
+        // =====================
+        // PRUNE DEAD ENDS
+        // =====================
+        // Removes any pixel that is not part of a closed loop by repeatedly
+        // eliminating pixels with only one filled 4-neighbor (dead ends).
+        // Iterates until stable — guarantees every remaining pixel has at least
+        // two neighbors, meaning it lies on a cycle rather than a dangling branch.
+        private void PruneDeadEnds(bool[] mask)
+        {
+            int w = _cachedWidth, h = _cachedHeight;
+            bool changed = true;
+
+            while (changed)
+            {
+                changed = false;
+
+                for (int y = 1; y < h - 1; y++)
+                {
+                    for (int x = 1; x < w - 1; x++)
+                    {
+                        int i = y * w + x;
+                        if (!mask[i]) continue;
+
+                        int filledNeighbors =
+                            (mask[i - 1] ? 1 : 0) +
+                            (mask[i + 1] ? 1 : 0) +
+                            (mask[i - w] ? 1 : 0) +
+                            (mask[i + w] ? 1 : 0);
+
+                        if (filledNeighbors <= 1)
+                        {
+                            mask[i] = false;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        #region erase function
+        private bool _eraseOutlineMode = false;
+        public bool EraseOutlineMode
+        {
+            get => _eraseOutlineMode;
+            set
+            {
+                _eraseOutlineMode = value;
+                if (value) _smoothOutlineMode = false;
+                OnPropertyChanged(nameof(EraseOutlineMode));
+                OnPropertyChanged(nameof(DrawOutlineMode));
+                OnPropertyChanged(nameof(SmoothOutlineMode));
+            }
+        }
+
+        private double _eraseBrushRadius = 20;
+        public double EraseBrushRadius
+        {
+            get => _eraseBrushRadius;
+            set { _eraseBrushRadius = value; OnPropertyChanged(nameof(EraseBrushRadius)); }
+        }
+
+        // =====================
+        // ERASE / SHRINK OUTLINE
+        // =====================
+        // Called on mouse-drag when EraseOutlineMode is active.
+        // Finds all polyline vertices within EraseBrushRadius of the cursor
+        // and moves them toward the centroid of the full polyline,
+        // shrinking that portion of the outline inward.
+        public void ProcessEraseDrag(Vector2 mousePos)
+        {
+            if (_activePolyline == null) return;
+
+            double mx = mousePos.X;
+            double my = mousePos.Y;
+            double r2 = EraseBrushRadius * EraseBrushRadius;
+
+            var points = _activePolyline.Points;
+            if (points.Count < 3) return;
+
+            int n = points.Count;
+            bool[] inside = new bool[n];
+            bool anyInside = false;
+
+            for (int i = 0; i < n; i++)
+            {
+                double dx = points[i].X - mx;
+                double dy = points[i].Y - my;
+                if (dx * dx + dy * dy <= r2)
+                {
+                    inside[i] = true;
+                    anyInside = true;
+                }
+            }
+
+            if (!anyInside) return;
+
+            // Check whether the erased run wraps around the seam (last->first).
+            // If so, rotate the point list so the seam falls inside a kept region,
+            // preventing the bridging logic from splitting across the wrap point.
+            if (inside[0] || inside[n - 1])
+            {
+                // Find the first index that is NOT inside the brush
+                int rotateStart = -1;
+                for (int i = 0; i < n; i++)
+                {
+                    if (!inside[i]) { rotateStart = i; break; }
+                }
+
+                // If every point is inside the brush, the whole outline would be erased — bail out
+                if (rotateStart < 0) return;
+
+                // Rotate points and inside flags so rotateStart becomes index 0
+                var rotatedPoints = new List<Point>(n);
+                var rotatedInside = new bool[n];
+                for (int i = 0; i < n; i++)
+                {
+                    int src = (rotateStart + i) % n;
+                    rotatedPoints.Add(points[src]);
+                    rotatedInside[i] = inside[src];
+                }
+
+                points.Clear();
+                foreach (var p in rotatedPoints)
+                    points.Add(p);
+
+                inside = rotatedInside;
+                n = points.Count;
+            }
+
+            // Build new point list, replacing each erased run with one midpoint bridge
+            var newPoints = new List<Point>();
+            int i2 = 0;
+            while (i2 < n)
+            {
+                if (!inside[i2])
+                {
+                    newPoints.Add(points[i2]);
+                    i2++;
+                }
+                else
+                {
+                    int runStart = i2;
+                    while (i2 < n && inside[i2]) i2++;
+
+                    Point before = points[(runStart - 1 + n) % n];
+                    Point after = points[i2 % n];
+
+                    newPoints.Add(new Point(
+                        (before.X + after.X) * 0.5,
+                        (before.Y + after.Y) * 0.5));
+                }
+            }
+
+            if (newPoints.Count < 3) return;
+
+            // =====================
+            // CLOSURE FAILSAFE
+            // =====================
+            // Guarantee the polyline is always explicitly closed:
+            // the last point must equal the first point.
+            // If they differ by more than 1 pixel, append a copy of the first point.
+            Point first = newPoints[0];
+            Point last = newPoints[newPoints.Count - 1];
+            double closeDx = first.X - last.X;
+            double closeDy = first.Y - last.Y;
+            bool alreadyClosed = (closeDx * closeDx + closeDy * closeDy) < 1.0;
+
+            if (!alreadyClosed)
+                newPoints.Add(first);
+
+            points.Clear();
+            foreach (var p in newPoints)
+                points.Add(p);
+        }
+        private void EnforcePolylineClosure()
+        {
+            if (_activePolyline == null) return;
+            var points = _activePolyline.Points;
+            if (points.Count < 2) return;
+
+            Point first = points[0];
+            Point last = points[points.Count - 1];
+            double dx = first.X - last.X;
+            double dy = first.Y - last.Y;
+
+            if (dx * dx + dy * dy >= 1.0)
+                points.Add(first);
+        }
+
+        public void ClearActivePolyline()
+        {
+            _activePolyline = null;
+        }
+        #endregion
+
+        #region smooth mode
+        private bool _smoothOutlineMode = false;
+        public bool SmoothOutlineMode
+        {
+            get => _smoothOutlineMode;
+            set
+            {
+                _smoothOutlineMode = value;
+                if (value) TakePreSmoothSnapshot(); // snapshot current outline on entry
+                OnPropertyChanged(nameof(SmoothOutlineMode));
+                OnPropertyChanged(nameof(DrawOutlineMode));
+                OnPropertyChanged(nameof(EraseOutlineMode));
+            }
+        }
+
+        private int _smoothStrength = 0;
+        public int SmoothStrength
+        {
+            get => _smoothStrength;
+            set
+            {
+                _smoothStrength = value;
+                OnPropertyChanged(nameof(SmoothStrength));
+                ApplyGlobalSmooth();
+            }
+        }
+
+        // Snapshot of the polyline points taken when smooth mode is entered,
+        // so that smoothing always applies to the original shape rather than
+        // compounding on each slider change.
+        private List<Point> _preSmoothSnapshot = null;
+
+        public void TakePreSmoothSnapshot()
+        {
+            if (_activePolyline == null) { _preSmoothSnapshot = null; return; }
+            _preSmoothSnapshot = new List<Point>(_activePolyline.Points);
+        }
+
+        // Applies Laplacian smoothing to the entire polyline.
+        // Runs SmoothStrength passes of neighbor-averaging over all points.
+        // Always works from the pre-smooth snapshot so slider changes are
+        // non-destructive and the original shape is recoverable by setting
+        // the slider back to 0.
+        private void ApplyGlobalSmooth()
+        {
+            if (_activePolyline == null) return;
+            if (_preSmoothSnapshot == null || _preSmoothSnapshot.Count < 3) return;
+
+            // Start from the original snapshot each time
+            var working = new List<Point>(_preSmoothSnapshot);
+
+            for (int pass = 0; pass < _smoothStrength; pass++)
+            {
+                int n = working.Count;
+                var smoothed = new Point[n];
+
+                for (int i = 0; i < n; i++)
+                {
+                    int prev = (i - 1 + n) % n;
+                    int next = (i + 1) % n;
+
+                    smoothed[i] = new Point(
+                        (working[prev].X + working[i].X * 2 + working[next].X) / 4.0,
+                        (working[prev].Y + working[i].Y * 2 + working[next].Y) / 4.0);
+                }
+
+                for (int i = 0; i < n; i++)
+                    working[i] = smoothed[i];
+            }
+
+            // Write result back into the live polyline
+            var points = _activePolyline.Points;
+            points.Clear();
+            foreach (var p in working)
+                points.Add(p);
+
+            // Ensure closed
+            if (points.Count >= 2)
+            {
+                Point first = points[0];
+                Point last = points[points.Count - 1];
+                double dx = first.X - last.X;
+                double dy = first.Y - last.Y;
+                if (dx * dx + dy * dy >= 1.0)
+                    points.Add(first);
+            }
+        }
+        #endregion
     }
 }
