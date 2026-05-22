@@ -45,7 +45,7 @@
                      IsChecked="{Binding EraseOutlineMode, Mode=TwoWay}"
                      MinHeight="26"
                      Margin="0,8,0,0"
-                     ToolTip="Hold and drag over the outline to shrink it inward"/>
+                     ToolTip="Click and drag over the outline"/>
 
         <StackPanel Visibility="{Binding EraseOutlineMode, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="Erase Brush Size:" FontWeight="Bold" Margin="0,8,0,0"/>
@@ -63,12 +63,11 @@
                      GroupName="OutlineTool"
                      IsChecked="{Binding SmoothOutlineMode, Mode=TwoWay}"
                      MinHeight="26"
-                     Margin="0,8,0,0"
-                     ToolTip="Hold and drag over the outline to smooth jagged sections"/>
+                     Margin="0,8,0,0"/>
 
         <StackPanel Visibility="{Binding SmoothOutlineMode, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="Smooth Strength:" FontWeight="Bold" Margin="0,8,0,0"/>
-            <Slider Minimum="1" Maximum="20"
+            <Slider Minimum="0" Maximum="20"
                     Value="{Binding SmoothStrength, Mode=TwoWay}"
                     TickFrequency="1"
                     IsSnapToTickEnabled="True"
@@ -76,6 +75,27 @@
             <TextBlock Text="{Binding SmoothStrength, StringFormat={}{0:F0} passes}"
                        Foreground="Gray" FontSize="11" Margin="0,0,0,4"/>
         </StackPanel>
+        
+        <!-- Generate Metadata -->
+        <RadioButton Content="Generate Metadata"
+             GroupName="OutlineTool"
+             IsChecked="{Binding OutlineMetadataMode, Mode=TwoWay}"
+             MinHeight="26"
+             Margin="0,8,0,0"/>
 
+        <StackPanel Visibility="{Binding OutlineMetadataMode, Converter={StaticResource BoolToVis}}">
+            <Button Content="Generate Metadata"
+            MinHeight="32"
+            Margin="0,8,0,4"
+            Click="GenerateMetadata_Click"/>
+            <TextBox Text="{Binding MetadataSummary, Mode=OneWay}"
+             IsReadOnly="True"
+             TextWrapping="Wrap"
+             FontFamily="Courier New"
+             FontSize="10"
+             Margin="0,4,0,0"
+             VerticalScrollBarVisibility="Auto"
+             MaxHeight="300"/>
+        </StackPanel>
     </StackPanel>
 </UserControl>

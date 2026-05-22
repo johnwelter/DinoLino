@@ -11,6 +11,7 @@ namespace DinoLino.Utilities
         private readonly List<WorkOperation> _redoStack = new();
         public IReadOnlyList<WorkOperation> History => _history;
         public IReadOnlyList<WorkOperation> RedoStack => _redoStack;
+        public WorkOperation CurrentOperation => _history.Count > 0 ? _history[_history.Count - 1] : null;
 
         public bool CanUndo => _history.Count > 0;
         public bool CanRedo => _redoStack.Count > 0;

@@ -117,6 +117,19 @@ namespace DinoLino.Utilities.Operations
 
     public class OutlineOperation : WorkOperation
     {
-        public override void ApplyMetadataToMode() { }
+        public double AspectRatio { get; set; }
+        public double PerimeterAreaRatio { get; set; }
+        public double Circularity { get; set; }
+        public double[] EFDCoefficients { get; set; } // flattened: [a1,b1,c1,d1, a2,b2,c2,d2, ...]
+        public override void ApplyMetadataToMode() 
+        {
+            if (SourceMode is OutlineMode mode)
+            {
+                mode.AspectRatioResult = AspectRatio;
+                mode.PerimeterAreaRatioResult = PerimeterAreaRatio;
+                mode.CircularityResult = Circularity;
+                mode.EFDCoefficientsResult = EFDCoefficients;
+            }
+        }
     }
 }

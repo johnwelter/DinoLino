@@ -8,9 +8,11 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Threading;
 
 namespace DinoLino.Utilities.Modes
 {
+
     public abstract class WorkMode : INotifyPropertyChanged
     {
         public abstract UserControl CreateControlPanel();
@@ -22,6 +24,44 @@ namespace DinoLino.Utilities.Modes
         public virtual bool IsStartingNewOperation => CurrentStep == 0;
 
         public UndoRedoManager UndoRedoManager { get; set; }
+
+        // cancellation support
+        private CancellationTokenSource _operationCTS;
+
+        public CancellationToken CancellationToken =>
+            _operationCTS?.Token ?? CancellationToken.None;
+
+        public bool IsOperationCancelled =>
+            _operationCTS?.IsCancellationRequested ?? false;
+
+        // begins a new, cancellable operation.
+        // automatically cancels any previous operation
+        public virtual void BeginOperation()
+        {
+            CancelCurrentOperation();
+
+            _operationCTS = new CancellationTokenSource();
+        }
+
+        // cancels the currently-running operation
+        public virtual void CancelCurrentOperation()
+        {
+            if (_operationCTS != null)
+            {
+                if (!_operationCTS.IsCancellationRequested)
+                    _operationCTS.Cancel();
+
+                _operationCTS.Dispose();
+                _operationCTS = null;
+            }
+        }
+
+        // cancel if Esc pressed by user
+        protected void ThrowIfCancelled()
+        {
+            CancellationToken.ThrowIfCancellationRequested();
+        }
+
         // Toggling whether or not previous operations are visible
         public bool SeePreviousOperations { get; set; } = true;
 

@@ -91,6 +91,12 @@ namespace DinoLino
             DrawMode = new();
             OutlineMode = new();
 
+            OutlineMode.OnOutlineReady = elements =>
+            {
+                foreach (var el in elements)
+                    AddElementToWorkSpace(el);
+            };
+
 
             // Initialize the global undo redo manager and link to all modes
             UndoRedoManager = new UndoRedoManager();
@@ -200,6 +206,14 @@ namespace DinoLino
             {
                 Menu_Redo(this, new RoutedEventArgs());
                 e.Handled = true;
+            }
+            // Esc to cancel operation
+            if (e.Key == Key.Escape)
+            {
+                CurrentWorkMode?.CancelCurrentOperation();
+
+                e.Handled = true;
+                return;
             }
         }
         #endregion
