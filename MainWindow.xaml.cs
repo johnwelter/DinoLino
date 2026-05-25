@@ -97,6 +97,23 @@ namespace DinoLino
                     AddElementToWorkSpace(el);
             };
 
+            OutlineMode.OnEFDPreviewReady = previewLine =>
+            {
+                AddElementToWorkSpace(previewLine);
+            };
+
+            OutlineMode.OnEFDPreviewClear = () =>
+            {
+                // Remove any existing EFD preview polylines from the canvas
+                for (int i = UI_WorkCanvas.Children.Count - 1; i >= 0; i--)
+                {
+                    if (UI_WorkCanvas.Children[i] is System.Windows.Shapes.Polyline pl
+                        && pl.Stroke == System.Windows.Media.Brushes.DodgerBlue)
+                    {
+                        UI_WorkCanvas.Children.RemoveAt(i);
+                    }
+                }
+            };
 
             // Initialize the global undo redo manager and link to all modes
             UndoRedoManager = new UndoRedoManager();
@@ -141,6 +158,7 @@ namespace DinoLino
             UI_WorkCanvas.Children.Clear();
             AddElementToWorkSpace(UI_DotCursor);
             UI_DotCursor.SetPosition(0, 0);
+            OutlineMode?.ClearEFDPreview();
 
             //reset the work mode
             CurrentWorkMode.Reset();

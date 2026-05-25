@@ -57,8 +57,15 @@ namespace DinoLino.Utilities.Modes
             get => _outlineMetadataMode;
             set
             {
+                if (_outlineMetadataMode == value)
+                    return;
+
                 _outlineMetadataMode = value;
                 OnPropertyChanged(nameof(OutlineMetadataMode));
+
+                // Auto-generate metadata when entering metadata mode
+                if (_outlineMetadataMode)
+                    GenerateMetadata();
             }
         }
         #endregion
@@ -158,9 +165,9 @@ namespace DinoLino.Utilities.Modes
 
                 double dist = PerceptualDistance(
                     r, g, b,
-                    (byte)Math.Max(255, Math.Min(0, _bgColor.r)),
-                    (byte)Math.Max(255, Math.Min(0, _bgColor.g)),
-                    (byte)Math.Max(255, Math.Min(0, _bgColor.b)));
+                    (byte)Math.Max(0, Math.Min(255, _bgColor.r)),
+                    (byte)Math.Max(0, Math.Min(255, _bgColor.g)),
+                    (byte)Math.Max(0, Math.Min(255, _bgColor.b)));
 
                 if (dist > threshold)
                     return;
@@ -182,9 +189,6 @@ namespace DinoLino.Utilities.Modes
                 TryAdd(w - 1, y);
             }
 
-            int[] dx = { 1, -1, 0, 0 };
-            int[] dy = { 0, 0, 1, -1 };
-
             int iterations = 0;
 
             while (queue.Count > 0)
@@ -197,14 +201,10 @@ namespace DinoLino.Utilities.Modes
                 if ((iterations++ & 1023) == 0)
                     ThrowIfCancelled();
 
-                for (int d = 0; d < 4; d++)
+                foreach (int ni in EnumerateCardinalNeighbors(cx, cy, w, h))
                 {
-                    int nx = cx + dx[d];
-                    int ny = cy + dy[d];
-
-                    if ((uint)nx >= w || (uint)ny >= h)
-                        continue;
-
+                    int nx = ni % w;
+                    int ny = ni / w;
                     TryAdd(nx, ny);
                 }
             }
@@ -240,8 +240,125 @@ namespace DinoLino.Utilities.Modes
                 BgColor = bgColor;
             }
         }
-        #endregion 
 
+        //-----bounding box crop-----//
+        private (int x0, int y0, int x1, int y1) GetMaskBounds(
+    bool[] mask, int w, int h, int margin = 2)
+        {
+            int x0 = w, y0 = h, x1 = 0, y1 = 0;
+
+            for (int y = 0; y < h; y++)
+            {
+                int row = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    if (!mask[row + x]) continue;
+                    if (x < x0) x0 = x;
+                    if (x > x1) x1 = x;
+                    if (y < y0) y0 = y;
+                    if (y > y1) y1 = y;
+                }
+            }
+
+            if (x0 > x1) return (0, 0, 0, 0); // empty mask
+
+            x0 = Math.Max(0, x0 - margin);
+            y0 = Math.Max(0, y0 - margin);
+            x1 = Math.Min(w - 1, x1 + margin);
+            y1 = Math.Min(h - 1, y1 + margin);
+
+            return (x0, y0, x1, y1);
+        }
+
+        // Crops a flat mask to a bounding box sub-region,
+        // returning the cropped mask and its new width/height.
+        private (bool[] croppedMask, int cw, int ch) CropMask(
+            bool[] mask, int w, int x0, int y0, int x1, int y1)
+        {
+            int cw = x1 - x0 + 1;
+            int ch = y1 - y0 + 1;
+            var cropped = new bool[cw * ch];
+
+            for (int y = 0; y < ch; y++)
+                for (int x = 0; x < cw; x++)
+                    cropped[y * cw + x] = mask[(y0 + y) * w + (x0 + x)];
+
+            return (cropped, cw, ch);
+        }
+
+        // Expands a cropped mask back to full image coordinates.
+        private bool[] ExpandMask(bool[] cropped, int cw, int ch,
+                                   int x0, int y0, int fullW, int fullH)
+        {
+            var full = new bool[fullW * fullH];
+            for (int y = 0; y < ch; y++)
+                for (int x = 0; x < cw; x++)
+                    if (cropped[y * cw + x])
+                        full[(y0 + y) * fullW + (x0 + x)] = true;
+            return full;
+        }
+        #endregion
+
+        #region shared functions and variables
+        //-----Reusable buffers-----//
+        private int[] _distBuffer = Array.Empty<int>();
+        private int[] _queueBuffer = Array.Empty<int>();
+
+        private void EnsureBuffers(int size)
+        {
+            if (_distBuffer.Length < size)
+            {
+                _distBuffer = new int[size];
+                _queueBuffer = new int[size * 2]; // queue can exceed total in BFS
+            }
+        }
+
+        private static readonly (int dx, int dy)[] CardinalOffsets =
+            {
+                (1, 0),
+                (-1, 0),
+                (0, 1),
+                (0, -1)
+            };
+
+        private IEnumerable<int> EnumerateCardinalNeighbors(int x, int y, int width, int height)
+        {
+            foreach (var (dx, dy) in CardinalOffsets)
+            {
+                int nx = x + dx;
+                int ny = y + dy;
+
+                if ((uint)nx >= width || (uint)ny >= height)
+                    continue;
+
+                yield return ny * width + nx;
+            }
+        }
+
+        private int CountCardinalNeighbors(bool[] mask, int x, int y, int width, int height)
+        {
+            int count = 0;
+            int i = y * width + x;
+
+            if (x > 0 && mask[i - 1]) count++;
+            if (x < width - 1 && mask[i + 1]) count++;
+            if (y > 0 && mask[i - width]) count++;
+            if (y < height - 1 && mask[i + width]) count++;
+
+            return count;
+        }
+
+        private bool HasExposedCardinalEdge(bool[] mask, int x, int y, int width, int height)
+        {
+            foreach (int ni in EnumerateCardinalNeighbors(x, y, width, height))
+            {
+                if (!mask[ni])
+                    return true;
+            }
+
+            return false;
+        }
+        #endregion
         #region draw outline
 
         // =====================
@@ -327,38 +444,47 @@ namespace DinoLino.Utilities.Modes
 
                     token.ThrowIfCancellationRequested();
 
-                    bool[] work = (bool[])raw.Clone();
-                    MorphologicalErosion(work, snap);
+                    // Crop all subsequent processing to the bounding box of the flood fill result.
+                    // This limits erosion, topology, pruning, and tracing to only the relevant region.
+                    var (bx0, by0, bx1, by1) = GetMaskBounds(raw, snap.Width, snap.Height, margin: 4);
+                    var (croppedRaw, cw, ch) = CropMask(raw, snap.Width, bx0, by0, bx1, by1);
+
+                    // Build a cropped snapshot with the same pixel data but cropped dimensions.
+                    // The pixel data reference is the same (read-only in subsequent steps).
+                    var croppedSnap = new ImageSnapshot(
+                        snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp, snap.BgColor);
+
+                    bool[] work = (bool[])croppedRaw.Clone();
+                    MorphologicalErosion(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
-                    work = ExtractLargestComponent(work, snap);
+                    work = ExtractLargestComponent(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
-                    DistancePruneNarrowPassages(work, snap);
+                    DistancePruneNarrowPassages(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
-                    PreventSelfTouchingTopology(work, snap);
+                    PreventSelfTouchingTopology(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
-                    PruneDeadEnds(work, snap);
-                    work = KeepLargestComponent(work, snap);
+                    PruneDeadEnds(work, croppedSnap);
+                    work = KeepLargestComponent(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
-                    bool[] tracedMask = PrepareMaskForTracing(work, raw, px, py, MinAreaPixels, snap);
+                    int cpx = px - bx0, cpy = py - by0;
+                    bool[] tracedMask = PrepareMaskForTracing(work, croppedRaw, cpx, cpy, MinAreaPixels, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
-                    List<Point> boundary = TraceBoundary(tracedMask, snap);
+                    List<Point> boundary = TraceBoundary(tracedMask, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
                     if (!HasMinimumBorderLength(boundary, 8))
                     {
                         bool[] expanded = ExpandConnectedComponentToArea(
-                            KeepComponentContainingSeed(raw, py * snap.Width + px, snap),
-                            py * snap.Width + px,
-                            MinAreaPixels,
-                            snap);
+                            KeepComponentContainingSeed(croppedRaw, cpy * cw + cpx, croppedSnap),
+                            cpy * cw + cpx, MinAreaPixels, croppedSnap);
                         token.ThrowIfCancellationRequested();
-                        boundary = TraceBoundary(expanded, snap);
+                        boundary = TraceBoundary(expanded, croppedSnap);
                     }
 
                     if (boundary.Count < 8) return;
@@ -379,14 +505,15 @@ namespace DinoLino.Utilities.Modes
                             FillRule = FillRule.EvenOdd
                         };
 
+                        // Boundary points are in cropped coordinates — translate back to canvas
                         foreach (var p in simplified)
                             polyline.Points.Add(new Point(
-                                p.X * ScaleX + OffsetX,
-                                p.Y * ScaleY + OffsetY));
+                                (p.X + bx0) * ScaleX + OffsetX,
+                                (p.Y + by0) * ScaleY + OffsetY));
 
                         polyline.Points.Add(new Point(
-                            simplified[0].X * ScaleX + OffsetX,
-                            simplified[0].Y * ScaleY + OffsetY));
+                            (simplified[0].X + bx0) * ScaleX + OffsetX,
+                            (simplified[0].Y + by0) * ScaleY + OffsetY));
 
                         _activePolyline = polyline;
                         _preSmoothSnapshot = new List<Point>(polyline.Points);
@@ -455,9 +582,6 @@ namespace DinoLino.Utilities.Modes
             queue.Enqueue((startX, startY));
             inside[startY * w + startX] = true;
 
-            int[] dx = { 1, -1, 0, 0 };
-            int[] dy = { 0, 0, 1, -1 };
-
             double toleranceTimes2 = _tolerance * 2.0;
 
             while (queue.Count > 0)
@@ -477,15 +601,12 @@ namespace DinoLino.Utilities.Modes
                     cb = snap.Pixels[ci];
                 }
 
-                for (int d = 0; d < 4; d++)
+                foreach (int ni in EnumerateCardinalNeighbors(cx, cy, w, h))
                 {
-                    int nx = cx + dx[d];
-                    int ny = cy + dy[d];
-
-                    if ((uint)nx >= w || (uint)ny >= h) continue;
-
-                    int ni = ny * w + nx;
                     if (inside[ni]) continue;
+
+                    int nx = ni % w;
+                    int ny = ni / w;
 
                     int npi = ny * snap.Stride + nx * snap.Bpp;
                     byte pr, pg, pb;
@@ -541,12 +662,9 @@ namespace DinoLino.Utilities.Modes
                     if (!copy[i]) continue;
 
                     bool borderExposed =
-                        x == 0 || x == w - 1 || y == 0 || y == h - 1 ||
-
-                        (x > 0 && !copy[i - 1]) ||
-                        (x < w - 1 && !copy[i + 1]) ||
-                        (y > 0 && !copy[i - w]) ||
-                        (y < h - 1 && !copy[i + w]);
+                        x == 0 || x == w - 1 ||
+                        y == 0 || y == h - 1 ||
+                        HasExposedCardinalEdge(copy, x, y, w, h);
 
                     if (borderExposed)
                         inside[i] = false;
@@ -559,68 +677,29 @@ namespace DinoLino.Utilities.Modes
         // =====================
         private bool[] ExtractLargestComponent(bool[] inside, ImageSnapshot snap)
         {
-            int w = snap.Width, h = snap.Height;
-            int total = w * h;
-            bool[] labeled = new bool[total];
+            int total = snap.Width * snap.Height;
+
+            bool[] visited = new bool[total];
             bool[] result = new bool[total];
 
-            int[] dx = { 1, -1, 0, 0 };
-            int[] dy = { 0, 0, 1, -1 };
-
-            int bestSeed = -1, bestCount = 0;
+            List<int> bestComponent = null;
 
             for (int start = 0; start < total; start++)
             {
-                if (!inside[start] || labeled[start]) continue;
+                if (!inside[start] || visited[start])
+                    continue;
 
-                var queue = new Queue<int>();
-                queue.Enqueue(start);
-                labeled[start] = true;
-                int count = 1;
+                var component = CollectComponent(inside, start, snap, visited);
 
-                while (queue.Count > 0)
-                {
-                    int ci = queue.Dequeue();
-                    int cx = ci % w, cy = ci / w;
-
-                    for (int d = 0; d < 4; d++)
-                    {
-                        int nx = cx + dx[d], ny = cy + dy[d];
-                        if ((uint)nx >= w || (uint)ny >= h) continue;
-                        int ni = ny * w + nx;
-                        if (!inside[ni] || labeled[ni]) continue;
-                        labeled[ni] = true;
-                        count++;
-                        queue.Enqueue(ni);
-                    }
-                }
-
-                if (count > bestCount) { bestCount = count; bestSeed = start; }
+                if (bestComponent == null || component.Count > bestComponent.Count)
+                    bestComponent = component;
             }
 
-            if (bestSeed < 0) return result;
+            if (bestComponent == null)
+                return result;
 
-            var resultQueue = new Queue<int>();
-            resultQueue.Enqueue(bestSeed);
-            result[bestSeed] = true;
-
-            while (resultQueue.Count > 0)
-            {
-                if ((resultQueue.Count & 1023) == 0) ThrowIfCancelled();
-
-                int ci = resultQueue.Dequeue();
-                int cx = ci % w, cy = ci / w;
-
-                for (int d = 0; d < 4; d++)
-                {
-                    int nx = cx + dx[d], ny = cy + dy[d];
-                    if ((uint)nx >= w || (uint)ny >= h) continue;
-                    int ni = ny * w + nx;
-                    if (!inside[ni] || result[ni]) continue;
-                    result[ni] = true;
-                    resultQueue.Enqueue(ni);
-                }
-            }
+            foreach (int i in bestComponent)
+                result[i] = true;
 
             return result;
         }
@@ -628,48 +707,108 @@ namespace DinoLino.Utilities.Modes
         // =====================
         // BOUNDARY TRACING
         // =====================
-        private List<Point> TraceBoundary(bool[] inside, ImageSnapshot snap)
+        private List<Point> TraceBoundary(bool[] mask, int width, int height)
         {
-            int w = snap.Width, h = snap.Height;
+            var segments = BuildMarchingSquaresSegments(mask, width, height);
+            var loops = StitchSegmentsIntoLoops(segments);
 
-            int startX = -1, startY = -1;
-            for (int i = 0; i < inside.Length && startX < 0; i++)
-                if (inside[i]) { startX = i % w; startY = i / w; }
+            if (loops.Count == 0)
+                return new List<Point>();
 
-            if (startX < 0) return new List<Point>();
+            var bestLoop = ChooseBestLoop(loops);
+            if (bestLoop.Count < 3)
+                return new List<Point>();
 
-            var boundary = new List<Point>();
-            int[] ndx = { 1, 1, 0, -1, -1, -1, 0, 1 };
-            int[] ndy = { 0, -1, -1, -1, 0, 1, 1, 1 };
+            if (!PointsAreClosed(bestLoop))
+                bestLoop.Add(bestLoop[0]);
 
-            int cx = startX, cy = startY, dir = 4;
-
-            for (int iterations = 0; iterations < w * h * 2; iterations++)
-            {
-                if ((iterations & 255) == 0) ThrowIfCancelled();
-
-                boundary.Add(new Point(cx, cy));
-
-                int checkDir = (dir + 6) % 8;
-                bool found = false;
-                for (int i = 0; i < 8; i++)
-                {
-                    int d = (checkDir + i) % 8;
-                    int bx = cx + ndx[d];
-                    int by = cy + ndy[d];
-                    if ((uint)bx >= w || (uint)by >= h) continue;
-                    if (!inside[by * w + bx]) continue;
-                    dir = d; cx = bx; cy = by;
-                    found = true;
-                    break;
-                }
-
-                if (!found) break;
-                if (cx == startX && cy == startY) break;
-            }
-
-            return boundary;
+            return bestLoop;
         }
+
+        private readonly struct Segment
+{
+    public readonly Point A;
+    public readonly Point B;
+    public Segment(Point a, Point b)
+    {
+        A = a;
+        B = b;
+    }
+}
+
+private List<Segment> BuildMarchingSquaresSegments(bool[] mask, int width, int height)
+{
+    var segments = new List<Segment>();
+
+    Point Top(int x, int y) => new Point(x + 0.5, y);
+    Point Right(int x, int y) => new Point(x + 1, y + 0.5);
+    Point Bottom(int x, int y) => new Point(x + 0.5, y + 1);
+    Point Left(int x, int y) => new Point(x, y + 0.5);
+
+    bool Inside(int x, int y) => mask[y * width + x];
+
+    for (int y = 0; y < height - 1; y++)
+    {
+        for (int x = 0; x < width - 1; x++)
+        {
+            int tl = Inside(x, y) ? 1 : 0;
+            int tr = Inside(x + 1, y) ? 1 : 0;
+            int br = Inside(x + 1, y + 1) ? 1 : 0;
+            int bl = Inside(x, y + 1) ? 1 : 0;
+
+            int idx = tl | (tr << 1) | (br << 2) | (bl << 3);
+
+            switch (idx)
+            {
+                case 0:
+                case 15:
+                    break;
+
+                case 1:
+                case 14:
+                    segments.Add(new Segment(Left(x, y), Top(x, y)));
+                    break;
+
+                case 2:
+                case 13:
+                    segments.Add(new Segment(Top(x, y), Right(x, y)));
+                    break;
+
+                case 3:
+                case 12:
+                    segments.Add(new Segment(Left(x, y), Right(x, y)));
+                    break;
+
+                case 4:
+                case 11:
+                    segments.Add(new Segment(Right(x, y), Bottom(x, y)));
+                    break;
+
+                case 5:
+                    segments.Add(new Segment(Top(x, y), Right(x, y)));
+                    segments.Add(new Segment(Left(x, y), Bottom(x, y)));
+                    break;
+
+                case 10:
+                    segments.Add(new Segment(Top(x, y), Left(x, y)));
+                    segments.Add(new Segment(Right(x, y), Bottom(x, y)));
+                    break;
+
+                case 6:
+                case 9:
+                    segments.Add(new Segment(Top(x, y), Bottom(x, y)));
+                    break;
+
+                case 7:
+                case 8:
+                    segments.Add(new Segment(Left(x, y), Bottom(x, y)));
+                    break;
+            }
+        }
+    }
+
+    return segments;
+}
 
         // =====================
         // DOUGLAS-PEUCKER
@@ -743,106 +882,89 @@ namespace DinoLino.Utilities.Modes
         {
             int w = snap.Width, h = snap.Height;
             int total = w * h;
-
             if (mask.Length != total) return;
 
-            int minRadius = (minSeparationPixels + 1) / 2;
-            if (minRadius < 1) minRadius = 1;
+            int minRadius = Math.Max(1, (minSeparationPixels + 1) / 2);
 
-            bool changed = true;
-            int[] dist = new int[total];
-            int[] queue = new int[total];
+            EnsureBuffers(total);
+            var dist  = _distBuffer;
+            var queue = _queueBuffer;
 
-            while (changed)
+            // Single-pass distance transform from background
+            for (int i = 0; i < total; i++)
+                dist[i] = mask[i] ? int.MaxValue / 4 : 0;
+
+            int head = 0, tail = 0;
+            for (int i = 0; i < total; i++)
+                if (dist[i] == 0) queue[tail++] = i;
+
+            while (head < tail)
             {
-                changed = false;
+                if ((head & 1023) == 0) ThrowIfCancelled();
 
-                for (int i = 0; i < total; i++)
-                    dist[i] = mask[i] ? int.MaxValue / 4 : 0;
+                int i = queue[head++];
+                int d = dist[i] + 1;
+                int x = i % w, y = i / w;
 
-                int head = 0, tail = 0;
+                if (x > 0)     { int ni = i - 1; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
+                if (x < w - 1) { int ni = i + 1; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
+                if (y > 0)     { int ni = i - w; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
+                if (y < h - 1) { int ni = i + w; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
+            }
 
-                for (int i = 0; i < total; i++)
-                    if (dist[i] == 0) queue[tail++] = i;
-
-                while (head < tail)
+            // Remove thin regions in one pass
+            bool anyRemoved = false;
+            for (int i = 0; i < total; i++)
+            {
+                if (mask[i] && dist[i] < minRadius)
                 {
-                    if ((head & 1023) == 0) ThrowIfCancelled();
-
-                    int i = queue[head++];
-                    int d = dist[i] + 1;
-                    int x = i % w, y = i / w;
-
-                    if (x > 0) { int ni = i - 1; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
-                    if (x < w - 1) { int ni = i + 1; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
-                    if (y > 0) { int ni = i - w; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
-                    if (y < h - 1) { int ni = i + w; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
+                    mask[i] = false;
+                    anyRemoved = true;
                 }
+            }
 
-                for (int i = 0; i < total; i++)
-                {
-                    if (!mask[i]) continue;
-                    if (dist[i] < minRadius) { mask[i] = false; changed = true; }
-                }
-
-                if (!changed) break;
-
-                mask = KeepLargestComponent(mask, snap);
+            // One component cleanup if anything was removed
+            if (anyRemoved)
+            {
+                var kept = KeepLargestComponent(mask, snap);
+                Array.Copy(kept, mask, total);
             }
         }
 
         private bool[] KeepLargestComponent(bool[] inside, ImageSnapshot snap,
-                                     int minArea = 0,
-                                     bool fallbackToLargestIfTooSmall = true)
+                             int minArea = 0,
+                             bool fallbackToLargestIfTooSmall = true)
         {
-            int w = snap.Width, h = snap.Height, total = w * h;
+            int total = snap.Width * snap.Height;
+
             bool[] visited = new bool[total];
             bool[] best = new bool[total];
 
-            int[] dx = { 1, -1, 0, 0 };
-            int[] dy = { 0, 0, 1, -1 };
-
-            int bestCount = 0;
-            var q = new Queue<int>();
+            List<int> bestComponent = null;
 
             for (int start = 0; start < total; start++)
             {
-                if (!inside[start] || visited[start]) continue;
+                if (!inside[start] || visited[start])
+                    continue;
 
-                var component = new List<int>();
-                q.Clear();
-                q.Enqueue(start);
-                visited[start] = true;
+                var component = CollectComponent(inside, start, snap, visited);
 
-                while (q.Count > 0)
-                {
-                    int ci = q.Dequeue();
-                    component.Add(ci);
-                    int cx = ci % w, cy = ci / w;
-
-                    for (int d = 0; d < 4; d++)
-                    {
-                        int nx = cx + dx[d], ny = cy + dy[d];
-                        if ((uint)nx >= w || (uint)ny >= h) continue;
-                        int ni = ny * w + nx;
-                        if (!inside[ni] || visited[ni]) continue;
-                        visited[ni] = true;
-                        q.Enqueue(ni);
-                    }
-                }
-
-                if (component.Count > bestCount)
-                {
-                    bestCount = component.Count;
-                    Array.Clear(best, 0, best.Length);
-                    foreach (int i in component) best[i] = true;
-                }
+                if (bestComponent == null || component.Count > bestComponent.Count)
+                    bestComponent = component;
             }
 
-            if (bestCount == 0) return best;
+            if (bestComponent == null)
+                return best;
 
-            if (minArea > 0 && bestCount < minArea)
-                return fallbackToLargestIfTooSmall ? best : new bool[total];
+            if (minArea > 0 &&
+                bestComponent.Count < minArea &&
+                !fallbackToLargestIfTooSmall)
+            {
+                return new bool[total];
+            }
+
+            foreach (int i in bestComponent)
+                best[i] = true;
 
             return best;
         }
@@ -853,6 +975,44 @@ namespace DinoLino.Utilities.Modes
             for (int i = 0; i < mask.Length; i++)
                 if (mask[i]) count++;
             return count;
+        }
+
+        private List<int> CollectComponent(bool[] mask, int seed, ImageSnapshot snap, bool[] visited = null)
+        {
+            int w = snap.Width, h = snap.Height;
+            int total = w * h;
+
+            var component = new List<int>();
+
+            if (seed < 0 || seed >= total || !mask[seed])
+                return component;
+
+            if (visited == null)
+                visited = new bool[total];
+
+            var q = new Queue<int>(256);
+            q.Enqueue(seed);
+            visited[seed] = true;
+
+            while (q.Count > 0)
+            {
+                int ci = q.Dequeue();
+                component.Add(ci);
+
+                int cx = ci % w;
+                int cy = ci / w;
+
+                foreach (int ni in EnumerateCardinalNeighbors(cx, cy, w, h))
+                {
+                    if (!mask[ni] || visited[ni])
+                        continue;
+
+                    visited[ni] = true;
+                    q.Enqueue(ni);
+                }
+            }
+
+            return component;
         }
 
         private bool[] PrepareMaskForTracing(bool[] pruned, bool[] raw,
@@ -896,8 +1056,6 @@ namespace DinoLino.Utilities.Modes
             int currentArea = CountPixels(current);
             if (currentArea >= minArea) return current;
 
-            int[] dx = { 1, -1, 0, 0 };
-            int[] dy = { 0, 0, 1, -1 };
             var frontier = new Queue<int>();
 
             for (int i = 0; i < total; i++)
@@ -913,18 +1071,17 @@ namespace DinoLino.Utilities.Modes
                     int ci = frontier.Dequeue();
                     int cx = ci % w, cy = ci / w;
 
-                    for (int d = 0; d < 4; d++)
+                    foreach (int ni in EnumerateCardinalNeighbors(cx, cy, w, h))
                     {
-                        int nx = cx + dx[d], ny = cy + dy[d];
-                        if ((uint)nx >= w || (uint)ny >= h) continue;
-                        int ni = ny * w + nx;
                         if (current[ni]) continue;
 
                         current[ni] = true;
                         frontier.Enqueue(ni);
                         grew = true;
                         currentArea++;
-                        if (currentArea >= minArea) return current;
+
+                        if (currentArea >= minArea)
+                            return current;
                     }
                 }
 
@@ -937,32 +1094,14 @@ namespace DinoLino.Utilities.Modes
 
         private bool[] KeepComponentContainingSeed(bool[] inside, int seed, ImageSnapshot snap)
         {
-            int w = snap.Width, h = snap.Height, total = w * h;
+            int total = snap.Width * snap.Height;
+
             bool[] result = new bool[total];
-            if (seed < 0 || seed >= total || !inside[seed]) return result;
 
-            var q = new Queue<int>();
-            q.Enqueue(seed);
-            result[seed] = true;
+            var component = CollectComponent(inside, seed, snap);
 
-            int[] dx = { 1, -1, 0, 0 };
-            int[] dy = { 0, 0, 1, -1 };
-
-            while (q.Count > 0)
-            {
-                int ci = q.Dequeue();
-                int cx = ci % w, cy = ci / w;
-
-                for (int d = 0; d < 4; d++)
-                {
-                    int nx = cx + dx[d], ny = cy + dy[d];
-                    if ((uint)nx >= w || (uint)ny >= h) continue;
-                    int ni = ny * w + nx;
-                    if (!inside[ni] || result[ni]) continue;
-                    result[ni] = true;
-                    q.Enqueue(ni);
-                }
-            }
+            foreach (int i in component)
+                result[i] = true;
 
             return result;
         }
@@ -1038,11 +1177,7 @@ namespace DinoLino.Utilities.Modes
                         // LOCAL CONNECTIVITY TEST
                         // =====================
 
-                        int neighborCount =
-                            (n ? 1 : 0) +
-                            (s ? 1 : 0) +
-                            (e ? 1 : 0) +
-                            (wv ? 1 : 0);
+                        int neighborCount = CountCardinalNeighbors(copy, x, y, w, h);
 
                         // Remove junctions
                         bool junction = neighborCount >= 3;
@@ -1084,11 +1219,7 @@ namespace DinoLino.Utilities.Modes
                         int i = y * w + x;
                         if (!mask[i]) continue;
 
-                        int filledNeighbors =
-                            (mask[i - 1] ? 1 : 0) +
-                            (mask[i + 1] ? 1 : 0) +
-                            (mask[i - w] ? 1 : 0) +
-                            (mask[i + w] ? 1 : 0);
+                        int filledNeighbors = CountCardinalNeighbors(mask, x, y, w, h);
 
                         if (filledNeighbors <= 1)
                         {
@@ -1365,6 +1496,7 @@ namespace DinoLino.Utilities.Modes
             if (_activePolyline == null || _activePolyline.Points.Count < 3)
             {
                 MetadataSummary = "No outline available.";
+                UpdateEFDPreview();
                 return;
             }
 
@@ -1389,7 +1521,7 @@ namespace DinoLino.Utilities.Modes
             // Circularity = 4π·A / P²  (1.0 = perfect circle, approaches 0 for elongated shapes)
             CircularityResult = perimeter > 0 ? (4.0 * Math.PI * area) / (perimeter * perimeter) : 0;
 
-            int harmonics = 10;
+            int harmonics = EfdHarmonics;
             EFDCoefficientsResult = ComputeNormalizedEFD(pts, harmonics);
 
             // Build display string
@@ -1558,6 +1690,131 @@ namespace DinoLino.Utilities.Modes
             }
 
             return normalized;
+        }
+
+        private int efdHarmonics = 10;
+        public int EfdHarmonics
+        {
+            get => efdHarmonics;
+            set
+            {
+                int clamped = Math.Max(1, Math.Min(100, value));
+                if (efdHarmonics == clamped) return;
+                efdHarmonics = clamped;
+                OnPropertyChanged(nameof(EfdHarmonics));
+                UpdateEFDPreview(); // ← add this
+            }
+        }
+
+        // The blue EFD preview polyline shown in the workspace
+        private Polyline _efdPreviewPolyline = null;
+        public Action<Polyline> OnEFDPreviewReady;   // MainWindow wires this up
+        public Action OnEFDPreviewClear;             // MainWindow wires this up
+
+        // Reconstructs the outline from EFD coefficients and displays it as a
+        // blue overlay. Called whenever EfdHarmonics changes or metadata is generated.
+        public void UpdateEFDPreview()
+        {
+            // Clear any existing preview
+            OnEFDPreviewClear?.Invoke();
+            _efdPreviewPolyline = null;
+
+            if (EFDCoefficientsResult == null || EFDCoefficientsResult.Length == 0) return;
+            if (_activePolyline == null || _activePolyline.Points.Count < 3) return;
+
+            int harmonics = Math.Min(EfdHarmonics, EFDCoefficientsResult.Length / 4);
+            if (harmonics < 1) return;
+
+            // Reconstruct the shape from the EFD coefficients.
+            // We sample the parametric curve at evenly spaced t in [0, 1).
+            // x(t) = A0 + Σ [an·cos(2πnt) + bn·sin(2πnt)]
+            // y(t) = C0 + Σ [cn·cos(2πnt) + dn·sin(2πnt)]
+            // A0 and C0 are the DC offset (centroid) — we compute them from
+            // the original polyline since the normalized EFDs are centered.
+            int sampleCount = Math.Max(100, harmonics * 20);
+
+            // Compute centroid of the original polyline (in canvas coords)
+            double cx = 0, cy = 0;
+            int ptCount = _activePolyline.Points.Count;
+            foreach (var p in _activePolyline.Points) { cx += p.X; cy += p.Y; }
+            cx /= ptCount;
+            cy /= ptCount;
+
+            // Estimate scale: the EFDs are normalized to unit size, so we need
+            // to scale back up. Use the bounding box half-diagonal of the original.
+            double minX = double.MaxValue, maxX = double.MinValue;
+            double minY = double.MaxValue, maxY = double.MinValue;
+            foreach (var p in _activePolyline.Points)
+            {
+                if (p.X < minX) minX = p.X;
+                if (p.X > maxX) maxX = p.X;
+                if (p.Y < minY) minY = p.Y;
+                if (p.Y > maxY) maxY = p.Y;
+            }
+            // Perimeter of original in canvas coords (used to scale EFD output)
+            double totalLen = 0;
+            for (int i = 0; i < ptCount; i++)
+            {
+                var a = _activePolyline.Points[i];
+                var b = _activePolyline.Points[(i + 1) % ptCount];
+                double dx = b.X - a.X, dy = b.Y - a.Y;
+                totalLen += Math.Sqrt(dx * dx + dy * dy);
+            }
+
+            var preview = new Polyline
+            {
+                Stroke = System.Windows.Media.Brushes.DodgerBlue,
+                StrokeThickness = 1.5,
+                StrokeDashArray = new System.Windows.Media.DoubleCollection { 4, 2 },
+                FillRule = System.Windows.Controls.Primitives.PopupPrimaryAxis.None
+                                  == System.Windows.Controls.Primitives.PopupPrimaryAxis.None
+                                  ? System.Windows.Media.FillRule.EvenOdd
+                                  : System.Windows.Media.FillRule.EvenOdd
+            };
+
+            // Simpler: just set the properties directly
+            var previewLine = new Polyline
+            {
+                Stroke = System.Windows.Media.Brushes.DodgerBlue,
+                StrokeThickness = 1.5,
+                StrokeDashArray = new System.Windows.Media.DoubleCollection { 4, 2 },
+                FillRule = System.Windows.Media.FillRule.EvenOdd
+            };
+
+            // The normalized EFD reconstruction gives a unit-perimeter shape.
+            // Scale it to match the original perimeter and translate to the centroid.
+            double scale = totalLen;
+
+            for (int s = 0; s <= sampleCount; s++)
+            {
+                double t = (double)s / sampleCount; // t in [0,1]
+                double x = 0, y = 0;
+
+                for (int h = 1; h <= harmonics; h++)
+                {
+                    int k = (h - 1) * 4;
+                    double an = EFDCoefficientsResult[k];
+                    double bn = EFDCoefficientsResult[k + 1];
+                    double cn = EFDCoefficientsResult[k + 2];
+                    double dn = EFDCoefficientsResult[k + 3];
+
+                    double angle = 2.0 * Math.PI * h * t;
+                    x += an * Math.Cos(angle) + bn * Math.Sin(angle);
+                    y += cn * Math.Cos(angle) + dn * Math.Sin(angle);
+                }
+
+                // Scale from unit space back to canvas space, offset by centroid
+                previewLine.Points.Add(new Point(cx + x * scale, cy + y * scale));
+            }
+
+            _efdPreviewPolyline = previewLine;
+            OnEFDPreviewReady?.Invoke(previewLine);
+        }
+
+        public void ClearEFDPreview()
+        {
+            OnEFDPreviewClear?.Invoke();
+            _efdPreviewPolyline = null;
         }
         #endregion
     }

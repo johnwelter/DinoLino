@@ -15,8 +15,8 @@
 
         <StackPanel Visibility="{Binding DrawOutlineMode, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="Tolerance:" FontWeight="Bold" Margin="0,8,0,0"/>
-            <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11"
-                       Text="How far from the clicked color a pixel can be and still be included."
+            <TextBlock TextWrapping="Wrap" Foreground="Gray"
+                       Text="How closely pixels must match the clicked color."
                        Margin="0,0,0,2"/>
             <Slider Minimum="5" Maximum="150" Value="{Binding Tolerance}"
                     TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,2,0,2"/>
@@ -27,8 +27,8 @@
             </TextBlock>
 
             <TextBlock Text="Gradient Leniency:" FontWeight="Bold" Margin="0,8,0,0"/>
-            <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11"
-                       Text="Allows the fill to cross gradual color gradients. Raise if the outline stops short inside an object."
+            <TextBlock TextWrapping="Wrap" Foreground="Gray"
+                       Text="Allows the fill to cross gradual color gradients."
                        Margin="0,0,0,2"/>
             <Slider Minimum="0" Maximum="60" Value="{Binding GradientLeniency}"
                     TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,2,0,2"/>
@@ -55,7 +55,7 @@
                     IsSnapToTickEnabled="True"
                     Margin="0,2,0,2"/>
             <TextBlock Text="{Binding EraseBrushRadius, StringFormat={}{0:F0} px}"
-                       Foreground="Gray" FontSize="11" Margin="0,0,0,4"/>
+                       Foreground="Gray" Margin="0,0,0,4"/>
         </StackPanel>
 
         <!-- Smooth Outline tool -->
@@ -73,7 +73,7 @@
                     IsSnapToTickEnabled="True"
                     Margin="0,2,0,2"/>
             <TextBlock Text="{Binding SmoothStrength, StringFormat={}{0:F0} passes}"
-                       Foreground="Gray" FontSize="11" Margin="0,0,0,4"/>
+                       Foreground="Gray" Margin="0,0,0,4"/>
         </StackPanel>
         
         <!-- Generate Metadata -->
@@ -84,18 +84,63 @@
              Margin="0,8,0,0"/>
 
         <StackPanel Visibility="{Binding OutlineMetadataMode, Converter={StaticResource BoolToVis}}">
-            <Button Content="Generate Metadata"
-            MinHeight="32"
-            Margin="0,8,0,4"
-            Click="GenerateMetadata_Click"/>
-            <TextBox Text="{Binding MetadataSummary, Mode=OneWay}"
-             IsReadOnly="True"
-             TextWrapping="Wrap"
-             FontFamily="Courier New"
-             FontSize="10"
-             Margin="0,4,0,0"
-             VerticalScrollBarVisibility="Auto"
-             MaxHeight="300"/>
+            <TextBlock Text="Shape Metrics:" FontWeight="Bold" Margin="0,8,0,4"/>
+
+            <!-- Compact summary rows -->
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Aspect Ratio:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" Text="{Binding AspectRatioResult, StringFormat={}{0:F3}}"
+                   HorizontalAlignment="Right"/>
+            </Grid>
+
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Perimeter / Area:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" Text="{Binding PerimeterAreaRatioResult, StringFormat={}{0:F4}}"
+                   HorizontalAlignment="Right"/>
+            </Grid>
+
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Circularity:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" Text="{Binding CircularityResult, StringFormat={}{0:F4}}"
+                   HorizontalAlignment="Right"/>
+            </Grid>
+
+            <Grid Margin="0,2,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="EFD Harmonics:" Foreground="Gray"/>
+                <TextBox x:Name="EfdHarmonicsBox"
+                 Grid.Column="1"
+                 Width="60"
+                 Text="{Binding EfdHarmonics, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                 HorizontalAlignment="Right"
+                 HorizontalContentAlignment="Right"
+                 Margin="4,0,0,0"/>
+            </Grid>
+
+            <!-- EFD detail link -->
+            <Button Content="See EFD Coefficients..."
+            HorizontalAlignment="Left"
+            Background="Transparent"
+            BorderThickness="0"
+            Foreground="{DynamicResource {x:Static SystemColors.HotTrackBrushKey}}"
+            Cursor="Hand"
+            Padding="0"
+            Click="ShowEFDDetails_Click"/>
         </StackPanel>
     </StackPanel>
 </UserControl>
