@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Shapes;
 
 namespace DinoLino.Utilities.Modes
@@ -275,21 +274,17 @@ namespace DinoLino.Utilities.Modes
         {
             Vector2 AB = PointB - PointA;
             Vector2 AC = PointC - PointA;
-
-            Vector2 BA = PointA - PointB;
             Vector2 BC = PointC - PointB;
-
             Vector2 CA = PointA - PointC;
-            Vector2 CB = PointB - PointC;
 
             // reject near-collinear points (not a triangle)
             double cross = (AB ^ AC);
             if (Math.Abs(cross) < 0.0001)
                 return;
 
-            AngleAResult = Math.Round(Math.Abs(Vector2.AngleBetween(AB, AC)), 2); // angle A
-            AngleBResult = Math.Round(Math.Abs(Vector2.AngleBetween(BA, BC)), 2); // angle B
-            AngleCResult = Math.Round(Math.Abs(Vector2.AngleBetween(CA, CB)), 2); // angle C
+            AngleAResult = GeometryCalculations.InteriorAngle(PointB, PointA, PointC);
+            AngleBResult = GeometryCalculations.InteriorAngle(PointA, PointB, PointC);
+            AngleCResult = GeometryCalculations.InteriorAngle(PointA, PointC, PointB);
 
             // Aspect ratio: width (longest side) / height (area * 2 / base)
             double sideAB = AB.Magnitude();
@@ -299,21 +294,14 @@ namespace DinoLino.Utilities.Modes
             double area = Math.Abs(cross) / 2.0;
             _currentArea = area;
             double longestSide = Math.Max(sideAB, Math.Max(sideBC, sideCA));
-            double height = (area * 2.0) / longestSide;
-
-            TriAspectRatioResult = height > 0.00001
-                ? Math.Round(longestSide / height, 2)
-                : 0;
+            TriAspectRatioResult = GeometryCalculations.TriangleAspectRatio(longestSide, area);
 
             // Compare area to previous triangle's area if one exists
             var previousTriangle = UndoRedoManager?.History
                 .OfType<GetAngleOperation>()
                 .LastOrDefault();
 
-            if (previousTriangle != null && previousTriangle.TriArea > 0.00001)
-                RelativeAreaResult = Math.Round(area / previousTriangle.TriArea, 2);
-            else
-                RelativeAreaResult = "N/A"; // no previous triangle to compare to
+            RelativeAreaResult = GeometryCalculations.RelativeArea(area, previousTriangle?.TriArea ?? 0);
         }
     }
 }

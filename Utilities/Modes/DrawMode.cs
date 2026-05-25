@@ -5,10 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Shapes;
-using static DinoLino.Utilities.Modes.CurvatureMode;
-using static DinoLino.Utilities.Modes.DrawMode;
 
 
 namespace DinoLino.Utilities.Modes
@@ -409,9 +406,7 @@ namespace DinoLino.Utilities.Modes
             double length = Math.Sqrt(dx * dx + dy * dy);
 
             var prev = FindPreviousLine(0);
-            LineLengthRatioResult = (prev != null && prev.LineLength > 0.00001)
-                ? Math.Round(length / prev.LineLength, 2)
-                : "N/A";
+            LineLengthRatioResult = GeometryCalculations.RelativeLength(length, prev?.LineLength ?? 0);
 
             CommitOperation(new LineOperation
             {
@@ -534,10 +529,7 @@ namespace DinoLino.Utilities.Modes
 
             var prevPrevLine = FindPreviousLine(1);
 
-            LineLengthRatioResult =
-                prevPrevLine != null
-                ? Math.Round(prevLine.LineLength / prevPrevLine.LineLength, 2)
-                : "N/A";
+            LineLengthRatioResult = GeometryCalculations.RelativeLength(prevLine.LineLength, prevPrevLine?.LineLength ?? 0);
         }
 
         #endregion
@@ -545,32 +537,18 @@ namespace DinoLino.Utilities.Modes
         #region Results
         private void CalculateAndUpdateResults(double width, double height)
         {
-            double area;
-            switch (CurrentShape)
-            {
-                case ShapeConstraint.Ellipse:
-                case ShapeConstraint.Circle:
-                    area = Math.PI * (width / 2.0) * (height / 2.0);
-                    break;
-                default: // Rectangle and Square
-                    area = width * height;
-                    break;
-            }
-
+            double area = (CurrentShape == ShapeConstraint.Ellipse || CurrentShape == ShapeConstraint.Circle)
+                ? GeometryCalculations.EllipseArea(width, height)
+                : GeometryCalculations.RectangleArea(width, height);
             _currentShapeArea = area;
-
-            double longer = Math.Max(width, height);
-            double shorter = Math.Min(width, height);
-            DrawAspectRatioResult = shorter > 0.00001 ? Math.Round(longer / shorter, 2) : 0;
+            DrawAspectRatioResult = GeometryCalculations.AspectRatio(width, height);
 
             var prev = UndoRedoManager.History
                 .OfType<ShapeOperation>()
                 .LastOrDefault();
 
-            if (prev != null && prev.ShapeArea > 0.00001)
-                RelativeAreaResult = Math.Round(area / prev.ShapeArea, 2);
-            else
-                RelativeAreaResult = "N/A";
+            double previousArea = prev?.ShapeArea ?? 0;
+            RelativeAreaResult = GeometryCalculations.RelativeArea(area, previousArea);
         }
         #endregion
     }

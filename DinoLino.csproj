@@ -82,6 +82,7 @@
       <DependentUpon>UserGuide.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\CanvasUtils.cs" />
+    <Compile Include="Utilities\GeometryCalculations.cs" />
     <Compile Include="Utilities\ImageAdjuster.cs" />
     <Compile Include="Utilities\Modes\DrawMode.cs" />
     <Compile Include="Utilities\Modes\GetAngleMode.cs" />

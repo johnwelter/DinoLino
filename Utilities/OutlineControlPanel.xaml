@@ -75,7 +75,7 @@
             <TextBlock Text="{Binding SmoothStrength, StringFormat={}{0:F0} passes}"
                        Foreground="Gray" Margin="0,0,0,4"/>
         </StackPanel>
-        
+
         <!-- Generate Metadata -->
         <RadioButton Content="Generate Metadata"
              GroupName="OutlineTool"
@@ -117,19 +117,57 @@
                    HorizontalAlignment="Right"/>
             </Grid>
 
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Solidity:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" Text="{Binding SolidityResult, StringFormat={}{0:F4}}"
+               HorizontalAlignment="Right"/>
+            </Grid>
+
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Sum Turn. Angles:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" Text="{Binding SumTurningAnglesResult, StringFormat={}{0:F2}°}"
+               HorizontalAlignment="Right"/>
+            </Grid>
+
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Mean Turn. Angle:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" Text="{Binding MeanTurningAngleResult, StringFormat={}{0:F2}°}"
+               HorizontalAlignment="Right"/>
+            </Grid>
+
             <Grid Margin="0,2,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Turn. Angle Var.:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" Text="{Binding VarianceTurningAnglesResult, StringFormat={}{0:F2}}"
+               HorizontalAlignment="Right"/>
+            </Grid>
+            <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="EFD Harmonics:" Foreground="Gray"/>
                 <TextBox x:Name="EfdHarmonicsBox"
-                 Grid.Column="1"
-                 Width="60"
+                 Width="47"
                  Text="{Binding EfdHarmonics, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                 HorizontalAlignment="Right"
+                 HorizontalAlignment="Left"
                  HorizontalContentAlignment="Right"
-                 Margin="4,0,0,0"/>
+                 Margin="140,0,0,0"/>
             </Grid>
 
             <!-- EFD detail link -->

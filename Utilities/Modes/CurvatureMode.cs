@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
@@ -135,14 +134,6 @@ namespace DinoLino.Utilities.Modes
             L.X2 = b.X;
             L.Y2 = b.Y;
             return L;
-        }
-
-        private double ComputeArcLength(List<Vector2> points)
-        {
-            double length = 0;
-            for (int i = 1; i < points.Count; i++)
-                length += (points[i] - points[i - 1]).Magnitude();
-            return length;
         }
 
         public override void ClearMetadata()
@@ -382,8 +373,6 @@ namespace DinoLino.Utilities.Modes
 
                     CurrentUILine = null;
 
-                    var line3 = MakeLine(ACMid, Intersection);
-                    var line4 = MakeLine(BCMid, Intersection);
                     var line5 = MakeLine(PointA, Intersection);
                     var line6 = MakeLine(PointB, Intersection);
 
@@ -447,7 +436,7 @@ namespace DinoLino.Utilities.Modes
             SweepDirection direction = crossProduct > 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
 
             // A 3-point arc is >180 degrees if the center point lies inside triangle ABC
-            bool isLargeArc = IsPointInTriangle(center, start, end, PointC);
+            bool isLargeArc = GeometryCalculations.IsPointInTriangle(center, start, end, PointC);
 
             var figure = new PathFigure();
             figure.StartPoint = new Point(start.X, start.Y);
@@ -475,67 +464,16 @@ namespace DinoLino.Utilities.Modes
             };
         }
 
-        // Helper function to check if center is inside the ABC triangle
-        private bool IsPointInTriangle(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
-        {
-            double d1 = Sign(p, a, b);
-            double d2 = Sign(p, b, c);
-            double d3 = Sign(p, c, a);
-
-            bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-            bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-
-            return !(has_neg && has_pos);
-        }
-
-        // Helper function to check the sign of the area formed by three points
-        private double Sign(Vector2 p1, Vector2 p2, Vector2 p3)
-        {
-            return (p1.X - p3.X) * (p2.Y - p3.Y) - (p2.X - p3.X) * (p1.Y - p3.Y);
-        }
-
         // function to calculate results
         private void CalculateCircularArcResults()
         {
-            // use Atan2 to get absolute polar angles
-            double angleStart = Math.Atan2(PointA.Y - Intersection.Y, PointA.X - Intersection.X);
-            double angleEnd = Math.Atan2(PointB.Y - Intersection.Y, PointB.X - Intersection.X);
-            double angleC = Math.Atan2(PointC.Y - Intersection.Y, PointC.X - Intersection.X);
-
-            // Normalize angles to 0-360
-            double diff = (angleEnd - angleStart) * (180 / Math.PI);
-            if (diff < 0) diff += 360;
-
-            // Determine if PointC lies within that sweep
-            double diffC = (angleC - angleStart) * (180 / Math.PI);
-            if (diffC < 0) diffC += 360;
-
-            CentralAngleResult = Math.Round(diff, 2);
-
-            if (IsPointInTriangle(Intersection, PointA, PointB, PointC))
-            {
-                if (CentralAngleResult < 180) CentralAngleResult = 360 - CentralAngleResult;
-            }
-
-            // Aspect Ratio calculation
-
+            CentralAngleResult = GeometryCalculations.CentralAngle(PointA, PointB, PointC, Intersection);
             double chordLength = (PointB - PointA).Magnitude();
-
-            // bisector = midpoint → C
             double bisectorLength = (PointC - Midpoint).Magnitude();
-
-            AspectRatioResult = bisectorLength > 0.00001
-                ? Math.Round(chordLength / bisectorLength, 2)
-                : 0;
-
-            // Chord-Arc Ratio calculation
+            AspectRatioResult = GeometryCalculations.CircularArcAspectRatio(chordLength, bisectorLength);
             double radius = (PointA - Intersection).Magnitude();
-            double centralAngleRadians = CentralAngleResult * Math.PI / 180.0;
-            double arcLength = radius * centralAngleRadians;
-
-            ChordArcRatioResult = arcLength > 0.00001
-                ? Math.Round(chordLength / arcLength, 2)
-                : 0;
+            double arcLength = GeometryCalculations.CircularArcLength(radius, CentralAngleResult);
+            ChordArcRatioResult = GeometryCalculations.ChordArcRatio(chordLength, arcLength);
         }
         #endregion
 
@@ -646,20 +584,18 @@ namespace DinoLino.Utilities.Modes
 
         private Path MakeParabolicArc(Vector2 pointA, Vector2 pointB, Vector2 pointC)
         {
-            BuildLocalBasis(pointA, pointB, out Vector2 xAxis, out Vector2 yAxis, out double chordLength);
-
-            if (chordLength < 1e-8)
+            if (!GeometryCalculations.BuildLocalBasis(pointA, pointB, out Vector2 xAxis, out Vector2 yAxis, out double chordLength))
                 return null;
 
             Vector2 cDelta = pointC - pointA;
             Vector2 cL = new Vector2(
-                Dot(cDelta, xAxis) / chordLength,
-                Dot(cDelta, yAxis) / chordLength
+                (cDelta | xAxis) / chordLength,
+                (cDelta | yAxis) / chordLength
             );
 
-            SolveParabola(0, 0, 1, 0, cL.X, cL.Y);
+            (ParabolaA, ParabolaB, ParabolaC) = GeometryCalculations.SolveParabola(0, 0, 1, 0, cL.X, cL.Y);
 
-            if (XYFunctionResult == "Invalid parabola")
+            if (ParabolaA == 0 && ParabolaB == 0 && ParabolaC == 0)
                 return null;
 
             List<Vector2> worldPoints = SampleParabolaWorldPoints(pointA, xAxis, yAxis, chordLength, 64);
@@ -674,32 +610,6 @@ namespace DinoLino.Utilities.Modes
             geometry.Figures.Add(figure);
 
             return new Path { Data = geometry, Stroke = this.LineColor, StrokeThickness = 2 };
-        }
-
-        private void BuildLocalBasis(Vector2 origin, Vector2 target, out Vector2 xAxis, out Vector2 yAxis, out double length)
-        {
-            Vector2 ab = target - origin;
-            length = ab.Magnitude();
-            xAxis = new Vector2(ab.X / length, ab.Y / length);
-            yAxis = new Vector2(-xAxis.Y, xAxis.X);
-        }
-
-        private double Dot(Vector2 a, Vector2 b)
-        {
-            return a.X * b.X + a.Y * b.Y;
-        }
-
-        private void SolveParabola(double x1, double y1, double x2, double y2, double x3, double y3)
-        {
-            double denom = (x1 - x2) * (x1 - x3) * (x2 - x3);
-            if (Math.Abs(denom) < 1e-8)
-            {
-                ParabolaA = ParabolaB = ParabolaC = 0;
-                return;
-            }
-            ParabolaA = (x3 * (y2 - y1) + x2 * (y1 - y3) + x1 * (y3 - y2)) / denom;
-            ParabolaB = (x3 * x3 * (y1 - y2) + x2 * x2 * (y3 - y1) + x1 * x1 * (y2 - y3)) / denom;
-            ParabolaC = (x2 * x3 * (x2 - x3) * y1 + x3 * x1 * (x3 - x1) * y2 + x1 * x2 * (x1 - x2) * y3) / denom;
         }
 
         private List<Vector2> SampleParabolaWorldPoints(Vector2 origin, Vector2 xAxis, Vector2 yAxis, double chordLength, int count)
@@ -722,18 +632,17 @@ namespace DinoLino.Utilities.Modes
             double pChordLength = (PointB - PointA).Magnitude();
             double rise = (PointC - Midpoint).Magnitude();
 
-            RiseSpanRatioResult = pChordLength > 0.00001 ? Math.Round(rise / pChordLength, 3) : 0;
-
-            // Vertex curvature: κ = |2a| at x=0 (where y'=0)
-            VertexCurvatureResult = Math.Round(Math.Abs(2 * ParabolaA), 5);
+            RiseSpanRatioResult = GeometryCalculations.RiseSpanRatio(rise, pChordLength);
+            VertexCurvatureResult = GeometryCalculations.ParabolaVertexCurvature(ParabolaA);
 
             XYFunctionResult = $"y = {ParabolaA:F3}x² + {ParabolaB:F3}x + {ParabolaC:F3}";
 
-            BuildLocalBasis(PointA, PointB, out Vector2 xAxis, out Vector2 yAxis, out double chordLength);
+            if (!GeometryCalculations.BuildLocalBasis(PointA, PointB, out Vector2 xAxis, out Vector2 yAxis, out double chordLength))
+                return;
             List<Vector2> worldPoints = SampleParabolaWorldPoints(PointA, xAxis, yAxis, chordLength, 64);
-            double arcLength = ComputeArcLength(worldPoints);
+            double arcLength = GeometryCalculations.ArcLength(worldPoints);
 
-            PChordArcRatioResult = arcLength > 0.00001 ? Math.Round(pChordLength / arcLength, 3) : 0;
+            PChordArcRatioResult = GeometryCalculations.ChordArcRatio(pChordLength, arcLength);
         }
         #endregion
         #endregion
@@ -839,7 +748,7 @@ namespace DinoLino.Utilities.Modes
 
             // calculate results
             List<Vector2> splinePointsDense = GetCatmullRomPoints(_splinePoints, 50);
-            TurningAngleResult = Math.Round(CalculateTurningAngle(splinePointsDense), 2);
+            TurningAngleResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 2);
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 2);
 
             // store in history
@@ -946,43 +855,11 @@ namespace DinoLino.Utilities.Modes
             };
         }
 
-        private double CalculateTurningAngle(List<Vector2> points)
-        {
-            if (points.Count < 3) return 0;
-
-            double totalTurning = 0;
-            double totalLength = 0;
-
-            for (int i = 1; i < points.Count - 1; i++)
-            {
-                Vector2 seg1 = points[i] - points[i - 1];
-                Vector2 seg2 = points[i + 1] - points[i];
-
-                double len1 = seg1.Magnitude();
-                double len2 = seg2.Magnitude();
-                totalLength += len1;
-
-                if (len1 < 0.00001 || len2 < 0.00001) continue;
-
-                double centralAngle = Math.Abs(Vector2.AngleBetween(seg1, seg2));
-                totalTurning += centralAngle;
-            }
-
-            // add last segment length
-            if (points.Count >= 2)
-            {
-                Vector2 last = points[points.Count - 1] - points[points.Count - 2];
-                totalLength += last.Magnitude();
-            }
-
-            return totalLength > 0.00001 ? totalTurning / totalLength : 0;
-        }
-
         private double CalculateSChordArcRatio(List<Vector2> densePoints, List<Vector2> controlPoints)
         {
-            double arcLength = ComputeArcLength(densePoints);
+            double arcLength = GeometryCalculations.ArcLength(densePoints);
             double chordLength = (controlPoints[controlPoints.Count - 1] - controlPoints[0]).Magnitude();
-            return chordLength > 0.00001 ? Math.Round(arcLength / chordLength, 2) : 0;
+            return GeometryCalculations.ArcChordRatio(arcLength, chordLength);
         }
         #endregion
 

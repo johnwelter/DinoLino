@@ -114,40 +114,28 @@ namespace DinoLino.Utilities.Modes
             _cachedPixels = new byte[_cachedStride * _cachedHeight];
             formatted.CopyPixels(_cachedPixels, _cachedStride, 0);
 
-            _bgColor = EstimateBackgroundColor();
+            _bgColors = EstimateBackgroundColors();
             _backgroundMask = BuildBackgroundMask();
         }
 
 
-        private (double r, double g, double b) _bgColor;
-        private (double r, double g, double b) EstimateBackgroundColor()
+        private (double r, double g, double b)[] _bgColors;
+        // Samples one pixel at each corner for use as individual background seeds.
+        private (double r, double g, double b)[] EstimateBackgroundColors()
         {
-            long r = 0, g = 0, b = 0;
-            long count = 0;
-
-            int stepX = Math.Max(1, _cachedWidth / 50);
-            int stepY = Math.Max(1, _cachedHeight / 50);
-
-            for (int y = 0; y < _cachedHeight; y += stepY)
+            return new[]
             {
-                for (int x = 0; x < _cachedWidth; x += stepX)
-                {
-                    var (pr, pg, pb) = ReadPixel(x, y);
-                    r += pr;
-                    g += pg;
-                    b += pb;
-                    count++;
-                }
-            }
-
-            return (
-                r / (double)count,
-                g / (double)count,
-                b / (double)count
-            );
+        ToDouble(ReadPixel(0, 0)),
+        ToDouble(ReadPixel(_cachedWidth - 1, 0)),
+        ToDouble(ReadPixel(0, _cachedHeight - 1)),
+        ToDouble(ReadPixel(_cachedWidth - 1, _cachedHeight - 1))
+    };
         }
 
-        private bool[] _backgroundMask; 
+        private (double r, double g, double b) ToDouble((byte r, byte g, byte b) px)
+            => (px.r, px.g, px.b);
+
+        private bool[] _backgroundMask;
         private bool[] BuildBackgroundMask(double threshold = 25)
         {
             int w = _cachedWidth;
@@ -156,18 +144,20 @@ namespace DinoLino.Utilities.Modes
             bool[] background = new bool[w * h];
             var queue = new Queue<(int x, int y)>();
 
-            void TryAdd(int x, int y)
+
+            void TryAdd(int x, int y, int colorIndex)
             {
                 int i = y * w + x;
                 if (background[i]) return;
 
                 var (r, g, b) = ReadPixel(x, y);
+                var (br, bg, bb) = _bgColors[colorIndex];
 
                 double dist = PerceptualDistance(
                     r, g, b,
-                    (byte)Math.Max(0, Math.Min(255, _bgColor.r)),
-                    (byte)Math.Max(0, Math.Min(255, _bgColor.g)),
-                    (byte)Math.Max(0, Math.Min(255, _bgColor.b)));
+                    (byte)Math.Max(0, Math.Min(255, br)),
+                    (byte)Math.Max(0, Math.Min(255, bg)),
+                    (byte)Math.Max(0, Math.Min(255, bb)));
 
                 if (dist > threshold)
                     return;
@@ -176,21 +166,34 @@ namespace DinoLino.Utilities.Modes
                 queue.Enqueue((x, y));
             }
 
-            // Seed from borders
+            // Seed from all four corners using their respective reference colors.
+            // Each border edge uses the color of its nearest corner.
             for (int x = 0; x < w; x++)
             {
-                TryAdd(x, 0);
-                TryAdd(x, h - 1);
-            }
+                // Top edge: left half uses corner 0, right half uses corner 1
+                int topColor = x < w / 2 ? 0 : 1;
+                TryAdd(x, 0, topColor);
 
+                // Bottom edge: left half uses corner 2, right half uses corner 3
+                int botColor = x < w / 2 ? 2 : 3;
+                TryAdd(x, h - 1, botColor);
+            }
             for (int y = 1; y < h - 1; y++)
             {
-                TryAdd(0, y);
-                TryAdd(w - 1, y);
+                // Left edge: top half uses corner 0, bottom half uses corner 2
+                int leftColor = y < h / 2 ? 0 : 2;
+                TryAdd(0, y, leftColor);
+
+                // Right edge: top half uses corner 1, bottom half uses corner 3
+                int rightColor = y < h / 2 ? 1 : 3;
+                TryAdd(w - 1, y, rightColor);
             }
 
+            // BFS flood fill — each queued pixel carries the color index it was seeded with.
+            // We track which color index each background pixel was accepted under so the
+            // flood respects the correct reference as it spreads inward.
+            // Since background[] prevents revisiting, color bleed between zones is harmless.
             int iterations = 0;
-
             while (queue.Count > 0)
             {
                 if ((queue.Count & 1023) == 0)
@@ -201,11 +204,15 @@ namespace DinoLino.Utilities.Modes
                 if ((iterations++ & 1023) == 0)
                     ThrowIfCancelled();
 
+                // Determine which corner color governs this pixel by quadrant.
+                int colorIndex = (cx < w / 2 ? 0 : 1) + (cy < h / 2 ? 0 : 2);
+
                 foreach (int ni in EnumerateCardinalNeighbors(cx, cy, w, h))
                 {
                     int nx = ni % w;
                     int ny = ni / w;
-                    TryAdd(nx, ny);
+                    int neighborColor = (nx < w / 2 ? 0 : 1) + (ny < h / 2 ? 0 : 2);
+                    TryAdd(nx, ny, neighborColor);
                 }
             }
 
@@ -220,7 +227,6 @@ namespace DinoLino.Utilities.Modes
             public readonly int Height;
             public readonly int Stride;
             public readonly int Bpp;
-            public readonly (double r, double g, double b) BgColor;
 
             public ImageSnapshot(
                 byte[] pixels,
@@ -228,8 +234,7 @@ namespace DinoLino.Utilities.Modes
                 int w,
                 int h,
                 int stride,
-                int bpp,
-                (double r, double g, double b) bgColor)
+                int bpp)
             {
                 Pixels = pixels;
                 BgMask = bgMask;
@@ -237,7 +242,6 @@ namespace DinoLino.Utilities.Modes
                 Height = h;
                 Stride = stride;
                 Bpp = bpp;
-                BgColor = bgColor;
             }
         }
 
@@ -300,6 +304,31 @@ namespace DinoLino.Utilities.Modes
         #endregion
 
         #region shared functions and variables
+        public override void ClearMetadata()
+        {
+            AspectRatioResult = 0;
+            PerimeterAreaRatioResult = 0;
+            CircularityResult = 0;
+            SolidityResult = 0;
+            SumTurningAnglesResult = 0;
+            MeanTurningAngleResult = 0;
+            VarianceTurningAnglesResult = 0;
+            EFDCoefficientsResult = null;
+            MetadataSummary = "";
+        }
+
+        protected override void OnOperationUndone(WorkOperation operation)
+        {
+            if (operation is OutlineOperation)
+                ClearMetadata();
+        }
+
+        protected override void OnOperationRedone(WorkOperation operation)
+        {
+            if (operation is OutlineOperation op)
+                op.ApplyMetadataToMode();
+        }
+
         //-----Reusable buffers-----//
         private int[] _distBuffer = Array.Empty<int>();
         private int[] _queueBuffer = Array.Empty<int>();
@@ -428,7 +457,7 @@ namespace DinoLino.Utilities.Modes
 
             // Snapshot everything the background thread needs
             // so it doesn't touch UI-thread objects
-            var snap = new ImageSnapshot(_cachedPixels, _backgroundMask, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp, _bgColor);
+            var snap = new ImageSnapshot(_cachedPixels, _backgroundMask, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp);
             double scaleX = ScaleX, scaleY = ScaleY;
             double offsetX = OffsetX, offsetY = OffsetY;
 
@@ -451,8 +480,7 @@ namespace DinoLino.Utilities.Modes
 
                     // Build a cropped snapshot with the same pixel data but cropped dimensions.
                     // The pixel data reference is the same (read-only in subsequent steps).
-                    var croppedSnap = new ImageSnapshot(
-                        snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp, snap.BgColor);
+                    var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
                     bool[] work = (bool[])croppedRaw.Clone();
                     MorphologicalErosion(work, croppedSnap);
@@ -490,7 +518,7 @@ namespace DinoLino.Utilities.Modes
                     if (boundary.Count < 8) return;
                     token.ThrowIfCancellationRequested();
 
-                    List<Point> simplified = DouglasPeucker(boundary, _simplifyEpsilon);
+                    List<Point> simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
                     if (simplified.Count < 3) return;
                     token.ThrowIfCancellationRequested();
 
@@ -573,7 +601,7 @@ namespace DinoLino.Utilities.Modes
         // FLOOD FILL
         // =====================
         private bool[] FloodFill(int startX, int startY, byte sr, byte sg, byte sb,
-                         ImageSnapshot snap)
+                 ImageSnapshot snap)
         {
             int w = snap.Width, h = snap.Height;
             bool[] inside = new bool[w * h];
@@ -581,8 +609,6 @@ namespace DinoLino.Utilities.Modes
             var queue = new Queue<(int x, int y)>();
             queue.Enqueue((startX, startY));
             inside[startY * w + startX] = true;
-
-            double toleranceTimes2 = _tolerance * 2.0;
 
             while (queue.Count > 0)
             {
@@ -605,6 +631,10 @@ namespace DinoLino.Utilities.Modes
                 {
                     if (inside[ni]) continue;
 
+                    // Background mask is checked first — edge-connected background pixels
+                    // are never included regardless of tolerance settings.
+                    if (snap.BgMask != null && snap.BgMask[ni]) continue;
+
                     int nx = ni % w;
                     int ny = ni / w;
 
@@ -625,15 +655,11 @@ namespace DinoLino.Utilities.Modes
                     double neighborDist = PerceptualDistance(pr, pg, pb, cr, cg, cb);
 
                     bool strongEdge = neighborDist > _edgeThreshold;
-                    double maxSeedDistance = _tolerance * 6.0;
                     bool seedMatch = seedDist <= _tolerance;
                     bool gradientMatch = neighborDist <= _gradientLeniency &&
-                                         seedDist <= maxSeedDistance;
+                                         seedDist <= _tolerance * 6.0;
 
                     if (strongEdge && !seedMatch) continue;
-
-                    if (snap.BgMask != null && snap.BgMask[ni]) continue;
-
                     if (!(seedMatch || gradientMatch)) continue;
 
                     inside[ni] = true;
@@ -707,167 +733,48 @@ namespace DinoLino.Utilities.Modes
         // =====================
         // BOUNDARY TRACING
         // =====================
-        private List<Point> TraceBoundary(bool[] mask, int width, int height)
+        private List<Point> TraceBoundary(bool[] inside, ImageSnapshot snap)
         {
-            var segments = BuildMarchingSquaresSegments(mask, width, height);
-            var loops = StitchSegmentsIntoLoops(segments);
+            int w = snap.Width, h = snap.Height;
 
-            if (loops.Count == 0)
-                return new List<Point>();
+            int startX = -1, startY = -1;
+            for (int i = 0; i < inside.Length && startX < 0; i++)
+                if (inside[i]) { startX = i % w; startY = i / w; }
 
-            var bestLoop = ChooseBestLoop(loops);
-            if (bestLoop.Count < 3)
-                return new List<Point>();
+            if (startX < 0) return new List<Point>();
 
-            if (!PointsAreClosed(bestLoop))
-                bestLoop.Add(bestLoop[0]);
+            var boundary = new List<Point>();
+            int[] ndx = { 1, 1, 0, -1, -1, -1, 0, 1 };
+            int[] ndy = { 0, -1, -1, -1, 0, 1, 1, 1 };
 
-            return bestLoop;
-        }
+            int cx = startX, cy = startY, dir = 4;
 
-        private readonly struct Segment
-{
-    public readonly Point A;
-    public readonly Point B;
-    public Segment(Point a, Point b)
-    {
-        A = a;
-        B = b;
-    }
-}
-
-private List<Segment> BuildMarchingSquaresSegments(bool[] mask, int width, int height)
-{
-    var segments = new List<Segment>();
-
-    Point Top(int x, int y) => new Point(x + 0.5, y);
-    Point Right(int x, int y) => new Point(x + 1, y + 0.5);
-    Point Bottom(int x, int y) => new Point(x + 0.5, y + 1);
-    Point Left(int x, int y) => new Point(x, y + 0.5);
-
-    bool Inside(int x, int y) => mask[y * width + x];
-
-    for (int y = 0; y < height - 1; y++)
-    {
-        for (int x = 0; x < width - 1; x++)
-        {
-            int tl = Inside(x, y) ? 1 : 0;
-            int tr = Inside(x + 1, y) ? 1 : 0;
-            int br = Inside(x + 1, y + 1) ? 1 : 0;
-            int bl = Inside(x, y + 1) ? 1 : 0;
-
-            int idx = tl | (tr << 1) | (br << 2) | (bl << 3);
-
-            switch (idx)
+            for (int iterations = 0; iterations < w * h * 2; iterations++)
             {
-                case 0:
-                case 15:
+                if ((iterations & 255) == 0) ThrowIfCancelled();
+
+                boundary.Add(new Point(cx, cy));
+
+                int checkDir = (dir + 6) % 8;
+                bool found = false;
+                for (int i = 0; i < 8; i++)
+                {
+                    int d = (checkDir + i) % 8;
+                    int bx = cx + ndx[d];
+                    int by = cy + ndy[d];
+                    if ((uint)bx >= w || (uint)by >= h) continue;
+                    if (!inside[by * w + bx]) continue;
+                    dir = d; cx = bx; cy = by;
+                    found = true;
                     break;
+                }
 
-                case 1:
-                case 14:
-                    segments.Add(new Segment(Left(x, y), Top(x, y)));
-                    break;
-
-                case 2:
-                case 13:
-                    segments.Add(new Segment(Top(x, y), Right(x, y)));
-                    break;
-
-                case 3:
-                case 12:
-                    segments.Add(new Segment(Left(x, y), Right(x, y)));
-                    break;
-
-                case 4:
-                case 11:
-                    segments.Add(new Segment(Right(x, y), Bottom(x, y)));
-                    break;
-
-                case 5:
-                    segments.Add(new Segment(Top(x, y), Right(x, y)));
-                    segments.Add(new Segment(Left(x, y), Bottom(x, y)));
-                    break;
-
-                case 10:
-                    segments.Add(new Segment(Top(x, y), Left(x, y)));
-                    segments.Add(new Segment(Right(x, y), Bottom(x, y)));
-                    break;
-
-                case 6:
-                case 9:
-                    segments.Add(new Segment(Top(x, y), Bottom(x, y)));
-                    break;
-
-                case 7:
-                case 8:
-                    segments.Add(new Segment(Left(x, y), Bottom(x, y)));
-                    break;
-            }
-        }
-    }
-
-    return segments;
-}
-
-        // =====================
-        // DOUGLAS-PEUCKER
-        // =====================
-        // Index-based: no List.GetRange() allocations during recursion.
-        private List<Point> DouglasPeucker(List<Point> points, double epsilon)
-        {
-            var result = new List<Point>();
-            DouglasPeuckerRecursive(points, 0, points.Count - 1, epsilon, result);
-            result.Add(points[points.Count - 1]);
-            return result;
-        }
-
-        private void DouglasPeuckerRecursive(List<Point> points, int start, int end,double epsilon, List<Point> result)
-        {
-            ThrowIfCancelled();
-
-            if (end <= start + 1)
-            {
-                result.Add(points[start]);
-                return;
+                if (!found) break;
+                if (cx == startX && cy == startY) break;
             }
 
-            double maxDist = 0;
-            int maxIndex = start;
-            Point a = points[start], b = points[end];
-
-            for (int i = start + 1; i < end; i++)
-            {
-                if ((i & 63) == 0)   // frequent enough because this can be O(n²)
-                    ThrowIfCancelled();
-
-                double d = PerpendicularDistance(points[i], a, b);
-                if (d > maxDist) { maxDist = d; maxIndex = i; }
-            }
-
-            if (maxDist > epsilon)
-            {
-                DouglasPeuckerRecursive(points, start, maxIndex, epsilon, result);
-                DouglasPeuckerRecursive(points, maxIndex, end, epsilon, result);
-            }
-            else
-            {
-                // Emit start; end will be emitted as start of next segment or by the caller
-                result.Add(points[start]);
-            }
+            return boundary;
         }
-
-        private double PerpendicularDistance(Point p, Point a, Point b)
-        {
-            double dx = b.X - a.X, dy = b.Y - a.Y;
-            if (dx == 0 && dy == 0)
-                return Math.Sqrt((p.X - a.X) * (p.X - a.X) + (p.Y - a.Y) * (p.Y - a.Y));
-            double t = Math.Max(0, Math.Min(1,
-                ((p.X - a.X) * dx + (p.Y - a.Y) * dy) / (dx * dx + dy * dy)));
-            double projX = a.X + t * dx, projY = a.Y + t * dy;
-            return Math.Sqrt((p.X - projX) * (p.X - projX) + (p.Y - projY) * (p.Y - projY));
-        }
-
         // =====================
         // NECK REMOVAL
         // =====================
@@ -1340,11 +1247,12 @@ private List<Segment> BuildMarchingSquaresSegments(bool[] mask, int width, int h
             // Guarantee the polyline is always explicitly closed:
             // the last point must equal the first point.
             // If they differ by more than 1 pixel, append a copy of the first point.
-            EnforcePolylineClosure();
 
             points.Clear();
             foreach (var p in newPoints)
                 points.Add(p);
+
+            EnforcePolylineClosure();
 
             RefreshSmoothSnapshot();
         }
@@ -1482,6 +1390,34 @@ private List<Segment> BuildMarchingSquaresSegments(bool[] mask, int width, int h
             set { _efdCoefficientsResult = value; OnPropertyChanged(nameof(EFDCoefficientsResult)); }
         }
 
+        private double _solidityResult;
+        public double SolidityResult
+        {
+            get => _solidityResult;
+            set { _solidityResult = value; OnPropertyChanged(nameof(SolidityResult)); }
+        }
+
+        private double _sumTurningAnglesResult;
+        public double SumTurningAnglesResult
+        {
+            get => _sumTurningAnglesResult;
+            set { _sumTurningAnglesResult = value; OnPropertyChanged(nameof(SumTurningAnglesResult)); }
+        }
+
+        private double _meanTurningAngleResult;
+        public double MeanTurningAngleResult
+        {
+            get => _meanTurningAngleResult;
+            set { _meanTurningAngleResult = value; OnPropertyChanged(nameof(MeanTurningAngleResult)); }
+        }
+
+        private double _varianceTurningAnglesResult;
+        public double VarianceTurningAnglesResult
+        {
+            get => _varianceTurningAnglesResult;
+            set { _varianceTurningAnglesResult = value; OnPropertyChanged(nameof(VarianceTurningAnglesResult)); }
+        }
+
         // Formatted string for display in the control panel
         private string _metadataSummary = "";
         public string MetadataSummary
@@ -1510,16 +1446,20 @@ private List<Segment> BuildMarchingSquaresSegments(bool[] mask, int width, int h
                     pts.RemoveAt(pts.Count - 1);
             }
 
-            double perimeter = ComputePerimeter(pts);
-            double area = Math.Abs(ComputeSignedArea(pts));
-            double[] bbox = ComputeBoundingBox(pts);
+            double perimeter = GeometryCalculations.Perimeter(pts);
+            double area = GeometryCalculations.PolygonArea(pts);
+            double[] bbox = GeometryCalculations.BoundingBox(pts);
             double bboxW = bbox[2] - bbox[0];
             double bboxH = bbox[3] - bbox[1];
+            AspectRatioResult = GeometryCalculations.BoundingBoxAspectRatio(bboxW, bboxH);
+            PerimeterAreaRatioResult = GeometryCalculations.PerimeterAreaRatio(perimeter, area);
+            CircularityResult = GeometryCalculations.Circularity(perimeter, area);
 
-            AspectRatioResult = bboxH > 0 ? bboxW / bboxH : 0;
-            PerimeterAreaRatioResult = area > 0 ? perimeter / area : 0;
-            // Circularity = 4π·A / P²  (1.0 = perfect circle, approaches 0 for elongated shapes)
-            CircularityResult = perimeter > 0 ? (4.0 * Math.PI * area) / (perimeter * perimeter) : 0;
+            double convexHullArea = GeometryCalculations.ConvexHullArea(pts);
+            SolidityResult = GeometryCalculations.Solidity(area, convexHullArea);
+            SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(pts);
+            MeanTurningAngleResult = GeometryCalculations.MeanTurningAngle(pts);
+            VarianceTurningAnglesResult = GeometryCalculations.VarianceTurningAngles(pts);
 
             int harmonics = EfdHarmonics;
             EFDCoefficientsResult = ComputeNormalizedEFD(pts, harmonics);
@@ -1529,6 +1469,10 @@ private List<Segment> BuildMarchingSquaresSegments(bool[] mask, int width, int h
             sb.AppendLine($"Aspect Ratio:       {AspectRatioResult:F3}");
             sb.AppendLine($"Perim / Area:       {PerimeterAreaRatioResult:F4}");
             sb.AppendLine($"Circularity:        {CircularityResult:F4}");
+            sb.AppendLine($"Solidity:           {SolidityResult:F4}");
+            sb.AppendLine($"Sum Turning Angles: {SumTurningAnglesResult:F4}");
+            sb.AppendLine($"Mean Turning Angle: {MeanTurningAngleResult:F4}");
+            sb.AppendLine($"Variance Turning Angles: {VarianceTurningAnglesResult:F4}");
             sb.AppendLine($"EFD harmonics ({harmonics}):");
             for (int h = 0; h < harmonics; h++)
             {
@@ -1544,56 +1488,22 @@ private List<Segment> BuildMarchingSquaresSegments(bool[] mask, int width, int h
                 op.PerimeterAreaRatio = PerimeterAreaRatioResult;
                 op.Circularity = CircularityResult;
                 op.EFDCoefficients = EFDCoefficientsResult;
+                op.Solidity = SolidityResult;
+                op.SumTurningAngles = SumTurningAnglesResult;
+                op.MeanTurningAngle = MeanTurningAngleResult;
+                op.VarianceTurningAngles = VarianceTurningAnglesResult;
             }
-        }
 
-        // =====================
-        // GEOMETRY HELPERS
-        // =====================
-
-        private double ComputePerimeter(List<Point> pts)
-        {
-            double p = 0;
-            int n = pts.Count;
-            for (int i = 0; i < n; i++)
-            {
-                Point a = pts[i], b = pts[(i + 1) % n];
-                double dx = b.X - a.X, dy = b.Y - a.Y;
-                p += Math.Sqrt(dx * dx + dy * dy);
-            }
-            return p;
-        }
-
-        // Shoelace formula — returns signed area (positive = CCW)
-        private double ComputeSignedArea(List<Point> pts)
-        {
-            double area = 0;
-            int n = pts.Count;
-            for (int i = 0; i < n; i++)
-            {
-                Point a = pts[i], b = pts[(i + 1) % n];
-                area += a.X * b.Y - b.X * a.Y;
-            }
-            return area / 2.0;
-        }
-
-        private double[] ComputeBoundingBox(List<Point> pts)
-        {
-            double minX = pts[0].X, maxX = pts[0].X;
-            double minY = pts[0].Y, maxY = pts[0].Y;
-            foreach (var p in pts)
-            {
-                if (p.X < minX) minX = p.X;
-                if (p.X > maxX) maxX = p.X;
-                if (p.Y < minY) minY = p.Y;
-                if (p.Y > maxY) maxY = p.Y;
-            }
-            return new double[] { minX, minY, maxX, maxY };
+            UpdateEFDPreview();
         }
 
         // =====================
         // ELLIPTIC FOURIER DESCRIPTORS
         // =====================
+
+        // Store raw coefficients separately for preview reconstruction
+        private double[] _rawEFDCoefficients = null;
+
         // Computes normalized EFDs (Kuhl & Giardina 1982).
         // Normalization makes descriptors invariant to size, rotation, and starting point.
         // Returns array of length harmonics*4: [a1,b1,c1,d1, a2,b2,c2,d2, ...]
@@ -1648,6 +1558,9 @@ private List<Segment> BuildMarchingSquaresSegments(bool[] mask, int width, int h
                 coeffs[k + 2] = coeff * cn;
                 coeffs[k + 3] = coeff * dn;
             }
+
+            // Save raw coefficients for preview reconstruction before normalizing
+            _rawEFDCoefficients = (double[])coeffs.Clone();
 
             // Normalize: make invariant to size and rotation using the first harmonic
             // Rotation angle from first harmonic ellipse
@@ -1715,96 +1628,53 @@ private List<Segment> BuildMarchingSquaresSegments(bool[] mask, int width, int h
         // blue overlay. Called whenever EfdHarmonics changes or metadata is generated.
         public void UpdateEFDPreview()
         {
-            // Clear any existing preview
             OnEFDPreviewClear?.Invoke();
             _efdPreviewPolyline = null;
 
-            if (EFDCoefficientsResult == null || EFDCoefficientsResult.Length == 0) return;
+            if (_rawEFDCoefficients == null || _rawEFDCoefficients.Length == 0) return;
             if (_activePolyline == null || _activePolyline.Points.Count < 3) return;
 
-            int harmonics = Math.Min(EfdHarmonics, EFDCoefficientsResult.Length / 4);
+            int maxHarmonics = _rawEFDCoefficients.Length / 4;
+            int harmonics = Math.Min(EfdHarmonics, maxHarmonics);
             if (harmonics < 1) return;
 
-            // Reconstruct the shape from the EFD coefficients.
-            // We sample the parametric curve at evenly spaced t in [0, 1).
-            // x(t) = A0 + Σ [an·cos(2πnt) + bn·sin(2πnt)]
-            // y(t) = C0 + Σ [cn·cos(2πnt) + dn·sin(2πnt)]
-            // A0 and C0 are the DC offset (centroid) — we compute them from
-            // the original polyline since the normalized EFDs are centered.
             int sampleCount = Math.Max(100, harmonics * 20);
 
-            // Compute centroid of the original polyline (in canvas coords)
-            double cx = 0, cy = 0;
+            // Raw EFD coefficients are in canvas space — no scaling needed.
+            // DC offset is the mean position of the outline points.
+            double dcX = 0, dcY = 0;
             int ptCount = _activePolyline.Points.Count;
-            foreach (var p in _activePolyline.Points) { cx += p.X; cy += p.Y; }
-            cx /= ptCount;
-            cy /= ptCount;
+            foreach (var p in _activePolyline.Points) { dcX += p.X; dcY += p.Y; }
+            dcX /= ptCount;
+            dcY /= ptCount;
 
-            // Estimate scale: the EFDs are normalized to unit size, so we need
-            // to scale back up. Use the bounding box half-diagonal of the original.
-            double minX = double.MaxValue, maxX = double.MinValue;
-            double minY = double.MaxValue, maxY = double.MinValue;
-            foreach (var p in _activePolyline.Points)
-            {
-                if (p.X < minX) minX = p.X;
-                if (p.X > maxX) maxX = p.X;
-                if (p.Y < minY) minY = p.Y;
-                if (p.Y > maxY) maxY = p.Y;
-            }
-            // Perimeter of original in canvas coords (used to scale EFD output)
-            double totalLen = 0;
-            for (int i = 0; i < ptCount; i++)
-            {
-                var a = _activePolyline.Points[i];
-                var b = _activePolyline.Points[(i + 1) % ptCount];
-                double dx = b.X - a.X, dy = b.Y - a.Y;
-                totalLen += Math.Sqrt(dx * dx + dy * dy);
-            }
-
-            var preview = new Polyline
-            {
-                Stroke = System.Windows.Media.Brushes.DodgerBlue,
-                StrokeThickness = 1.5,
-                StrokeDashArray = new System.Windows.Media.DoubleCollection { 4, 2 },
-                FillRule = System.Windows.Controls.Primitives.PopupPrimaryAxis.None
-                                  == System.Windows.Controls.Primitives.PopupPrimaryAxis.None
-                                  ? System.Windows.Media.FillRule.EvenOdd
-                                  : System.Windows.Media.FillRule.EvenOdd
-            };
-
-            // Simpler: just set the properties directly
             var previewLine = new Polyline
             {
-                Stroke = System.Windows.Media.Brushes.DodgerBlue,
-                StrokeThickness = 1.5,
-                StrokeDashArray = new System.Windows.Media.DoubleCollection { 4, 2 },
-                FillRule = System.Windows.Media.FillRule.EvenOdd
+                Stroke = Brushes.DodgerBlue,
+                StrokeThickness = 2.5,
+                StrokeDashArray = new DoubleCollection { 4, 2 },
+                FillRule = FillRule.EvenOdd
             };
-
-            // The normalized EFD reconstruction gives a unit-perimeter shape.
-            // Scale it to match the original perimeter and translate to the centroid.
-            double scale = totalLen;
 
             for (int s = 0; s <= sampleCount; s++)
             {
-                double t = (double)s / sampleCount; // t in [0,1]
+                double t = (double)s / sampleCount;
                 double x = 0, y = 0;
 
                 for (int h = 1; h <= harmonics; h++)
                 {
                     int k = (h - 1) * 4;
-                    double an = EFDCoefficientsResult[k];
-                    double bn = EFDCoefficientsResult[k + 1];
-                    double cn = EFDCoefficientsResult[k + 2];
-                    double dn = EFDCoefficientsResult[k + 3];
+                    double an = _rawEFDCoefficients[k];
+                    double bn = _rawEFDCoefficients[k + 1];
+                    double cn = _rawEFDCoefficients[k + 2];
+                    double dn = _rawEFDCoefficients[k + 3];
 
                     double angle = 2.0 * Math.PI * h * t;
                     x += an * Math.Cos(angle) + bn * Math.Sin(angle);
                     y += cn * Math.Cos(angle) + dn * Math.Sin(angle);
                 }
 
-                // Scale from unit space back to canvas space, offset by centroid
-                previewLine.Points.Add(new Point(cx + x * scale, cy + y * scale));
+                previewLine.Points.Add(new Point(dcX + x, dcY + y));
             }
 
             _efdPreviewPolyline = previewLine;
