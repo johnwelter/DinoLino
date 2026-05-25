@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Linq;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -289,18 +290,6 @@ namespace DinoLino.Utilities.Modes
 
             return (cropped, cw, ch);
         }
-
-        // Expands a cropped mask back to full image coordinates.
-        private bool[] ExpandMask(bool[] cropped, int cw, int ch,
-                                   int x0, int y0, int fullW, int fullH)
-        {
-            var full = new bool[fullW * fullH];
-            for (int y = 0; y < ch; y++)
-                for (int x = 0; x < cw; x++)
-                    if (cropped[y * cw + x])
-                        full[(y0 + y) * fullW + (x0 + x)] = true;
-            return full;
-        }
         #endregion
 
         #region shared functions and variables
@@ -430,6 +419,9 @@ namespace DinoLino.Utilities.Modes
         {
             base.Reset();
             _activePolyline = null;
+            _rawEFDCoefficients = null;
+            ClearMetadata();
+            ClearEFDPreview();
         }
 
 
@@ -483,8 +475,6 @@ namespace DinoLino.Utilities.Modes
                     var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
                     bool[] work = (bool[])croppedRaw.Clone();
-                    MorphologicalErosion(work, croppedSnap);
-                    token.ThrowIfCancellationRequested();
 
                     work = ExtractLargestComponent(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
@@ -670,33 +660,7 @@ namespace DinoLino.Utilities.Modes
             return inside;
         }
 
-        // =====================
-        // MORPHOLOGICAL EROSION
-        // =====================
-        // Removes isolated edge pixels from the fill mask (1-pixel shrink),
-        // producing a cleaner boundary for tracing.
-        private void MorphologicalErosion(bool[] inside, ImageSnapshot snap)
-        {
-            int w = snap.Width, h = snap.Height;
-            bool[] copy = (bool[])inside.Clone();
-
-            for (int y = 0; y < h; y++)
-            {
-                for (int x = 0; x < w; x++)
-                {
-                    int i = y * w + x;
-                    if (!copy[i]) continue;
-
-                    bool borderExposed =
-                        x == 0 || x == w - 1 ||
-                        y == 0 || y == h - 1 ||
-                        HasExposedCardinalEdge(copy, x, y, w, h);
-
-                    if (borderExposed)
-                        inside[i] = false;
-                }
-            }
-        }
+        
 
         // =====================
         // EXTRACT LARGEST COMPONENT

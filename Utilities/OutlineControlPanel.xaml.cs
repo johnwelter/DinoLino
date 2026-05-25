@@ -17,7 +17,9 @@ namespace DinoLino.Utilities.Modes
         {
             EfdHarmonicsBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
 
-            _mode.GenerateMetadata();
+            // Only regenerate if not yet computed
+            if (_mode.EFDCoefficientsResult == null || _mode.EFDCoefficientsResult.Length == 0)
+                _mode.GenerateMetadata();
 
             if (_mode.EFDCoefficientsResult == null || _mode.EFDCoefficientsResult.Length == 0)
             {
