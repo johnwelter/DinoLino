@@ -2,12 +2,13 @@
 using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using System.Linq;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -208,10 +209,38 @@ namespace DinoLino.Utilities.Modes
                 // Determine which corner color governs this pixel by quadrant.
                 int colorIndex = (cx < w / 2 ? 0 : 1) + (cy < h / 2 ? 0 : 2);
 
-                foreach (int ni in EnumerateCardinalNeighbors(cx, cy, w, h))
+                // Left
+                if (cx > 0)
                 {
-                    int nx = ni % w;
-                    int ny = ni / w;
+                    int nx = cx - 1;
+                    int ny = cy;
+                    int neighborColor = (nx < w / 2 ? 0 : 1) + (ny < h / 2 ? 0 : 2);
+                    TryAdd(nx, ny, neighborColor);
+                }
+
+                // Right
+                if (cx < w - 1)
+                {
+                    int nx = cx + 1;
+                    int ny = cy;
+                    int neighborColor = (nx < w / 2 ? 0 : 1) + (ny < h / 2 ? 0 : 2);
+                    TryAdd(nx, ny, neighborColor);
+                }
+
+                // Up
+                if (cy > 0)
+                {
+                    int nx = cx;
+                    int ny = cy - 1;
+                    int neighborColor = (nx < w / 2 ? 0 : 1) + (ny < h / 2 ? 0 : 2);
+                    TryAdd(nx, ny, neighborColor);
+                }
+
+                // Down
+                if (cy < h - 1)
+                {
+                    int nx = cx;
+                    int ny = cy + 1;
                     int neighborColor = (nx < w / 2 ? 0 : 1) + (ny < h / 2 ? 0 : 2);
                     TryAdd(nx, ny, neighborColor);
                 }
@@ -290,6 +319,15 @@ namespace DinoLino.Utilities.Modes
 
             return (cropped, cw, ch);
         }
+
+        // Converts a canvas-space point back to image-space (pixel coordinates).
+        // Inverse of the transform applied when building the polyline from simplified boundary points.
+        private Point CanvasToImage(Point p)
+        {
+            return new Point(
+                (p.X - OffsetX) / ScaleX,
+                (p.Y - OffsetY) / ScaleY);
+        }
         #endregion
 
         #region shared functions and variables
@@ -320,7 +358,6 @@ namespace DinoLino.Utilities.Modes
 
         //-----Reusable buffers-----//
         private int[] _distBuffer = Array.Empty<int>();
-        private int[] _queueBuffer = Array.Empty<int>();
 
         private void EnsureBuffers(int size)
         {
@@ -328,28 +365,6 @@ namespace DinoLino.Utilities.Modes
             {
                 _distBuffer = new int[size];
                 _queueBuffer = new int[size * 2]; // queue can exceed total in BFS
-            }
-        }
-
-        private static readonly (int dx, int dy)[] CardinalOffsets =
-            {
-                (1, 0),
-                (-1, 0),
-                (0, 1),
-                (0, -1)
-            };
-
-        private IEnumerable<int> EnumerateCardinalNeighbors(int x, int y, int width, int height)
-        {
-            foreach (var (dx, dy) in CardinalOffsets)
-            {
-                int nx = x + dx;
-                int ny = y + dy;
-
-                if ((uint)nx >= width || (uint)ny >= height)
-                    continue;
-
-                yield return ny * width + nx;
             }
         }
 
@@ -366,15 +381,14 @@ namespace DinoLino.Utilities.Modes
             return count;
         }
 
-        private bool HasExposedCardinalEdge(bool[] mask, int x, int y, int width, int height)
-        {
-            foreach (int ni in EnumerateCardinalNeighbors(x, y, width, height))
-            {
-                if (!mask[ni])
-                    return true;
-            }
+        private int[] _queueBuffer;
+        private int _qHead;
+        private int _qTail;
 
-            return false;
+        private void EnsureQueue(int capacity)
+        {
+            if (_queueBuffer == null || _queueBuffer.Length < capacity)
+                _queueBuffer = new int[capacity];
         }
         #endregion
         #region draw outline
@@ -461,7 +475,10 @@ namespace DinoLino.Utilities.Modes
 
                     (byte sr, byte sg, byte sb) = ReadPixel(px, py, snap);
                     bool[] raw = FloodFill(px, py, sr, sg, sb, snap);
-                    if (CountPixels(raw) == 0) return;
+
+                    raw = FillHoles(raw, snap);
+
+                    if (!HasMinimumPixels(raw,1)) return;
 
                     token.ThrowIfCancellationRequested();
 
@@ -479,10 +496,10 @@ namespace DinoLino.Utilities.Modes
                     work = ExtractLargestComponent(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
-                    DistancePruneNarrowPassages(work, croppedSnap);
+                    EnforceMinimumCorridorWidth(work, croppedSnap, minWidth: 3);
                     token.ThrowIfCancellationRequested();
 
-                    PreventSelfTouchingTopology(work, croppedSnap);
+                    SmoothBorderTopology(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
                     PruneDeadEnds(work, croppedSnap);
@@ -591,44 +608,53 @@ namespace DinoLino.Utilities.Modes
         // FLOOD FILL
         // =====================
         private bool[] FloodFill(int startX, int startY, byte sr, byte sg, byte sb,
-                 ImageSnapshot snap)
+                         ImageSnapshot snap)
         {
             int w = snap.Width, h = snap.Height;
-            bool[] inside = new bool[w * h];
+            int total = w * h;
 
-            var queue = new Queue<(int x, int y)>();
-            queue.Enqueue((startX, startY));
-            inside[startY * w + startX] = true;
+            bool[] inside = new bool[total];
 
-            while (queue.Count > 0)
+            EnsureQueue(total);
+
+            _qHead = 0;
+            _qTail = 0;
+
+            int seed = startY * w + startX;
+
+            _queueBuffer[_qTail++] = seed;
+            inside[seed] = true;
+
+            while (_qHead < _qTail)
             {
-                var (cx, cy) = queue.Dequeue();
+                int ci = _queueBuffer[_qHead++];
 
-                int ci = cy * snap.Stride + cx * snap.Bpp;
+                int cx = ci % w;
+                int cy = ci / w;
+
+                int pi = cy * snap.Stride + cx * snap.Bpp;
+
                 byte cr, cg, cb;
                 if (snap.Bpp == 1)
                 {
-                    cr = cg = cb = snap.Pixels[ci];
+                    cr = cg = cb = snap.Pixels[pi];
                 }
                 else
                 {
-                    cr = snap.Pixels[ci + 2];
-                    cg = snap.Pixels[ci + 1];
-                    cb = snap.Pixels[ci];
+                    cr = snap.Pixels[pi + 2];
+                    cg = snap.Pixels[pi + 1];
+                    cb = snap.Pixels[pi];
                 }
 
-                foreach (int ni in EnumerateCardinalNeighbors(cx, cy, w, h))
+                // helper local function to avoid repeating code
+                void TryAdd(int nx, int ny)
                 {
-                    if (inside[ni]) continue;
-
-                    // Background mask is checked first — edge-connected background pixels
-                    // are never included regardless of tolerance settings.
-                    if (snap.BgMask != null && snap.BgMask[ni]) continue;
-
-                    int nx = ni % w;
-                    int ny = ni / w;
+                    int ni = ny * w + nx;
+                    if (inside[ni]) return;
+                    if (snap.BgMask != null && snap.BgMask[ni]) return;
 
                     int npi = ny * snap.Stride + nx * snap.Bpp;
+
                     byte pr, pg, pb;
                     if (snap.Bpp == 1)
                     {
@@ -646,21 +672,160 @@ namespace DinoLino.Utilities.Modes
 
                     bool strongEdge = neighborDist > _edgeThreshold;
                     bool seedMatch = seedDist <= _tolerance;
-                    bool gradientMatch = neighborDist <= _gradientLeniency &&
-                                         seedDist <= _tolerance * 6.0;
+                    bool gradientMatch =
+                        neighborDist <= _gradientLeniency &&
+                        seedDist <= _tolerance * 6.0;
 
-                    if (strongEdge && !seedMatch) continue;
-                    if (!(seedMatch || gradientMatch)) continue;
-
-                    inside[ni] = true;
-                    queue.Enqueue((nx, ny));
+                    if ((!strongEdge || seedMatch) && (seedMatch || gradientMatch))
+                    {
+                        inside[ni] = true;
+                        _queueBuffer[_qTail++] = ni;
+                    }
                 }
+
+                // LEFT
+                if (cx > 0) TryAdd(cx - 1, cy);
+
+                // RIGHT
+                if (cx < w - 1) TryAdd(cx + 1, cy);
+
+                // UP
+                if (cy > 0) TryAdd(cx, cy - 1);
+
+                // DOWN
+                if (cy < h - 1) TryAdd(cx, cy + 1);
             }
 
             return inside;
         }
 
-        
+        // =====================
+        // FILL HOLES
+        // =====================
+        // Fills enclosed voids inside the segmented object.
+        // Any empty region not connected to the image border
+        // is considered a hole and converted to filled pixels.
+        private bool[] FillHoles(bool[] mask, ImageSnapshot snap)
+        {
+            int w = snap.Width;
+            int h = snap.Height;
+            int total = w * h;
+
+            bool[] exterior = new bool[total];
+
+            EnsureQueue(total);
+            _qHead = 0;
+            _qTail = 0;
+
+            // Helper: push into buffer
+            void Enqueue(int i)
+            {
+                _queueBuffer[_qTail++] = i;
+            }
+
+            // Helper: pop from buffer
+            int Dequeue()
+            {
+                return _queueBuffer[_qHead++];
+            }
+
+            // Seed flood fill from border background pixels
+            void TrySeed(int x, int y)
+            {
+                int i = y * w + x;
+
+                if (mask[i] || exterior[i])
+                    return;
+
+                exterior[i] = true;
+                Enqueue(i);
+            }
+
+            // Top + bottom
+            for (int x = 0; x < w; x++)
+            {
+                TrySeed(x, 0);
+                TrySeed(x, h - 1);
+            }
+
+            // Left + right
+            for (int y = 1; y < h - 1; y++)
+            {
+                TrySeed(0, y);
+                TrySeed(w - 1, y);
+            }
+
+            // Flood exterior background
+            while (_qHead < _qTail)
+            {
+                int ci = Dequeue();
+
+                int cx = ci % w;
+                int cy = ci / w;
+
+                int row = cy * w;
+
+                // LEFT
+                if (cx > 0)
+                {
+                    int ni = row + (cx - 1);
+
+                    if (!mask[ni] && !exterior[ni])
+                    {
+                        exterior[ni] = true;
+                        Enqueue(ni);
+                    }
+                }
+
+                // RIGHT
+                if (cx < w - 1)
+                {
+                    int ni = row + (cx + 1);
+
+                    if (!mask[ni] && !exterior[ni])
+                    {
+                        exterior[ni] = true;
+                        Enqueue(ni);
+                    }
+                }
+
+                // UP
+                if (cy > 0)
+                {
+                    int ni = (cy - 1) * w + cx;
+
+                    if (!mask[ni] && !exterior[ni])
+                    {
+                        exterior[ni] = true;
+                        Enqueue(ni);
+                    }
+                }
+
+                // DOWN
+                if (cy < h - 1)
+                {
+                    int ni = (cy + 1) * w + cx;
+
+                    if (!mask[ni] && !exterior[ni])
+                    {
+                        exterior[ni] = true;
+                        Enqueue(ni);
+                    }
+                }
+            }
+
+            // Fill holes
+            bool[] filled = (bool[])mask.Clone();
+
+            for (int i = 0; i < total; i++)
+            {
+                if (!mask[i] && !exterior[i])
+                    filled[i] = true;
+            }
+
+            return filled;
+        }
+
 
         // =====================
         // EXTRACT LARGEST COMPONENT
@@ -748,59 +913,96 @@ namespace DinoLino.Utilities.Modes
         // or a simple endpoint. A value >= 2 means it is a junction/cut vertex —
         // removing it would disconnect the region. These are removed iteratively
         // until the mask is stable (simply connected, no necks or figure-8 topology).
-        private void DistancePruneNarrowPassages(bool[] mask, ImageSnapshot snap,
-                                          int minSeparationPixels = 5)
+        private void EnforceMinimumCorridorWidth(bool[] mask, ImageSnapshot snap, int minWidth = 5)
         {
-            int w = snap.Width, h = snap.Height;
+            int w = snap.Width;
+            int h = snap.Height;
             int total = w * h;
             if (mask.Length != total) return;
 
-            int minRadius = Math.Max(1, (minSeparationPixels + 1) / 2);
+            int minRadius = Math.Max(1, (minWidth + 1) / 2);
 
             EnsureBuffers(total);
-            var dist  = _distBuffer;
+            var dist = _distBuffer;
             var queue = _queueBuffer;
 
-            // Single-pass distance transform from background
             for (int i = 0; i < total; i++)
                 dist[i] = mask[i] ? int.MaxValue / 4 : 0;
 
             int head = 0, tail = 0;
             for (int i = 0; i < total; i++)
-                if (dist[i] == 0) queue[tail++] = i;
+                if (dist[i] == 0)
+                    queue[tail++] = i;
 
             while (head < tail)
             {
-                if ((head & 1023) == 0) ThrowIfCancelled();
-
                 int i = queue[head++];
                 int d = dist[i] + 1;
-                int x = i % w, y = i / w;
+                int x = i % w;
+                int y = i / w;
 
-                if (x > 0)     { int ni = i - 1; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
-                if (x < w - 1) { int ni = i + 1; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
-                if (y > 0)     { int ni = i - w; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
-                if (y < h - 1) { int ni = i + w; if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; } }
+                if (x > 0) Relax(i - 1, d);
+                if (x < w - 1) Relax(i + 1, d);
+                if (y > 0) Relax(i - w, d);
+                if (y < h - 1) Relax(i + w, d);
             }
 
-            // Remove thin regions in one pass
-            bool anyRemoved = false;
+            bool[] copy = (bool[])mask.Clone();
+
             for (int i = 0; i < total; i++)
             {
-                if (mask[i] && dist[i] < minRadius)
+                if (!copy[i]) continue;
+
+                int x = i % w;
+                int y = i / w;
+
+                bool thin = false;
+                int row = y * w;
+
+                // Left
+                if (x > 0)
                 {
-                    mask[i] = false;
-                    anyRemoved = true;
+                    int ni = row + (x - 1);
+                    if (copy[ni] && dist[ni] < minRadius)
+                        thin = true;
                 }
+
+                // Right
+                if (!thin && x < w - 1)
+                {
+                    int ni = row + (x + 1);
+                    if (copy[ni] && dist[ni] < minRadius)
+                        thin = true;
+                }
+
+                // Up
+                if (!thin && y > 0)
+                {
+                    int ni = row - w + x;
+                    if (copy[ni] && dist[ni] < minRadius)
+                        thin = true;
+                }
+
+                // Down
+                if (!thin && y < h - 1)
+                {
+                    int ni = row + w + x;
+                    if (copy[ni] && dist[ni] < minRadius)
+                        thin = true;
+                }
+
+                if (thin)
+                    mask[i] = false;
             }
 
-            // One component cleanup if anything was removed
-            if (anyRemoved)
+            void Relax(int ni, int nd)
             {
-                var kept = KeepLargestComponent(mask, snap);
-                Array.Copy(kept, mask, total);
+                if (dist[ni] <= nd) return;
+                dist[ni] = nd;
+                queue[tail++] = ni;
             }
         }
+
 
         private bool[] KeepLargestComponent(bool[] inside, ImageSnapshot snap,
                              int minArea = 0,
@@ -848,7 +1050,22 @@ namespace DinoLino.Utilities.Modes
             return count;
         }
 
-        private List<int> CollectComponent(bool[] mask, int seed, ImageSnapshot snap, bool[] visited = null)
+        private bool HasMinimumPixels(bool[] mask, int minimum)
+        {
+            int count = 0;
+            for (int i = 0; i < mask.Length; i++)
+            {
+                if (mask[i] && ++count >= minimum) return true;
+            }
+            return false;
+        }
+
+
+        private List<int> CollectComponent(
+     bool[] mask,
+     int seed,
+     ImageSnapshot snap,
+     bool[] visited = null)
         {
             int w = snap.Width, h = snap.Height;
             int total = w * h;
@@ -861,25 +1078,71 @@ namespace DinoLino.Utilities.Modes
             if (visited == null)
                 visited = new bool[total];
 
-            var q = new Queue<int>(256);
-            q.Enqueue(seed);
+            EnsureQueue(total);
+            _qHead = 0;
+            _qTail = 0;
+
+            // enqueue seed
+            _queueBuffer[_qTail++] = seed;
             visited[seed] = true;
 
-            while (q.Count > 0)
+            while (_qHead < _qTail)
             {
-                int ci = q.Dequeue();
+                int ci = _queueBuffer[_qHead++];
+
                 component.Add(ci);
 
                 int cx = ci % w;
                 int cy = ci / w;
 
-                foreach (int ni in EnumerateCardinalNeighbors(cx, cy, w, h))
-                {
-                    if (!mask[ni] || visited[ni])
-                        continue;
+                int row = cy * w;
 
-                    visited[ni] = true;
-                    q.Enqueue(ni);
+                // LEFT
+                if (cx > 0)
+                {
+                    int ni = ci - 1;
+
+                    if (mask[ni] && !visited[ni])
+                    {
+                        visited[ni] = true;
+                        _queueBuffer[_qTail++] = ni;
+                    }
+                }
+
+                // RIGHT
+                if (cx < w - 1)
+                {
+                    int ni = ci + 1;
+
+                    if (mask[ni] && !visited[ni])
+                    {
+                        visited[ni] = true;
+                        _queueBuffer[_qTail++] = ni;
+                    }
+                }
+
+                // UP
+                if (cy > 0)
+                {
+                    int ni = ci - w;
+
+                    if (mask[ni] && !visited[ni])
+                    {
+                        visited[ni] = true;
+                        _queueBuffer[_qTail++] = ni;
+                    }
+                }
+
+                // DOWN
+                if (cy < h - 1)
+                {
+                    int ni = ci + w;
+
+                    if (mask[ni] && !visited[ni])
+                    {
+                        visited[ni] = true;
+                        _queueBuffer[_qTail++] = ni;
+                    }
                 }
             }
 
@@ -905,58 +1168,78 @@ namespace DinoLino.Utilities.Modes
             if (area >= minArea) return candidate;
 
             candidate = ExpandConnectedComponentToArea(candidate, seed, minArea, snap);
-            if (CountPixels(candidate) >= minArea) return candidate;
+            if (!HasMinimumPixels(candidate, minArea)) return candidate;
 
             bool[] fallback = KeepComponentContainingSeed(raw, seed, snap);
-            if (CountPixels(fallback) >= minArea) return fallback;
+            if (!HasMinimumPixels(fallback, minArea)) return fallback;
 
             return fallback;
         }
 
-        private bool[] ExpandConnectedComponentToArea(bool[] mask, int seed, int minArea,
-                                               ImageSnapshot snap)
+        private bool[] ExpandConnectedComponentToArea(
+    bool[] mask,
+    int seed,
+    int minArea,
+    ImageSnapshot snap)
         {
             int w = snap.Width, h = snap.Height, total = w * h;
+
             bool[] current = (bool[])mask.Clone();
 
-            if (seed < 0 || seed >= total) return current;
+            if (seed < 0 || seed >= total)
+                return current;
 
             if (!current[seed])
                 current = KeepComponentContainingSeed(current, seed, snap);
 
             int currentArea = CountPixels(current);
-            if (currentArea >= minArea) return current;
+            if (currentArea >= minArea)
+                return current;
 
-            var frontier = new Queue<int>();
+            EnsureQueue(total);
+            _qHead = 0;
+            _qTail = 0;
 
+            // Seed BFS with all current pixels
             for (int i = 0; i < total; i++)
-                if (current[i]) frontier.Enqueue(i);
-
-            while (currentArea < minArea && frontier.Count > 0)
             {
-                int levelCount = frontier.Count;
-                bool grew = false;
+                if (current[i])
+                    _queueBuffer[_qTail++] = i;
+            }
 
-                for (int n = 0; n < levelCount; n++)
+            while (_qHead < _qTail && currentArea < minArea)
+            {
+                int ci = _queueBuffer[_qHead++];
+
+                int cx = ci % w;
+                int cy = ci / w;
+
+                int row = cy * w;
+
+                void TryAdd(int ni)
                 {
-                    int ci = frontier.Dequeue();
-                    int cx = ci % w, cy = ci / w;
+                    if (current[ni]) return;
 
-                    foreach (int ni in EnumerateCardinalNeighbors(cx, cy, w, h))
-                    {
-                        if (current[ni]) continue;
-
-                        current[ni] = true;
-                        frontier.Enqueue(ni);
-                        grew = true;
-                        currentArea++;
-
-                        if (currentArea >= minArea)
-                            return current;
-                    }
+                    current[ni] = true;
+                    _queueBuffer[_qTail++] = ni;
+                    currentArea++;
                 }
 
-                if (!grew) break;
+                // LEFT
+                if (cx > 0)
+                    TryAdd(row + (cx - 1));
+
+                // RIGHT
+                if (cx < w - 1)
+                    TryAdd(row + (cx + 1));
+
+                // UP
+                if (cy > 0)
+                    TryAdd(row - w + cx);
+
+                // DOWN
+                if (cy < h - 1)
+                    TryAdd(row + w + cx);
             }
 
             return current;
@@ -993,16 +1276,12 @@ namespace DinoLino.Utilities.Modes
         // - self-contacting outlines
         //
         // This guarantees the traced contour remains a simple curve.
-        private void PreventSelfTouchingTopology(bool[] mask, ImageSnapshot snap)
+        private void SmoothBorderTopology(bool[] mask, ImageSnapshot snap, int passes = 3)
         {
             int w = snap.Width, h = snap.Height;
 
-            bool changed = true;
-
-            while (changed)
+            for (int pass = 0; pass < passes; pass++)
             {
-                changed = false;
-
                 bool[] copy = (bool[])mask.Clone();
 
                 for (int y = 1; y < h - 1; y++)
@@ -1010,33 +1289,20 @@ namespace DinoLino.Utilities.Modes
                     for (int x = 1; x < w - 1; x++)
                     {
                         int i = y * w + x;
+                        if (!copy[i]) continue;
 
-                        if (!copy[i])
-                            continue;
-
-                        // Cardinal neighbors
                         bool n = copy[i - w];
                         bool s = copy[i + w];
                         bool e = copy[i + 1];
                         bool wv = copy[i - 1];
-
-                        // Diagonal neighbors
                         bool ne = copy[i + 1 - w];
                         bool nw = copy[i - 1 - w];
                         bool se = copy[i + 1 + w];
                         bool sw = copy[i - 1 + w];
 
-                        // =====================
-                        // DIAGONAL SELF-TOUCH TESTS
-                        // =====================
-
                         bool diagonalBridge =
                             (ne && sw && !n && !e && !s && !wv) ||
                             (nw && se && !n && !e && !s && !wv);
-
-                        // =====================
-                        // CORNER KISSING TESTS
-                        // =====================
 
                         bool cornerTouch =
                             (n && e && !ne) ||
@@ -1044,28 +1310,30 @@ namespace DinoLino.Utilities.Modes
                             (s && wv && !sw) ||
                             (wv && n && !nw);
 
-                        // =====================
-                        // LOCAL CONNECTIVITY TEST
-                        // =====================
-
                         int neighborCount = CountCardinalNeighbors(copy, x, y, w, h);
-
-                        // Remove junctions
                         bool junction = neighborCount >= 3;
-
-                        // =====================
-                        // REMOVE BAD PIXELS
-                        // =====================
 
                         if (diagonalBridge || cornerTouch || junction)
                         {
-                            mask[i] = false;
-                            changed = true;
+                            if (n && e && !ne) mask[i + 1 - w] = true;
+                            else if (e && s && !se) mask[i + 1 + w] = true;
+                            else if (s && wv && !sw) mask[i - 1 + w] = true;
+                            else if (wv && n && !nw) mask[i - 1 - w] = true;
+                            else if (ne && sw && !n && !e && !s && !wv) mask[i - w] = true;
+                            else if (nw && se && !n && !e && !s && !wv) mask[i - w] = true;
+                            else if (junction)
+                            {
+                                if (!ne) mask[i + 1 - w] = true;
+                                else if (!nw) mask[i - 1 - w] = true;
+                                else if (!se) mask[i + 1 + w] = true;
+                                else if (!sw) mask[i - 1 + w] = true;
+                            }
                         }
                     }
                 }
             }
         }
+
 
         // =====================
         // PRUNE DEAD ENDS
@@ -1410,20 +1678,24 @@ namespace DinoLino.Utilities.Modes
                     pts.RemoveAt(pts.Count - 1);
             }
 
-            double perimeter = GeometryCalculations.Perimeter(pts);
-            double area = GeometryCalculations.PolygonArea(pts);
-            double[] bbox = GeometryCalculations.BoundingBox(pts);
+            // Convert from canvas space to image space for scale-invariant metric computation.
+            // All GeometryCalculations calls below use image-space coordinates.
+            var imagePts = pts.Select(CanvasToImage).ToList();
+
+            double perimeter = GeometryCalculations.Perimeter(imagePts);
+            double area = GeometryCalculations.PolygonArea(imagePts);
+            double[] bbox = GeometryCalculations.BoundingBox(imagePts);
             double bboxW = bbox[2] - bbox[0];
             double bboxH = bbox[3] - bbox[1];
             AspectRatioResult = GeometryCalculations.BoundingBoxAspectRatio(bboxW, bboxH);
             PerimeterAreaRatioResult = GeometryCalculations.PerimeterAreaRatio(perimeter, area);
             CircularityResult = GeometryCalculations.Circularity(perimeter, area);
 
-            double convexHullArea = GeometryCalculations.ConvexHullArea(pts);
+            double convexHullArea = GeometryCalculations.ConvexHullArea(imagePts);
             SolidityResult = GeometryCalculations.Solidity(area, convexHullArea);
-            SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(pts);
-            MeanTurningAngleResult = GeometryCalculations.MeanTurningAngle(pts);
-            VarianceTurningAnglesResult = GeometryCalculations.VarianceTurningAngles(pts);
+            SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(imagePts);
+            MeanTurningAngleResult = GeometryCalculations.MeanTurningAngle(imagePts);
+            VarianceTurningAnglesResult = GeometryCalculations.VarianceTurningAngles(imagePts);
 
             int harmonics = EfdHarmonics;
             EFDCoefficientsResult = ComputeNormalizedEFD(pts, harmonics);
