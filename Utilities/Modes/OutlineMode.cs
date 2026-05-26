@@ -476,23 +476,16 @@ namespace DinoLino.Utilities.Modes
                     (byte sr, byte sg, byte sb) = ReadPixel(px, py, snap);
                     bool[] raw = FloodFill(px, py, sr, sg, sb, snap);
 
-                    raw = FillHoles(raw, snap);
-
-                    if (!HasMinimumPixels(raw,1)) return;
-
+                    if (!HasMinimumPixels(raw, 1)) return;
                     token.ThrowIfCancellationRequested();
 
-                    // Crop all subsequent processing to the bounding box of the flood fill result.
-                    // This limits erosion, topology, pruning, and tracing to only the relevant region.
+                    // Crop before FillHoles — avoids running hole-filling on the full image.
                     var (bx0, by0, bx1, by1) = GetMaskBounds(raw, snap.Width, snap.Height, margin: 4);
                     var (croppedRaw, cw, ch) = CropMask(raw, snap.Width, bx0, by0, bx1, by1);
-
-                    // Build a cropped snapshot with the same pixel data but cropped dimensions.
-                    // The pixel data reference is the same (read-only in subsequent steps).
                     var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
-                    bool[] work = (bool[])croppedRaw.Clone();
-
+                    // FillHoles and ExtractLargestComponent now operate only on the small cropped region.
+                    bool[] work = FillHoles(croppedRaw, croppedSnap);
                     work = ExtractLargestComponent(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
@@ -832,29 +825,54 @@ namespace DinoLino.Utilities.Modes
         // =====================
         private bool[] ExtractLargestComponent(bool[] inside, ImageSnapshot snap)
         {
-            int total = snap.Width * snap.Height;
-
+            int w = snap.Width, h = snap.Height, total = w * h;
             bool[] visited = new bool[total];
             bool[] result = new bool[total];
 
-            List<int> bestComponent = null;
+            int bestSeed = -1, bestCount = 0;
 
             for (int start = 0; start < total; start++)
             {
-                if (!inside[start] || visited[start])
-                    continue;
+                if (!inside[start] || visited[start]) continue;
 
-                var component = CollectComponent(inside, start, snap, visited);
+                // BFS to count only, mark visited
+                EnsureQueue(total);
+                _qHead = 0; _qTail = 0;
+                _queueBuffer[_qTail++] = start;
+                visited[start] = true;
+                int count = 0;
 
-                if (bestComponent == null || component.Count > bestComponent.Count)
-                    bestComponent = component;
+                while (_qHead < _qTail)
+                {
+                    int ci = _queueBuffer[_qHead++];
+                    count++;
+                    int cx = ci % w, cy = ci / w;
+                    if (cx > 0) { int ni = ci - 1; if (inside[ni] && !visited[ni]) { visited[ni] = true; _queueBuffer[_qTail++] = ni; } }
+                    if (cx < w - 1) { int ni = ci + 1; if (inside[ni] && !visited[ni]) { visited[ni] = true; _queueBuffer[_qTail++] = ni; } }
+                    if (cy > 0) { int ni = ci - w; if (inside[ni] && !visited[ni]) { visited[ni] = true; _queueBuffer[_qTail++] = ni; } }
+                    if (cy < h - 1) { int ni = ci + w; if (inside[ni] && !visited[ni]) { visited[ni] = true; _queueBuffer[_qTail++] = ni; } }
+                }
+
+                if (count > bestCount) { bestCount = count; bestSeed = start; }
             }
 
-            if (bestComponent == null)
-                return result;
+            if (bestSeed < 0) return result;
 
-            foreach (int i in bestComponent)
-                result[i] = true;
+            // Second pass: flood from best seed into result
+            EnsureQueue(total);
+            _qHead = 0; _qTail = 0;
+            _queueBuffer[_qTail++] = bestSeed;
+            result[bestSeed] = true;
+
+            while (_qHead < _qTail)
+            {
+                int ci = _queueBuffer[_qHead++];
+                int cx = ci % w, cy = ci / w;
+                if (cx > 0) { int ni = ci - 1; if (inside[ni] && !result[ni]) { result[ni] = true; _queueBuffer[_qTail++] = ni; } }
+                if (cx < w - 1) { int ni = ci + 1; if (inside[ni] && !result[ni]) { result[ni] = true; _queueBuffer[_qTail++] = ni; } }
+                if (cy > 0) { int ni = ci - w; if (inside[ni] && !result[ni]) { result[ni] = true; _queueBuffer[_qTail++] = ni; } }
+                if (cy < h - 1) { int ni = ci + w; if (inside[ni] && !result[ni]) { result[ni] = true; _queueBuffer[_qTail++] = ni; } }
+            }
 
             return result;
         }
@@ -949,50 +967,23 @@ namespace DinoLino.Utilities.Modes
 
             bool[] copy = (bool[])mask.Clone();
 
-            for (int i = 0; i < total; i++)
+            for (int y = 0; y < h; y++)
             {
-                if (!copy[i]) continue;
-
-                int x = i % w;
-                int y = i / w;
-
-                bool thin = false;
                 int row = y * w;
-
-                // Left
-                if (x > 0)
+                for (int x = 0; x < w; x++)
                 {
-                    int ni = row + (x - 1);
-                    if (copy[ni] && dist[ni] < minRadius)
-                        thin = true;
-                }
+                    int i = row + x;
+                    if (!copy[i]) continue;
 
-                // Right
-                if (!thin && x < w - 1)
-                {
-                    int ni = row + (x + 1);
-                    if (copy[ni] && dist[ni] < minRadius)
-                        thin = true;
-                }
+                    bool thin = false;
 
-                // Up
-                if (!thin && y > 0)
-                {
-                    int ni = row - w + x;
-                    if (copy[ni] && dist[ni] < minRadius)
-                        thin = true;
-                }
+                    if (x > 0 && copy[i - 1] && dist[i - 1] < minRadius) thin = true;
+                    if (!thin && x < w - 1 && copy[i + 1] && dist[i + 1] < minRadius) thin = true;
+                    if (!thin && y > 0 && copy[i - w] && dist[i - w] < minRadius) thin = true;
+                    if (!thin && y < h - 1 && copy[i + w] && dist[i + w] < minRadius) thin = true;
 
-                // Down
-                if (!thin && y < h - 1)
-                {
-                    int ni = row + w + x;
-                    if (copy[ni] && dist[ni] < minRadius)
-                        thin = true;
+                    if (thin) mask[i] = false;
                 }
-
-                if (thin)
-                    mask[i] = false;
             }
 
             void Relax(int ni, int nd)
@@ -1279,10 +1270,12 @@ namespace DinoLino.Utilities.Modes
         private void SmoothBorderTopology(bool[] mask, ImageSnapshot snap, int passes = 3)
         {
             int w = snap.Width, h = snap.Height;
+            int total = w * h;
+            bool[] copy = new bool[total];
 
             for (int pass = 0; pass < passes; pass++)
             {
-                bool[] copy = (bool[])mask.Clone();
+                Array.Copy(mask, copy, total);
 
                 for (int y = 1; y < h - 1; y++)
                 {
@@ -1344,28 +1337,38 @@ namespace DinoLino.Utilities.Modes
         // two neighbors, meaning it lies on a cycle rather than a dangling branch.
         private void PruneDeadEnds(bool[] mask, ImageSnapshot snap)
         {
-            int w = snap.Width, h = snap.Height;
-            bool changed = true;
+            int w = snap.Width, h = snap.Height, total = w * h;
+            EnsureQueue(total * 2);
 
-            while (changed)
+            // Seed worklist with all current border pixels (those with ≤1 neighbor)
+            _qHead = 0; _qTail = 0;
+            for (int y = 1; y < h - 1; y++)
             {
-                changed = false;
-
-                for (int y = 1; y < h - 1; y++)
+                int row = y * w;
+                for (int x = 1; x < w - 1; x++)
                 {
-                    for (int x = 1; x < w - 1; x++)
-                    {
-                        int i = y * w + x;
-                        if (!mask[i]) continue;
+                    int i = row + x;
+                    if (mask[i] && CountCardinalNeighbors(mask, x, y, w, h) <= 1)
+                        _queueBuffer[_qTail++] = i;
+                }
+            }
 
-                        int filledNeighbors = CountCardinalNeighbors(mask, x, y, w, h);
+            while (_qHead < _qTail)
+            {
+                int ci = _queueBuffer[_qHead++];
+                if (!mask[ci]) continue;
 
-                        if (filledNeighbors <= 1)
-                        {
-                            mask[i] = false;
-                            changed = true;
-                        }
-                    }
+                int cx = ci % w, cy = ci / w;
+                if (cx < 1 || cx >= w - 1 || cy < 1 || cy >= h - 1) continue;
+
+                if (CountCardinalNeighbors(mask, cx, cy, w, h) <= 1)
+                {
+                    mask[ci] = false;
+                    // Recheck all 4 cardinal neighbors
+                    if (cx > 0) { int ni = ci - 1; if (mask[ni]) _queueBuffer[_qTail++] = ni; }
+                    if (cx < w - 1) { int ni = ci + 1; if (mask[ni]) _queueBuffer[_qTail++] = ni; }
+                    if (cy > 0) { int ni = ci - w; if (mask[ni]) _queueBuffer[_qTail++] = ni; }
+                    if (cy < h - 1) { int ni = ci + w; if (mask[ni]) _queueBuffer[_qTail++] = ni; }
                 }
             }
         }
@@ -1894,20 +1897,26 @@ namespace DinoLino.Utilities.Modes
 
             for (int s = 0; s <= sampleCount; s++)
             {
-                double t = (double)s / sampleCount;
+                double baseAngle = 2.0 * Math.PI * (double)s / sampleCount;
                 double x = 0, y = 0;
+
+                double cosBase = Math.Cos(baseAngle);
+                double sinBase = Math.Sin(baseAngle);
+                // Running cos/sin via angle addition: cos(h*θ), sin(h*θ)
+                double cosH = cosBase, sinH = sinBase;  // h=1
+                double cos2 = 2 * cosBase * cosBase - 1; // cos(2θ) = 2cos²θ - 1
 
                 for (int h = 1; h <= harmonics; h++)
                 {
                     int k = (h - 1) * 4;
-                    double an = _rawEFDCoefficients[k];
-                    double bn = _rawEFDCoefficients[k + 1];
-                    double cn = _rawEFDCoefficients[k + 2];
-                    double dn = _rawEFDCoefficients[k + 3];
+                    x += _rawEFDCoefficients[k] * cosH + _rawEFDCoefficients[k + 1] * sinH;
+                    y += _rawEFDCoefficients[k + 2] * cosH + _rawEFDCoefficients[k + 3] * sinH;
 
-                    double angle = 2.0 * Math.PI * h * t;
-                    x += an * Math.Cos(angle) + bn * Math.Sin(angle);
-                    y += cn * Math.Cos(angle) + dn * Math.Sin(angle);
+                    // Advance to next harmonic using angle addition
+                    double newCos = cosBase * cosH - sinBase * sinH;
+                    double newSin = sinBase * cosH + cosBase * sinH;
+                    cosH = newCos;
+                    sinH = newSin;
                 }
 
                 previewLine.Points.Add(new Point(dcX + x, dcY + y));
