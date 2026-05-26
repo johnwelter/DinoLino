@@ -82,6 +82,7 @@
       <DependentUpon>UserGuide.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\CanvasUtils.cs" />
+    <Compile Include="Utilities\EllipticFourierAnalysis.cs" />
     <Compile Include="Utilities\GeometryCalculations.cs" />
     <Compile Include="Utilities\ImageAdjuster.cs" />
     <Compile Include="Utilities\Modes\DrawMode.cs" />
@@ -92,6 +93,7 @@
     <Compile Include="Utilities\OutlineControlPanel.xaml.cs">
       <DependentUpon>OutlineControlPanel.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Utilities\OutlineProcessor.cs" />
     <Compile Include="Utilities\SpecimenManager.cs" />
     <Compile Include="Utilities\Stats.cs" />
     <Compile Include="About.xaml.cs">
