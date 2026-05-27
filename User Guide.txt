@@ -19,6 +19,7 @@ Clear: 			Ctrl + C
 Open image: 		Ctrl + F
 Zoom:			Scroll wheel
 Add landmark:		TBD
+Commit data to CSV:	TBD
 ------------------------------------------------------------------------------------------------
 CURVATURE MODE: 
 
@@ -42,7 +43,7 @@ Click again after arc completion to begin another operation.
 
 Chord-Arc Ratio: A measure of curvature. The length of the first line drawn (chord) divided by arc length.
 Rise-Span Ratio: Length of the first line drawn (chord) divided by the length of its bisector (sagitta).
-Vertex Curvature:
+Vertex Curvature: The slope (m) of the parabolic arc (y=mx^2...)
 
 ----- n-Point Spline -----
 
@@ -84,6 +85,32 @@ Line Ratio: Length of the drawn line divided by the length of the previous line.
 ------------------------------------------------------------------------------------------------
 OUTLINE MODE:
 
+Click objects to generate an enclosed outline around them.
+
+----- Draw -----
+Default: 
+Faster than Watershed, but may perform poorly for complex images (e.g., multi-toned, patterned, non-uniform background).
+Well-suited for geometrically simple objects on a solid background.
+
+Fill Sensitivity:
+For objects on a solid background, set fill sensitivity to the maximum value. 
+Higher fill sensitivity values allows greater variation of colors and shades within the outlined object, but also increases chances of capturing background on non-uniform backgrounds.
+
+Watershed:
+Higher computational expense leads to slower execution, but it tends to yield a more accurate outline.
+Better-suited for complex images (e.g., multi-toned objects, patterned objects, and/or objects on a non-uniform background).
+
+Tip: If the outline is not accurate, try adjusting the fill sensitivity, or switch between default and watershed methods.
+Tip: To reduce computational expense and increase performance speed, try cropping or decimating the image.
+
+----- Erase -----
+Click and drag anywhere on the outline to erase that part. Set the eraser size using the slider.
+
+----- Smooth -----
+Smooth a noisy outline to the desired amount by adjusting the slider value. 
+
+----- Generate Metadata -----
+
 ------------------------------------------------------------------------------------------------
 VIEW:
 
@@ -93,7 +120,7 @@ Adjust various properties using the View drop-down menu items.
 Toggle on or off to keep drawn elements of previous operations on the screen.
 
 ----- Line Color ----- 
-Adjust color of drawn elements. Multiple options are available to accommodate colorblindness and ensure visibility on any image.
+Adjust color of drawn elements. Multiple options are available to accommodate colorblindness and ensure operation visibility on any image.
 
 ----- Font ----- 
 Adjust font size or font family. Dyslexia-friendly fonts are available. 
@@ -102,3 +129,5 @@ If needed, you may accommodate very large font sizes by resizing the sidebar or 
 ----- Picture Adjustment ----- 
 Adjust brightness, contrast, or saturation of the uploaded image. Zero is the default value for all parameters.
 
+----- Decimate -----
+Decimate the image by a specified factor to reduce its resolution and computational expense. This may be helpful for large images or when using the watershed method in outline mode.

@@ -90,7 +90,7 @@
     <Compile Include="Utilities\Modes\CurvatureMode.cs" />
     <Compile Include="Utilities\Modes\OutlineMode.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
-    <Compile Include="Utilities\OutlineControlPanel.xaml.cs">
+    <Compile Include="OutlineControlPanel.xaml.cs">
       <DependentUpon>OutlineControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\OutlineProcessor.cs" />
@@ -144,7 +144,7 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="Utilities\OutlineControlPanel.xaml">
+    <Page Include="OutlineControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>

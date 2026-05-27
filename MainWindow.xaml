@@ -31,6 +31,7 @@
                 <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"/>
             </MenuItem>
             <MenuItem Header="_View" MouseLeave="Menu_MouseLeave">
+                <MenuItem Header="_See Tips" x:Name="UI_SeeTips" IsCheckable="True" IsChecked="True" Click="Menu_SeeTips"/>
                 <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="True" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave">
                 </MenuItem>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
@@ -66,7 +67,20 @@
                     - Draw mode
             - Work Space
         -->
-
+        <!-- Tips Bar -->
+        <Border x:Name="UI_TipsBar"
+        DockPanel.Dock="Bottom"
+        Background="#1E1E1E"
+        BorderBrush="#444"
+        BorderThickness="0,1,0,0"
+        MinHeight="28"
+        Padding="10,4">
+            <TextBlock x:Name="UI_TipText"
+               Foreground="#CCCCCC"
+               FontSize="14"
+               VerticalAlignment="Center"
+               TextWrapping="Wrap"/>
+        </Border>
         <Grid x:Name="UI_MainWindow">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="0.25*" MinWidth="150" MaxWidth="500"/>

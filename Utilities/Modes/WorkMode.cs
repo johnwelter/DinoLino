@@ -1,14 +1,15 @@
 ﻿using DinoLino.DataTypes;
 using DinoLino.Utilities.Operations;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Threading;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -61,6 +62,10 @@ namespace DinoLino.Utilities.Modes
         {
             CancellationToken.ThrowIfCancellationRequested();
         }
+
+        // Event for notifying the control panel of tip changes
+        public Action OnTipChanged;
+        public virtual string[] GetTips() => new[] { string.Empty };
 
         // Toggling whether or not previous operations are visible
         public bool SeePreviousOperations { get; set; } = true;

@@ -13,6 +13,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 
 namespace DinoLino
 {
@@ -67,6 +68,9 @@ namespace DinoLino
         {
             InitializeComponent();
 
+            _tipCycleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+            _tipCycleTimer.Tick += TipCycle_Tick;
+
             _imageAdjuster.OnAdjustmentApplied = bitmap => UI_WorkImage.Source = bitmap;
             SpecimenManager.BindToTextBox(UI_SpecimenNameBox);
 
@@ -90,6 +94,12 @@ namespace DinoLino
             GetAngleMode = new();    
             DrawMode = new();
             OutlineMode = new();
+
+            // Wire tip callbacks for all modes
+            CurvatureMode.OnTipChanged = UpdateTip;
+            GetAngleMode.OnTipChanged = UpdateTip;
+            DrawMode.OnTipChanged = UpdateTip;
+            OutlineMode.OnTipChanged = UpdateTip;
 
             OutlineMode.OnOutlineReady = elements =>
             {
@@ -327,6 +337,68 @@ namespace DinoLino
             UI_MenuRedo.SetBinding(MenuItem.IsEnabledProperty, redoBinding);
         }
 
+        // Tips visibility
+        private bool _tipsVisible = true;
+        private DispatcherTimer _tipCycleTimer;
+        private int _tipIndex = 0;
+
+        private void Menu_SeeTips(object sender, RoutedEventArgs e)
+        {
+            _tipsVisible = UI_SeeTips.IsChecked;
+            UI_TipsBar.Visibility = _tipsVisible ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void TipCycle_Tick(object sender, EventArgs e)
+        {
+            var tips = CurrentWorkMode?.GetTips();
+            if (tips == null || tips.Length <= 1)
+            {
+                _tipCycleTimer.Stop();
+                return;
+            }
+
+            _tipIndex = (_tipIndex + 1) % tips.Length;
+            FadeTip(tips[_tipIndex]);
+        }
+
+        public void UpdateTip()
+        {
+            if (!_tipsVisible) return;
+
+            _tipCycleTimer.Stop();
+            _tipIndex = 0;
+
+            var tips = CurrentWorkMode?.GetTips();
+            if (tips == null || tips.Length == 0 || string.IsNullOrEmpty(tips[0]))
+            {
+                UI_TipText.Text = string.Empty;
+                return;
+            }
+
+            ShowTip(tips[0]);
+
+            if (tips.Length > 1)
+                _tipCycleTimer.Start();
+        }
+
+        private void ShowTip(string text)
+        {
+            UI_TipText.Text = text;
+            UI_TipText.Opacity = 1;
+        }
+
+        private void FadeTip(string newText)
+        {
+            var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(800));
+            fadeOut.Completed += (s, e) =>
+            {
+                UI_TipText.Text = newText;
+                var fadeIn = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(800));
+                UI_TipText.BeginAnimation(TextBlock.OpacityProperty, fadeIn);
+            };
+            UI_TipText.BeginAnimation(TextBlock.OpacityProperty, fadeOut);
+        }
+
         private void Menu_SeePrevOps(object sender, RoutedEventArgs e)
         {
             bool isChecked = UI_SeePrevOps.IsChecked;
@@ -381,6 +453,7 @@ namespace DinoLino
             {
                 _currentFontSize = size;
                 TextElement.SetFontSize(UI_ControlPanel, size);
+                UI_TipText.FontSize = size;
                 fontWindow.FontSize = size;
             };
 
@@ -464,6 +537,8 @@ namespace DinoLino
 
             CurrentWorkMode?.ResetDrawingState();
             BindUndoRedoMenuItems();
+
+            UpdateTip();
         }
         #endregion
 

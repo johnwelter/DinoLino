@@ -43,6 +43,7 @@ namespace DinoLino.Utilities.Modes
                 OnPropertyChanged(nameof(CurrentMethod));
                 OnPropertyChanged(nameof(IsShapeSelected));
                 OnPropertyChanged(nameof(IsLineSelected));
+                OnTipChanged?.Invoke();
             }
         }
 
@@ -131,7 +132,6 @@ namespace DinoLino.Utilities.Modes
         }
 
         #endregion
-
 
         #region Shape Operations
         //-----Shape Operation Code-----//
@@ -541,7 +541,7 @@ namespace DinoLino.Utilities.Modes
                 ? GeometryCalculations.EllipseArea(width, height)
                 : GeometryCalculations.RectangleArea(width, height);
             _currentShapeArea = area;
-            DrawAspectRatioResult = GeometryCalculations.AspectRatio(width, height);
+            DrawAspectRatioResult = height > 1e-5 ? Math.Round(width / height, 2) : 0;
 
             var prev = UndoRedoManager.History
                 .OfType<ShapeOperation>()
@@ -549,6 +549,38 @@ namespace DinoLino.Utilities.Modes
 
             double previousArea = prev?.ShapeArea ?? 0;
             RelativeAreaResult = GeometryCalculations.RelativeArea(area, previousArea);
+        }
+
+        public override string[] GetTips()
+        {
+            if (IsShapeSelected)
+                return new[]
+                {
+            "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
+            "💡 Aspect ratio is the horizontal length of the shape divided by its maximum height.",
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+            "💡 Toggle tip visibility in the 'View' menu."
+        };
+            if (IsLineSelected)
+                return new[]
+                {
+            "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
+            "💡 Line ratio is the length of the most recently drawn line (Line n) divided by the length of the line drawn before it (Line n-1).",
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+            "💡 Toggle tip visibility in the 'View' menu."
+        };
+            return new[]
+            {
+                "💡 Select a drawing method to begin.",
+                "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the 'File' menu.",
+                "💡 Toggle tip visibility in the 'View' menu."
+            };
         }
         #endregion
     }

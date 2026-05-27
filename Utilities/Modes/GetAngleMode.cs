@@ -64,7 +64,7 @@ namespace DinoLino.Utilities.Modes
         }
 
         // Tracking 3-click line groups 
-        private List<UIElement> CurrentOperation = new ();
+        private List<UIElement> CurrentOperation = new();
 
         // Current UI line to modify during mouse move
         public Line CurrentUILine = null;
@@ -252,7 +252,7 @@ namespace DinoLino.Utilities.Modes
                     output.Add(CurrentUILine);
                     CurrentOperation.Add(CurrentUILine);
 
-                    CurrentStep = 1; 
+                    CurrentStep = 1;
                     break;
             }
             return output;
@@ -303,5 +303,16 @@ namespace DinoLino.Utilities.Modes
 
             RelativeAreaResult = GeometryCalculations.RelativeArea(area, previousTriangle?.TriArea ?? 0);
         }
+
+        public override string[] GetTips() => new[]
+        {
+            "💡 Click three points to define a triangle. Results update automatically after the third click.",
+            "💡 The aspect ratio of any triangle is the length of its longest side divided by its height.",
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+            "💡 Toggle tip visibility in the 'View' menu."
+        };
     }
 }

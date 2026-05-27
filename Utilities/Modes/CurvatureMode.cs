@@ -38,6 +38,7 @@ namespace DinoLino.Utilities.Modes
                 OnPropertyChanged(nameof(IsCircularArcSelected));
                 OnPropertyChanged(nameof(IsParabolicArcSelected));
                 OnPropertyChanged(nameof(IsNPointSplineSelected));
+                OnTipChanged?.Invoke();
             }
         }
 
@@ -860,6 +861,54 @@ namespace DinoLino.Utilities.Modes
             double arcLength = GeometryCalculations.ArcLength(densePoints);
             double chordLength = (controlPoints[controlPoints.Count - 1] - controlPoints[0]).Magnitude();
             return GeometryCalculations.ArcChordRatio(arcLength, chordLength);
+        }
+
+        public override string[] GetTips()
+        {
+            if (IsCircularArcSelected)
+                return new[]
+                {
+            "💡 Approximate a curve as the arc of a circle. First click each endpoint of the arc, then click its midpoint.",
+            "💡 Central angle measures the angle between the radii that define the circular arc. Higher angles correspond to larger arcs.",
+            "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
+            "💡 Rise/span ratio measures how tall an arc is relative to its width.",
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+            "💡 Toggle tip visibility in the 'View' menu."
+        };
+            if (IsParabolicArcSelected)
+                return new[]
+                {
+            "💡 Approximate a curve as a parabolic arc. First click each endpoint of the arc, then click its midpoint.",
+            "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
+            "💡 Rise/span ratio measures how tall an arc is relative to its width.",
+            "💡 Vertex curvature describes sharpness of the curve at its peak. This is the 'm' of 'y=mx^2'.",
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+            "💡 Toggle tip visibility in the 'View' menu."
+        };
+            if (IsNPointSplineSelected)
+                return new[]
+                {
+            "💡 Draw an irregular curve using any number of points. Double click to finish drawing.",
+            "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
+            "💡 Turning angle per unit length measures how sharply the curve bends, on average, along its length.",
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+            "💡 Toggle tip visibility in the 'View' menu."
+        };
+            return new[] 
+            { 
+                "💡 Select a curvature method to begin.",
+                "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the 'File' menu.",
+                "💡 Toggle tip visibility in the 'View' menu."
+            };
         }
         #endregion
 

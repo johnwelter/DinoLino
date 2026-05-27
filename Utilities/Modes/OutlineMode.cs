@@ -28,6 +28,7 @@ namespace DinoLino.Utilities.Modes
             {
                 _drawOutlineMode = value;
                 OnPropertyChanged(nameof(DrawOutlineMode));
+                OnTipChanged?.Invoke();
             }
         }
 
@@ -39,6 +40,7 @@ namespace DinoLino.Utilities.Modes
             {
                 _eraseOutlineMode = value;
                 OnPropertyChanged(nameof(EraseOutlineMode));
+                OnTipChanged?.Invoke();
             }
         }
 
@@ -50,6 +52,7 @@ namespace DinoLino.Utilities.Modes
             {
                 _smoothOutlineMode = value;
                 OnPropertyChanged(nameof(SmoothOutlineMode));
+                OnTipChanged?.Invoke();
             }
         }
 
@@ -64,6 +67,7 @@ namespace DinoLino.Utilities.Modes
 
                 _outlineMetadataMode = value;
                 OnPropertyChanged(nameof(OutlineMetadataMode));
+                OnTipChanged?.Invoke();
 
                 // Auto-generate metadata when entering metadata mode
                 if (_outlineMetadataMode)
@@ -150,7 +154,12 @@ namespace DinoLino.Utilities.Modes
         public bool UseWatershed
         {
             get => _useWatershed;
-            set { _useWatershed = value; OnPropertyChanged(nameof(UseWatershed)); }
+            set
+            {
+                _useWatershed = value;
+                OnPropertyChanged(nameof(UseWatershed));
+                OnTipChanged?.Invoke();
+            }
         }
         public override void ClearMetadata()
         {
@@ -182,6 +191,7 @@ namespace DinoLino.Utilities.Modes
 
 
         #endregion
+
         #region draw outline
 
         // =====================
@@ -600,7 +610,8 @@ namespace DinoLino.Utilities.Modes
             }
         }
         #endregion
-        #region calculate metadata
+
+        #region metadata
 
         // =====================
         // RESULT PROPERTIES
@@ -810,6 +821,57 @@ namespace DinoLino.Utilities.Modes
             OnEFDPreviewClear?.Invoke();
             _efdPreviewPolyline = null;
             _efd.Clear();
+        }
+
+        public override string[] GetTips()
+        {
+            if (DrawOutlineMode)
+                return UseWatershed
+                    ? new[] 
+                    { 
+                        "💡 Use Watershed to generate more accurate outlines on complex images, at the cost of reduced speed.",
+                        "💡 To increase speed, try decimating pixel count using the 'Decimate' function in the 'View' menu.",
+                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
+                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+                        "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                        "💡 Toggle tip visibility in the 'View' menu."
+                    }
+                    : new[] 
+                    { 
+                        "💡 Set fill sensitivity to maximum values for images on a solid background.",
+                        "💡 To increase speed, try decimating pixel count using the 'Decimate' function in the 'View' menu.",
+                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
+                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+                        "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                        "💡 Toggle tip visibility in the 'View' menu."
+                    };
+            if (EraseOutlineMode)
+                return new[] 
+                { 
+                    "💡 Click and drag over the outline to erase. Adjust brush size for precision.",
+                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                    "💡 Toggle tip visibility in the 'View' menu."
+                };
+            if (SmoothOutlineMode)
+                return new[] 
+                { 
+                    "💡 Adjust smooth strength for cleaner outlines. Too high may distort sharp features.",
+                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                    "💡 Toggle tip visibility in the 'View' menu."
+                };
+            if (OutlineMetadataMode)
+                return new[] 
+                { 
+                    "💡 Adjust the number of EFD Harmonics to control Fourier detail. The EF outline is overlaid in blue.",
+                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                    "💡 Toggle tip visibility in the 'View' menu."
+                };
+            return new[] { string.Empty };
         }
         #endregion
     }
