@@ -21,6 +21,10 @@ namespace DinoLino.Utilities
         private int _qHead;
         private int _qTail;
 
+        private int[] _cachedGradient = null;
+        private int _cachedGradientWidth = 0;
+        private int _cachedGradientHeight = 0;
+
         private void EnsureBuffers(int size)
         {
             if (_distBuffer.Length < size)
@@ -36,6 +40,41 @@ namespace DinoLino.Utilities
                 _queueBuffer = new int[capacity];
         }
 
+        internal void BuildGradientCache(ImageSnapshot snap)
+        {
+            int w = snap.Width, h = snap.Height, total = w * h;
+            var gradient = new int[total];
+
+            for (int y = 1; y < h - 1; y++)
+            {
+                for (int x = 1; x < w - 1; x++)
+                {
+                    (byte r00, byte g00, byte b00) = ReadPixel(x - 1, y - 1, snap);
+                    (byte r10, byte g10, byte b10) = ReadPixel(x, y - 1, snap);
+                    (byte r20, byte g20, byte b20) = ReadPixel(x + 1, y - 1, snap);
+                    (byte r01, byte g01, byte b01) = ReadPixel(x - 1, y, snap);
+                    (byte r21, byte g21, byte b21) = ReadPixel(x + 1, y, snap);
+                    (byte r02, byte g02, byte b02) = ReadPixel(x - 1, y + 1, snap);
+                    (byte r12, byte g12, byte b12) = ReadPixel(x, y + 1, snap);
+                    (byte r22, byte g22, byte b22) = ReadPixel(x + 1, y + 1, snap);
+
+                    int gxR = -r00 + r20 - 2 * r01 + 2 * r21 - r02 + r22;
+                    int gyR = -r00 - 2 * r10 - r20 + r02 + 2 * r12 + r22;
+                    int gxG = -g00 + g20 - 2 * g01 + 2 * g21 - g02 + g22;
+                    int gyG = -g00 - 2 * g10 - g20 + g02 + 2 * g12 + g22;
+                    int gxB = -b00 + b20 - 2 * b01 + 2 * b21 - b02 + b22;
+                    int gyB = -b00 - 2 * b10 - b20 + b02 + 2 * b12 + b22;
+
+                    int gx = 2 * gxR + 4 * gxG + 3 * gxB;
+                    int gy = 2 * gyR + 4 * gyG + 3 * gyB;
+                    gradient[y * w + x] = gx * gx + gy * gy;
+                }
+            }
+
+            _cachedGradient = gradient;
+            _cachedGradientWidth = w;
+            _cachedGradientHeight = h;
+        }
         // =====================
         // SNAPSHOT TYPE
         // =====================
@@ -586,31 +625,44 @@ namespace DinoLino.Utilities
                 workSnap = new ImageSnapshot(blurred, snap.BgMask, w, h, snap.Stride, snap.Bpp);
             }
 
-            // ── 2. Compute Sobel gradient on workSnap ────────────────────────────
-            int[] gradient = new int[total];
-            for (int y = 1; y < h - 1; y++)
+            // ── 2. Compute Sobel gradient ─────────────────────────────────────────
+            // Use cached gradient when no blur is requested.
+            // When blur is active, compute fresh from the blurred workSnap.
+            int[] gradient;
+            if (blurLevel == 0 &&
+                _cachedGradient != null &&
+                _cachedGradientWidth == w &&
+                _cachedGradientHeight == h)
             {
-                for (int x = 1; x < w - 1; x++)
+                gradient = _cachedGradient;
+            }
+            else
+            {
+                gradient = new int[total];
+                for (int y = 1; y < h - 1; y++)
                 {
-                    (byte r00, byte g00, byte b00) = ReadPixel(x - 1, y - 1, workSnap);
-                    (byte r10, byte g10, byte b10) = ReadPixel(x, y - 1, workSnap);
-                    (byte r20, byte g20, byte b20) = ReadPixel(x + 1, y - 1, workSnap);
-                    (byte r01, byte g01, byte b01) = ReadPixel(x - 1, y, workSnap);
-                    (byte r21, byte g21, byte b21) = ReadPixel(x + 1, y, workSnap);
-                    (byte r02, byte g02, byte b02) = ReadPixel(x - 1, y + 1, workSnap);
-                    (byte r12, byte g12, byte b12) = ReadPixel(x, y + 1, workSnap);
-                    (byte r22, byte g22, byte b22) = ReadPixel(x + 1, y + 1, workSnap);
+                    for (int x = 1; x < w - 1; x++)
+                    {
+                        (byte r00, byte g00, byte b00) = ReadPixel(x - 1, y - 1, workSnap);
+                        (byte r10, byte g10, byte b10) = ReadPixel(x, y - 1, workSnap);
+                        (byte r20, byte g20, byte b20) = ReadPixel(x + 1, y - 1, workSnap);
+                        (byte r01, byte g01, byte b01) = ReadPixel(x - 1, y, workSnap);
+                        (byte r21, byte g21, byte b21) = ReadPixel(x + 1, y, workSnap);
+                        (byte r02, byte g02, byte b02) = ReadPixel(x - 1, y + 1, workSnap);
+                        (byte r12, byte g12, byte b12) = ReadPixel(x, y + 1, workSnap);
+                        (byte r22, byte g22, byte b22) = ReadPixel(x + 1, y + 1, workSnap);
 
-                    int gxR = -r00 + r20 - 2 * r01 + 2 * r21 - r02 + r22;
-                    int gyR = -r00 - 2 * r10 - r20 + r02 + 2 * r12 + r22;
-                    int gxG = -g00 + g20 - 2 * g01 + 2 * g21 - g02 + g22;
-                    int gyG = -g00 - 2 * g10 - g20 + g02 + 2 * g12 + g22;
-                    int gxB = -b00 + b20 - 2 * b01 + 2 * b21 - b02 + b22;
-                    int gyB = -b00 - 2 * b10 - b20 + b02 + 2 * b12 + b22;
+                        int gxR = -r00 + r20 - 2 * r01 + 2 * r21 - r02 + r22;
+                        int gyR = -r00 - 2 * r10 - r20 + r02 + 2 * r12 + r22;
+                        int gxG = -g00 + g20 - 2 * g01 + 2 * g21 - g02 + g22;
+                        int gyG = -g00 - 2 * g10 - g20 + g02 + 2 * g12 + g22;
+                        int gxB = -b00 + b20 - 2 * b01 + 2 * b21 - b02 + b22;
+                        int gyB = -b00 - 2 * b10 - b20 + b02 + 2 * b12 + b22;
 
-                    int gx = 2 * gxR + 4 * gxG + 3 * gxB;
-                    int gy = 2 * gyR + 4 * gyG + 3 * gyB;
-                    gradient[y * w + x] = gx * gx + gy * gy;
+                        int gx = 2 * gxR + 4 * gxG + 3 * gxB;
+                        int gy = 2 * gyR + 4 * gyG + 3 * gyB;
+                        gradient[y * w + x] = gx * gx + gy * gy;
+                    }
                 }
             }
 
@@ -669,15 +721,32 @@ namespace DinoLino.Utilities
                     if ((uint)nx >= w || (uint)ny >= h) continue;
                     int ni = ny * w + nx;
                     if (labels[ni] != -1) continue;
+
+                    // Hard stop: BgMask pixels can never be claimed as foreground.
+                    // Force them to background regardless of which label is flooding them.
+                    if (snap.BgMask != null && snap.BgMask[ni])
+                    {
+                        labels[ni] = 0;
+                        heap.Add((gradient[ni], ni));
+                        continue;
+                    }
+
                     labels[ni] = myLabel;
                     heap.Add((gradient[ni], ni));
                 }
             }
 
-            // ── 5. Extract mask ───────────────────────────────────────────────────
+            // ── 5. Extract mask, enforcing BgMask as hard stop ───────────────────
             bool[] mask = new bool[total];
             for (int i = 0; i < total; i++)
                 mask[i] = labels[i] == 1;
+
+            // Hard-remove any foreground pixels that overlap confirmed background.
+            // This prevents the foreground basin from claiming background regions
+            // when no strong gradient ridge exists between them.
+            if (snap.BgMask != null)
+                for (int i = 0; i < total; i++)
+                    if (snap.BgMask[i]) mask[i] = false;
 
             int seedIndex = seedY * w + seedX;
             if (seedIndex >= 0 && seedIndex < total && mask[seedIndex])

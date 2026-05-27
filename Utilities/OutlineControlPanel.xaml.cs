@@ -37,19 +37,18 @@ namespace DinoLino.Utilities.Modes
         {
             EfdHarmonicsBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
 
-            // Only regenerate if not yet computed
-            if (_mode.EFDCoefficientsResult == null || _mode.EFDCoefficientsResult.Length == 0)
-                _mode.GenerateMetadata();
+            // Always regenerate so the coefficients reflect the current harmonic count
+            _mode.GenerateMetadata();
 
             if (_mode.EFDCoefficientsResult == null || _mode.EFDCoefficientsResult.Length == 0)
             {
-                MessageBox.Show("No EFD data available. Generate metadata first.",
+                MessageBox.Show("No EFD data available. Please draw an outline first.",
                                 "EFD Coefficients", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
+            int harmonics = _mode.EfdHarmonics; // use the current setting, not back-calculated
             var sb = new System.Text.StringBuilder();
-            int harmonics = _mode.EFDCoefficientsResult.Length / 4;
             sb.AppendLine($"Elliptic Fourier Descriptors ({harmonics} harmonics)");
             sb.AppendLine(new string('─', 48));
             for (int h = 0; h < harmonics; h++)
