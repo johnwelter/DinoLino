@@ -145,6 +145,13 @@ namespace DinoLino.Utilities.Modes
         #endregion
 
         #region shared functions and variables
+
+        private bool _useWatershed = false;
+        public bool UseWatershed
+        {
+            get => _useWatershed;
+            set { _useWatershed = value; OnPropertyChanged(nameof(UseWatershed)); }
+        }
         public override void ClearMetadata()
         {
             AspectRatioResult = 0;
@@ -172,7 +179,7 @@ namespace DinoLino.Utilities.Modes
 
 
 
-        
+
 
         #endregion
         #region draw outline
@@ -180,18 +187,20 @@ namespace DinoLino.Utilities.Modes
         // =====================
         // USER PARAMETERS
         // =====================
-        private double _tolerance = 30;
-        public double Tolerance
+
+        // 0 = Off, 1 = Low, 2 = High
+        private int _watershedBlurLevel = 0;
+        public int WatershedBlurLevel
         {
-            get => _tolerance;
-            set { _tolerance = value; OnPropertyChanged(nameof(Tolerance)); }
+            get => _watershedBlurLevel;
+            set { _watershedBlurLevel = value; OnPropertyChanged(nameof(WatershedBlurLevel)); }
         }
 
-        private double _gradientLeniency = 15;
-        public double GradientLeniency
+        private double _fillSensitivity = 30;
+        public double FillSensitivity
         {
-            get => _gradientLeniency;
-            set { _gradientLeniency = value; OnPropertyChanged(nameof(GradientLeniency)); }
+            get => _fillSensitivity;
+            set { _fillSensitivity = value; OnPropertyChanged(nameof(FillSensitivity)); }
         }
 
         private double _edgeThreshold = 40;
@@ -259,7 +268,16 @@ namespace DinoLino.Utilities.Modes
                     token.ThrowIfCancellationRequested();
 
                     (byte sr, byte sg, byte sb) = _processor.ReadPixel(px, py, snap);
-                    bool[] raw = _processor.FloodFill(px, py, sr, sg, sb, snap, _tolerance, _gradientLeniency, _edgeThreshold);
+                    bool[] raw;
+                    if (_useWatershed)
+                    {
+                        raw = _processor.WatershedSegment(px, py, snap, seedRadius: 3, _watershedBlurLevel)
+                              ?? _processor.FloodFill(px, py, sr, sg, sb, snap, _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold);
+                    }
+                    else
+                    {
+                        raw = _processor.FloodFill(px, py, sr, sg, sb, snap, _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold);
+                    }
 
                     if (!_processor.HasMinimumPixels(raw, 1)) return;
                     token.ThrowIfCancellationRequested();

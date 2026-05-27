@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 
+
 namespace DinoLino.Utilities
 {
     /// <summary>
@@ -494,22 +495,22 @@ namespace DinoLino.Utilities
         // =====================
         // BOUNDARY TRACING
         // =====================
-        internal List<Point> TraceBoundary(bool[] inside, ImageSnapshot snap)
+        internal List<System.Windows.Point> TraceBoundary(bool[] inside, ImageSnapshot snap)
         {
             int w = snap.Width, h = snap.Height;
             int startX = -1, startY = -1;
             for (int i = 0; i < inside.Length && startX < 0; i++)
                 if (inside[i]) { startX = i % w; startY = i / w; }
-            if (startX < 0) return new List<Point>();
+            if (startX < 0) return new List<System.Windows.Point>();
 
-            var boundary = new List<Point>();
+            var boundary = new List<System.Windows.Point>();
             int[] ndx = { 1, 1, 0, -1, -1, -1, 0, 1 };
             int[] ndy = { 0, -1, -1, -1, 0, 1, 1, 1 };
             int cx = startX, cy = startY, dir = 4;
 
             for (int iterations = 0; iterations < w * h * 2; iterations++)
             {
-                boundary.Add(new Point(cx, cy));
+                boundary.Add(new System.Windows.Point(cx, cy));
                 int checkDir = (dir + 6) % 8;
                 bool found = false;
                 for (int i = 0; i < 8; i++)
@@ -543,6 +544,147 @@ namespace DinoLino.Utilities
             bool[] fallback = KeepComponentContainingSeed(raw, seed, snap);
             if (!HasMinimumPixels(fallback, minArea)) return fallback;
             return fallback;
+        }
+
+        internal bool[]? WatershedSegment(int seedX, int seedY, ImageSnapshot snap,
+    int seedRadius = 3, int blurLevel = 0)
+        {
+            int w = snap.Width, h = snap.Height, total = w * h;
+
+            // ── 1. Optional pre-blur ──────────────────────────────────────────────
+            // blurLevel 0 = none, 1 = 1 pass box blur, 2 = 2 passes box blur
+            ImageSnapshot workSnap = snap;
+            if (blurLevel > 0)
+            {
+                byte[] blurred = (byte[])snap.Pixels.Clone();
+                for (int pass = 0; pass < blurLevel; pass++)
+                {
+                    byte[] src = blurred;
+                    byte[] dst = new byte[src.Length];
+                    for (int y = 1; y < h - 1; y++)
+                    {
+                        for (int x = 1; x < w - 1; x++)
+                        {
+                            int tr = 0, tg = 0, tb = 0;
+                            for (int dy = -1; dy <= 1; dy++)
+                                for (int dx = -1; dx <= 1; dx++)
+                                {
+                                    int si = (y + dy) * snap.Stride + (x + dx) * snap.Bpp;
+                                    tb += src[si];
+                                    tg += src[si + 1];
+                                    tr += src[si + 2];
+                                }
+                            int di = y * snap.Stride + x * snap.Bpp;
+                            dst[di] = (byte)(tb / 9);
+                            dst[di + 1] = (byte)(tg / 9);
+                            dst[di + 2] = (byte)(tr / 9);
+                            if (snap.Bpp == 4) dst[di + 3] = src[di + 3];
+                        }
+                    }
+                    blurred = dst;
+                }
+                workSnap = new ImageSnapshot(blurred, snap.BgMask, w, h, snap.Stride, snap.Bpp);
+            }
+
+            // ── 2. Compute Sobel gradient on workSnap ────────────────────────────
+            int[] gradient = new int[total];
+            for (int y = 1; y < h - 1; y++)
+            {
+                for (int x = 1; x < w - 1; x++)
+                {
+                    (byte r00, byte g00, byte b00) = ReadPixel(x - 1, y - 1, workSnap);
+                    (byte r10, byte g10, byte b10) = ReadPixel(x, y - 1, workSnap);
+                    (byte r20, byte g20, byte b20) = ReadPixel(x + 1, y - 1, workSnap);
+                    (byte r01, byte g01, byte b01) = ReadPixel(x - 1, y, workSnap);
+                    (byte r21, byte g21, byte b21) = ReadPixel(x + 1, y, workSnap);
+                    (byte r02, byte g02, byte b02) = ReadPixel(x - 1, y + 1, workSnap);
+                    (byte r12, byte g12, byte b12) = ReadPixel(x, y + 1, workSnap);
+                    (byte r22, byte g22, byte b22) = ReadPixel(x + 1, y + 1, workSnap);
+
+                    int gxR = -r00 + r20 - 2 * r01 + 2 * r21 - r02 + r22;
+                    int gyR = -r00 - 2 * r10 - r20 + r02 + 2 * r12 + r22;
+                    int gxG = -g00 + g20 - 2 * g01 + 2 * g21 - g02 + g22;
+                    int gyG = -g00 - 2 * g10 - g20 + g02 + 2 * g12 + g22;
+                    int gxB = -b00 + b20 - 2 * b01 + 2 * b21 - b02 + b22;
+                    int gyB = -b00 - 2 * b10 - b20 + b02 + 2 * b12 + b22;
+
+                    int gx = 2 * gxR + 4 * gxG + 3 * gxB;
+                    int gy = 2 * gyR + 4 * gyG + 3 * gyB;
+                    gradient[y * w + x] = gx * gx + gy * gy;
+                }
+            }
+
+            // ── 3. Labels and heap ───────────────────────────────────────────────
+            int[] labels = new int[total];
+            for (int i = 0; i < total; i++) labels[i] = -1;
+
+            var heap = new SortedSet<(int grad, int idx)>(
+                Comparer<(int grad, int idx)>.Create((a, b) =>
+                    a.grad != b.grad ? a.grad.CompareTo(b.grad) : a.idx.CompareTo(b.idx)));
+
+            // Border → background
+            for (int x = 0; x < w; x++)
+            {
+                int ti = x, bi = (h - 1) * w + x;
+                if (labels[ti] == -1) { labels[ti] = 0; heap.Add((gradient[ti], ti)); }
+                if (labels[bi] == -1) { labels[bi] = 0; heap.Add((gradient[bi], bi)); }
+            }
+            for (int y = 1; y < h - 1; y++)
+            {
+                int li = y * w, ri = y * w + w - 1;
+                if (labels[li] == -1) { labels[li] = 0; heap.Add((gradient[li], li)); }
+                if (labels[ri] == -1) { labels[ri] = 0; heap.Add((gradient[ri], ri)); }
+            }
+
+            // BgMask → background
+            if (snap.BgMask != null)
+                for (int i = 0; i < total; i++)
+                    if (snap.BgMask[i] && labels[i] == -1)
+                    { labels[i] = 0; heap.Add((gradient[i], i)); }
+
+            // Seed circle → foreground (uses seedRadius parameter)
+            for (int dy = -seedRadius; dy <= seedRadius; dy++)
+                for (int dx = -seedRadius; dx <= seedRadius; dx++)
+                {
+                    if (dx * dx + dy * dy > seedRadius * seedRadius) continue;
+                    int nx = seedX + dx, ny = seedY + dy;
+                    if ((uint)nx >= w || (uint)ny >= h) continue;
+                    int ni = ny * w + nx;
+                    if (labels[ni] == -1) { labels[ni] = 1; heap.Add((gradient[ni], ni)); }
+                }
+
+            // ── 4. Flood ─────────────────────────────────────────────────────────
+            int[] ndx4 = { 1, -1, 0, 0 };
+            int[] ndy4 = { 0, 0, 1, -1 };
+
+            while (heap.Count > 0)
+            {
+                var (_, ci) = heap.Min;
+                heap.Remove(heap.Min);
+                int cx = ci % w, cy = ci / w;
+                int myLabel = labels[ci];
+                for (int d = 0; d < 4; d++)
+                {
+                    int nx = cx + ndx4[d], ny = cy + ndy4[d];
+                    if ((uint)nx >= w || (uint)ny >= h) continue;
+                    int ni = ny * w + nx;
+                    if (labels[ni] != -1) continue;
+                    labels[ni] = myLabel;
+                    heap.Add((gradient[ni], ni));
+                }
+            }
+
+            // ── 5. Extract mask ───────────────────────────────────────────────────
+            bool[] mask = new bool[total];
+            for (int i = 0; i < total; i++)
+                mask[i] = labels[i] == 1;
+
+            int seedIndex = seedY * w + seedX;
+            if (seedIndex >= 0 && seedIndex < total && mask[seedIndex])
+                return KeepComponentContainingSeed(mask, seedIndex,
+                       new ImageSnapshot(snap.Pixels, snap.BgMask, w, h, snap.Stride, snap.Bpp));
+
+            return null;
         }
     }
 }
