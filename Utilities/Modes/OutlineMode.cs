@@ -831,6 +831,7 @@ namespace DinoLino.Utilities.Modes
                     { 
                         "💡 Use Watershed to generate more accurate outlines on complex images, at the cost of reduced speed.",
                         "💡 To increase speed, try decimating pixel count using the 'Decimate' function in the 'View' menu.",
+                        "💡 Outline mode performs best on unpatterned images with a solid background.",
                         "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
                         "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
                         "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
@@ -841,6 +842,8 @@ namespace DinoLino.Utilities.Modes
                     { 
                         "💡 Set fill sensitivity to maximum values for images on a solid background.",
                         "💡 To increase speed, try decimating pixel count using the 'Decimate' function in the 'View' menu.",
+                        "💡 Having trouble with the outline? Watershed mode may improve accuracy for complex images.",
+                        "💡 Outline mode performs best on unpatterned images with a solid background.",
                         "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
                         "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
                         "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
@@ -851,6 +854,7 @@ namespace DinoLino.Utilities.Modes
                 return new[] 
                 { 
                     "💡 Click and drag over the outline to erase. Adjust brush size for precision.",
+                    "💡 Outline mode performs best on unpatterned images with a solid background.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
                     "💡 Toggle tip visibility in the 'View' menu."
@@ -859,6 +863,7 @@ namespace DinoLino.Utilities.Modes
                 return new[] 
                 { 
                     "💡 Adjust smooth strength for cleaner outlines. Too high may distort sharp features.",
+                    "💡 Outline mode performs best on unpatterned images with a solid background.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
                     "💡 Toggle tip visibility in the 'View' menu."
@@ -866,7 +871,12 @@ namespace DinoLino.Utilities.Modes
             if (OutlineMetadataMode)
                 return new[] 
                 { 
-                    "💡 Adjust the number of EFD Harmonics to control Fourier detail. The EF outline is overlaid in blue.",
+                    "💡 Adjust the number of EFD Harmonics to control Fourier detail. The EF outline is overlaid in a blue, dashed line.",
+                    "💡 A perfect circle has a circularity value of 1. Circularity, aka roundness, is calculated as ⁠4π × Area ÷ Perimeter squared⁠.",
+                    "💡 Solidity is the ratio of the outlined area divided by the area of its convex hull. The convex hull is the smallest convex polygon enclosing the outline.",
+                    "💡 Sum of turning angles is the sum of all angular changes between consecutive edges, representing the total amount of turning around the outline.",
+                    "💡 Mean of turning angles is the average turning angle per vertex, representing the typical magnitude of directional change around the outline.",
+                    "💡 Variance of turning angles indicates how consistent or uneven curvature is around the outline.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
                     "💡 Toggle tip visibility in the 'View' menu."

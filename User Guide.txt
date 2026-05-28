@@ -110,6 +110,14 @@ Click and drag anywhere on the outline to erase that part. Set the eraser size u
 Smooth a noisy outline to the desired amount by adjusting the slider value. 
 
 ----- Generate Metadata -----
+Aspect Ratio: Width of the outline (its longest side) divided by its height (maximum perpendicular distance from the width).
+Perimeter / Area: Length of the outline divided by its area.
+Circularity: 4π*Area / Perimeter^2
+Solidity: Area of the outlined shape / Convex hull area
+Sum. Turn. Angles: Sum of the turning angles at each point along the outline. Measures the total amount of directional change.
+Mean Turn. Angles: Mean of the turning angles at each point along the outline. Measures the average amount of directional change.
+Turn. Angle Var.: Variance of the turning angles at each point along the outline. Measures the consistency of directional change.
+EFD: Elliptic Fourier Descriptors. A mathematical representation of the shape of the outline. The number of harmonics can be adjusted to capture more or less detail of the shape.
 
 ------------------------------------------------------------------------------------------------
 VIEW:
