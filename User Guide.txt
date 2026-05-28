@@ -124,6 +124,9 @@ VIEW:
 
 Adjust various properties using the View drop-down menu items.
 
+----- See Tips ----- 
+Toggle on or off to see advice for using the program displayed at the bottom of the screen. Guidelines are also available in the user guide.
+
 ----- See Previous Operations ----- 
 Toggle on or off to keep drawn elements of previous operations on the screen.
 

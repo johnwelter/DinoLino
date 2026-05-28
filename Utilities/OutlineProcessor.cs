@@ -212,6 +212,81 @@ namespace DinoLino.Utilities
             return count;
         }
 
+        // Finds the pixel within searchRadius of (seedX, seedY) that is farthest
+        // from any background/border pixel, using the existing distance transform
+        // infrastructure. This gives a more stable watershed seed than a flat circle,
+        // since it lands on the most "central" foreground point near the click.
+        // Returns the original seed if no better candidate is found.
+        internal (int bestX, int bestY) FindDistanceTransformPeak(
+            int seedX, int seedY, int w, int h,
+            bool[] bgMask, int searchRadius)
+        {
+            int total = w * h;
+            EnsureBuffers(total);
+
+            var dist = _distBuffer;
+            var queue = _queueBuffer;
+
+            // Seed distance-to-background from: image border + bgMask pixels
+            for (int i = 0; i < total; i++) dist[i] = int.MaxValue / 4;
+
+            int head = 0, tail = 0;
+
+            // Border pixels are hard background
+            for (int x = 0; x < w; x++)
+            {
+                dist[x] = 0; queue[tail++] = x;
+                dist[(h - 1) * w + x] = 0; queue[tail++] = (h - 1) * w + x;
+            }
+            for (int y = 1; y < h - 1; y++)
+            {
+                dist[y * w] = 0; queue[tail++] = y * w;
+                dist[y * w + w - 1] = 0; queue[tail++] = y * w + w - 1;
+            }
+
+            // BgMask pixels are also hard background
+            if (bgMask != null)
+                for (int i = 0; i < total; i++)
+                    if (bgMask[i] && dist[i] > 0) { dist[i] = 0; queue[tail++] = i; }
+
+            // BFS to compute distance-to-nearest-background for every pixel
+            while (head < tail)
+            {
+                int i = queue[head++];
+                int d = dist[i] + 1;
+                int x = i % w, y = i / w;
+                if (x > 0 && dist[i - 1] > d) { dist[i - 1] = d; queue[tail++] = i - 1; }
+                if (x < w - 1 && dist[i + 1] > d) { dist[i + 1] = d; queue[tail++] = i + 1; }
+                if (y > 0 && dist[i - w] > d) { dist[i - w] = d; queue[tail++] = i - w; }
+                if (y < h - 1 && dist[i + w] > d) { dist[i + w] = d; queue[tail++] = i + w; }
+            }
+
+            // Search within searchRadius of the click for the pixel with maximum dist
+            int bestIdx = seedY * w + seedX;
+            int bestDist = dist[bestIdx];
+
+            int x0 = Math.Max(0, seedX - searchRadius);
+            int x1 = Math.Min(w - 1, seedX + searchRadius);
+            int y0 = Math.Max(0, seedY - searchRadius);
+            int y1 = Math.Min(h - 1, seedY + searchRadius);
+
+            int r2 = searchRadius * searchRadius;
+            for (int y = y0; y <= y1; y++)
+            {
+                int dy = y - seedY;
+                for (int x = x0; x <= x1; x++)
+                {
+                    int dx = x - seedX;
+                    if (dx * dx + dy * dy > r2) continue;
+                    int i = y * w + x;
+                    if (bgMask != null && bgMask[i]) continue; // never seed on background
+                    if (dist[i] > bestDist) { bestDist = dist[i]; bestIdx = i; }
+                }
+            }
+
+            return (bestIdx % w, bestIdx / w);
+        }
+
         private int CountCardinalNeighbors(bool[] mask, int x, int y, int w, int h)
         {
             int count = 0, i = y * w + x;
@@ -694,14 +769,22 @@ namespace DinoLino.Utilities
                     if (snap.BgMask[i] && labels[i] == -1)
                     { labels[i] = 0; heap.Add((gradient[i], i)); }
 
-            // Seed circle → foreground (uses seedRadius parameter)
+            // Seed foreground from the distance-transform peak near the click point,
+            // rather than a flat circle. The peak is the pixel farthest from any
+            // background/border within searchRadius, which gives a more stable
+            // interior starting point and reduces the chance of seeding on a
+            // transition pixel near the subject boundary.
+            var (peakX, peakY) = FindDistanceTransformPeak(
+                seedX, seedY, w, h, snap.BgMask, searchRadius: 15);
+
             for (int dy = -seedRadius; dy <= seedRadius; dy++)
                 for (int dx = -seedRadius; dx <= seedRadius; dx++)
                 {
                     if (dx * dx + dy * dy > seedRadius * seedRadius) continue;
-                    int nx = seedX + dx, ny = seedY + dy;
+                    int nx = peakX + dx, ny = peakY + dy;
                     if ((uint)nx >= w || (uint)ny >= h) continue;
                     int ni = ny * w + nx;
+                    if (snap.BgMask != null && snap.BgMask[ni]) continue;
                     if (labels[ni] == -1) { labels[ni] = 1; heap.Add((gradient[ni], ni)); }
                 }
 
@@ -748,12 +831,91 @@ namespace DinoLino.Utilities
                 for (int i = 0; i < total; i++)
                     if (snap.BgMask[i]) mask[i] = false;
 
-            int seedIndex = seedY * w + seedX;
-            if (seedIndex >= 0 && seedIndex < total && mask[seedIndex])
-                return KeepComponentContainingSeed(mask, seedIndex,
+            // Check the peak first, fall back to the original click point
+            int peakIndex = peakY * w + peakX;
+            int checkIndex = (peakIndex >= 0 && peakIndex < total && mask[peakIndex])
+                ? peakIndex : seedY * w + seedX;
+            if (checkIndex >= 0 && checkIndex < total && mask[checkIndex])
+                return KeepComponentContainingSeed(mask, checkIndex,
                        new ImageSnapshot(snap.Pixels, snap.BgMask, w, h, snap.Stride, snap.Bpp));
 
             return null;
+        }
+
+        internal bool[] MorphErode(bool[] mask, int w, int h, int radius)
+        {
+            int total = w * h;
+            EnsureBuffers(total);
+
+            // BFS distance transform from background (false) pixels inward
+            var dist = _distBuffer;
+            var queue = _queueBuffer;
+            for (int i = 0; i < total; i++) dist[i] = mask[i] ? int.MaxValue / 4 : 0;
+
+            int head = 0, tail = 0;
+            for (int i = 0; i < total; i++)
+                if (dist[i] == 0) queue[tail++] = i;
+
+            while (head < tail)
+            {
+                int i = queue[head++];
+                int d = dist[i] + 1;
+                int x = i % w, y = i / w;
+                if (x > 0 && dist[i - 1] > d) { dist[i - 1] = d; queue[tail++] = i - 1; }
+                if (x < w - 1 && dist[i + 1] > d) { dist[i + 1] = d; queue[tail++] = i + 1; }
+                if (y > 0 && dist[i - w] > d) { dist[i - w] = d; queue[tail++] = i - w; }
+                if (y < h - 1 && dist[i + w] > d) { dist[i + w] = d; queue[tail++] = i + w; }
+            }
+
+            bool[] result = new bool[total];
+            for (int i = 0; i < total; i++)
+                result[i] = dist[i] > radius;
+            return result;
+        }
+
+        internal bool[] MorphDilate(bool[] mask, int w, int h, int radius)
+        {
+            int total = w * h;
+            EnsureBuffers(total);
+
+            // BFS distance transform from foreground (true) pixels outward
+            var dist = _distBuffer;
+            var queue = _queueBuffer;
+            for (int i = 0; i < total; i++) dist[i] = mask[i] ? 0 : int.MaxValue / 4;
+
+            int head = 0, tail = 0;
+            for (int i = 0; i < total; i++)
+                if (dist[i] == 0) queue[tail++] = i;
+
+            while (head < tail)
+            {
+                int i = queue[head++];
+                int d = dist[i] + 1;
+                int x = i % w, y = i / w;
+                if (x > 0 && dist[i - 1] > d) { dist[i - 1] = d; queue[tail++] = i - 1; }
+                if (x < w - 1 && dist[i + 1] > d) { dist[i + 1] = d; queue[tail++] = i + 1; }
+                if (y > 0 && dist[i - w] > d) { dist[i - w] = d; queue[tail++] = i - w; }
+                if (y < h - 1 && dist[i + w] > d) { dist[i + w] = d; queue[tail++] = i + w; }
+            }
+
+            bool[] result = new bool[total];
+            for (int i = 0; i < total; i++)
+                result[i] = dist[i] <= radius;
+            return result;
+        }
+
+        internal bool[] MorphOpen(bool[] mask, int w, int h, int radius)
+        {
+            // Erode then dilate — breaks thin spurious connections to background bleed
+            bool[] eroded = MorphErode(mask, w, h, radius);
+            return MorphDilate(eroded, w, h, radius);
+        }
+
+        internal bool[] MorphClose(bool[] mask, int w, int h, int radius)
+        {
+            // Dilate then erode — seals small gaps and holes in the subject
+            bool[] dilated = MorphDilate(mask, w, h, radius);
+            return MorphErode(dilated, w, h, radius);
         }
     }
 }

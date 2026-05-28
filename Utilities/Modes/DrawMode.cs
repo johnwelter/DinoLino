@@ -562,6 +562,7 @@ namespace DinoLino.Utilities.Modes
             "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
             "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
             "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+            "💡 Zoom in or out using the scroll wheel.",
             "💡 Toggle tip visibility in the 'View' menu."
         };
             if (IsLineSelected)
@@ -573,12 +574,14 @@ namespace DinoLino.Utilities.Modes
             "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
             "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
             "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+            "💡 Zoom in or out using the scroll wheel.",
             "💡 Toggle tip visibility in the 'View' menu."
         };
             return new[]
             {
                 "💡 Select a drawing method to begin.",
                 "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the 'File' menu.",
+                "💡 Zoom in or out using the scroll wheel.",
                 "💡 Toggle tip visibility in the 'View' menu."
             };
         }

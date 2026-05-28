@@ -115,7 +115,7 @@ namespace DinoLino.Utilities.Modes
             var bgColors = EstimateBackgroundColors();
             _bgColors = bgColors;
             _backgroundMask = _processor.BuildBackgroundMask(
-                _cachedPixels, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp, bgColors);
+                _cachedPixels, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp, bgColors, threshold: 45);
         }
 
 
@@ -197,6 +197,18 @@ namespace DinoLino.Utilities.Modes
         // =====================
         // USER PARAMETERS
         // =====================
+
+        private bool _useActiveContour = false;
+        public bool UseActiveContour
+        {
+            get => _useActiveContour;
+            set
+            {
+                _useActiveContour = value;
+                OnPropertyChanged(nameof(UseActiveContour));
+                OnTipChanged?.Invoke();
+            }
+        }
 
         // 0 = Off, 1 = Low, 2 = High
         private int _watershedBlurLevel = 0;
@@ -302,6 +314,16 @@ namespace DinoLino.Utilities.Modes
                     work = _processor.ExtractLargestComponent(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
+                    // Open pass: erode then dilate — removes thin background-bleed bridges
+                    // before corridor enforcement, so EnforceMinimumCorridorWidth has less to clean up
+                    work = _processor.MorphOpen(work, cw, ch, radius: 2);
+                    work = _processor.ExtractLargestComponent(work, croppedSnap);   // re-extract: open can split components
+                    token.ThrowIfCancellationRequested();
+
+                    // Close pass: dilate then erode — seals small surface gaps left by the open
+                    work = _processor.MorphClose(work, cw, ch, radius: 1);
+                    token.ThrowIfCancellationRequested();
+
                     _processor.EnforceMinimumCorridorWidth(work, croppedSnap, minWidth: 3);
                     token.ThrowIfCancellationRequested();
 
@@ -334,6 +356,7 @@ namespace DinoLino.Utilities.Modes
                     List<Point> simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
                     if (simplified.Count < 3) return;
                     token.ThrowIfCancellationRequested();
+
 
                     System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
@@ -570,8 +593,11 @@ namespace DinoLino.Utilities.Modes
             if (_activePolyline == null) return;
             if (_preSmoothSnapshot == null || _preSmoothSnapshot.Count < 3) return;
 
-            // Start from the original snapshot each time
-            var working = new List<Point>(_preSmoothSnapshot);
+            // Resample to uniform arc-length spacing before smoothing so that
+            // Laplacian pressure is even around the whole outline. Without this,
+            // dense regions (tight curves) smooth faster than sparse ones (straight runs),
+            // causing corners to drift unpredictably.
+            var working = ResampleUniform(new List<Point>(_preSmoothSnapshot), targetSpacing: 4.0);
 
             for (int pass = 0; pass < _smoothStrength; pass++)
             {
@@ -607,6 +633,72 @@ namespace DinoLino.Utilities.Modes
                 double dy = first.Y - last.Y;
                 if (dx * dx + dy * dy >= 1.0)
                     points.Add(first);
+            }
+        }
+
+        // Resamples a closed polyline to approximately uniform arc-length spacing.
+        // This ensures Laplacian smoothing applies equal pressure at every vertex,
+        // preventing corners from drifting based on local point density.
+        // The last point is assumed to be a closure duplicate of the first and is
+        // preserved as such after resampling.
+        private List<Point> ResampleUniform(List<Point> points, double targetSpacing)
+        {
+            if (points == null || points.Count < 3) return points;
+
+            // Build cumulative arc-length table (excluding the closure duplicate)
+            int n = points.Count;
+            bool hasClosure = false;
+            {
+                Point f = points[0], l = points[n - 1];
+                double dx = f.X - l.X, dy = f.Y - l.Y;
+                hasClosure = (dx * dx + dy * dy) < 1.0;
+            }
+            int open = hasClosure ? n - 1 : n; // number of distinct vertices
+
+            var lengths = new double[open];
+            lengths[0] = 0;
+            for (int i = 1; i < open; i++)
+            {
+                double dx = points[i].X - points[i - 1].X;
+                double dy = points[i].Y - points[i - 1].Y;
+                lengths[i] = lengths[i - 1] + Math.Sqrt(dx * dx + dy * dy);
+            }
+            // Close the loop: distance from last distinct vertex back to first
+            {
+                double dx = points[0].X - points[open - 1].X;
+                double dy = points[0].Y - points[open - 1].Y;
+                double totalLength = lengths[open - 1] + Math.Sqrt(dx * dx + dy * dy);
+
+                if (totalLength < 1e-6) return points;
+
+                // How many evenly-spaced samples fit around the perimeter?
+                int count = Math.Max(3, (int)Math.Round(totalLength / targetSpacing));
+                double step = totalLength / count;
+
+                var result = new List<Point>(count + 1);
+                int seg = 0;
+                for (int k = 0; k < count; k++)
+                {
+                    double target = k * step;
+                    // Advance segment pointer
+                    while (seg < open - 1 && lengths[seg + 1] < target) seg++;
+
+                    // Interpolate within the current segment (wraps: last->first)
+                    double segStart = lengths[seg];
+                    double segEnd = seg < open - 1 ? lengths[seg + 1]
+                                                   : lengths[open - 1] + Math.Sqrt(
+                                                       (points[0].X - points[open - 1].X) * (points[0].X - points[open - 1].X) +
+                                                       (points[0].Y - points[open - 1].Y) * (points[0].Y - points[open - 1].Y));
+                    double t = (segEnd > segStart) ? (target - segStart) / (segEnd - segStart) : 0;
+
+                    Point a = points[seg];
+                    Point b = seg < open - 1 ? points[seg + 1] : points[0];
+                    result.Add(new Point(a.X + t * (b.X - a.X), a.Y + t * (b.Y - a.Y)));
+                }
+
+                // Re-add closure point
+                if (hasClosure) result.Add(result[0]);
+                return result;
             }
         }
         #endregion
@@ -836,18 +928,20 @@ namespace DinoLino.Utilities.Modes
                         "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
                         "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                         "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                        "💡 Zoom in or out using the scroll wheel.",
                         "💡 Toggle tip visibility in the 'View' menu."
                     }
                     : new[] 
                     { 
                         "💡 Set fill sensitivity to maximum values for images on a solid background.",
                         "💡 To increase speed, try decimating pixel count using the 'Decimate' function in the 'View' menu.",
-                        "💡 Having trouble with the outline? Watershed mode may improve accuracy for complex images.",
+                        "💡 Having trouble with the outline? Watershed mode may improve accuracy for complex or textured images.",
                         "💡 Outline mode performs best on unpatterned images with a solid background.",
                         "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
                         "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
                         "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                         "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                        "💡 Zoom in or out using the scroll wheel.",
                         "💡 Toggle tip visibility in the 'View' menu."
                     };
             if (EraseOutlineMode)
@@ -857,6 +951,7 @@ namespace DinoLino.Utilities.Modes
                     "💡 Outline mode performs best on unpatterned images with a solid background.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                    "💡 Zoom in or out using the scroll wheel.",
                     "💡 Toggle tip visibility in the 'View' menu."
                 };
             if (SmoothOutlineMode)
@@ -866,6 +961,7 @@ namespace DinoLino.Utilities.Modes
                     "💡 Outline mode performs best on unpatterned images with a solid background.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                    "💡 Zoom in or out using the scroll wheel.",
                     "💡 Toggle tip visibility in the 'View' menu."
                 };
             if (OutlineMetadataMode)
@@ -879,6 +975,7 @@ namespace DinoLino.Utilities.Modes
                     "💡 Variance of turning angles indicates how consistent or uneven curvature is around the outline.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                    "💡 Zoom in or out using the scroll wheel.",
                     "💡 Toggle tip visibility in the 'View' menu."
                 };
             return new[] { string.Empty };
