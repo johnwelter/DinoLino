@@ -104,6 +104,25 @@ namespace DinoLino.Utilities
             return (snap.Pixels[i + 2], snap.Pixels[i + 1], snap.Pixels[i]);
         }
 
+        internal (byte r, byte g, byte b) SampleSeedColor(int cx, int cy, ImageSnapshot snap, int radius)
+        {
+            int w = snap.Width, h = snap.Height;
+            int tr = 0, tg = 0, tb = 0, count = 0;
+            for (int dy = -radius; dy <= radius; dy++)
+                for (int dx = -radius; dx <= radius; dx++)
+                {
+                    int x = cx + dx, y = cy + dy;
+                    if ((uint)x >= w || (uint)y >= h) continue;
+                    int idx = y * w + x;
+                    // Exclude confirmed background pixels from the seed color average
+                    if (snap.BgMask != null && snap.BgMask[idx]) continue;
+                    var (r, g, b) = ReadPixel(x, y, snap);
+                    tr += r; tg += g; tb += b; count++;
+                }
+            if (count == 0) return ReadPixel(cx, cy, snap);
+            return ((byte)(tr / count), (byte)(tg / count), (byte)(tb / count));
+        }
+
         internal double PerceptualDistance(byte r1, byte g1, byte b1, byte r2, byte g2, byte b2)
         {
             double dr = r1 - r2, dg = g1 - g2, db = b1 - b2;
@@ -114,9 +133,9 @@ namespace DinoLino.Utilities
         // BACKGROUND MASK
         // =====================
         internal bool[] BuildBackgroundMask(
-            byte[] pixels, int w, int h, int stride, int bpp,
-            (double r, double g, double b)[] bgColors,
-            double threshold = 25)
+    byte[] pixels, int w, int h, int stride, int bpp,
+    (double r, double g, double b)[] bgColors,
+    double threshold = 25)
         {
             bool[] background = new bool[w * h];
             EnsureQueue(w * h);
@@ -140,6 +159,7 @@ namespace DinoLino.Utilities
                 _queueBuffer[_qTail++] = y * w + x;
             }
 
+            // Seed border pixels by color similarity to the nearest quadrant reference
             for (int x = 0; x < w; x++)
             {
                 TryAdd(x, 0, x < w / 2 ? 0 : 1);
@@ -151,6 +171,26 @@ namespace DinoLino.Utilities
                 TryAdd(w - 1, y, y < h / 2 ? 1 : 3);
             }
 
+            // Hard-seed the actual corner patch pixels unconditionally —
+            // these are definitionally background regardless of color comparison.
+            // This prevents gaps caused by color drift between the sampled patch
+            // average and the individual pixels within that patch.
+            int patch = Math.Max(4, Math.Min(20, Math.Min(w, h) / 10));
+            for (int py = 0; py < patch; py++)
+                for (int px = 0; px < patch; px++)
+                {
+                    int[] xs = { px, w - 1 - px, px, w - 1 - px };
+                    int[] ys = { py, py, h - 1 - py, h - 1 - py };
+                    for (int c = 0; c < 4; c++)
+                    {
+                        int i = ys[c] * w + xs[c];
+                        if (background[i]) continue;
+                        background[i] = true;
+                        _queueBuffer[_qTail++] = i;
+                    }
+                }
+
+            // Flood inward from all seeded border and corner pixels
             while (_qHead < _qTail)
             {
                 int ci = _queueBuffer[_qHead++];
@@ -165,6 +205,56 @@ namespace DinoLino.Utilities
             return background;
         }
 
+        internal bool[] BuildBackgroundMaskProgressive(
+    byte[] pixels, int w, int h, int stride, int bpp,
+    (double r, double g, double b)[] bgColors,
+    double tightThreshold, double relaxedThreshold)
+        {
+            // First pass: tight threshold — only confident background
+            bool[] tight = BuildBackgroundMask(pixels, w, h, stride, bpp, bgColors, tightThreshold);
+
+            // Second pass: relaxed threshold seeded only from confirmed background pixels
+            // This extends the mask into gradient regions without starting fresh from borders
+            bool[] relaxed = (bool[])tight.Clone();
+            EnsureQueue(w * h);
+            _qHead = 0; _qTail = 0;
+
+            // Seed from tight background border pixels
+            for (int i = 0; i < tight.Length; i++)
+                if (tight[i]) _queueBuffer[_qTail++] = i;
+
+            while (_qHead < _qTail)
+            {
+                int ci = _queueBuffer[_qHead++];
+                int cx = ci % w, cy = ci / w;
+                int colorIndex = (cx < w / 2 ? 0 : 1) + (cy < h / 2 ? 0 : 2);
+
+                void TryRelax(int nx, int ny)
+                {
+                    int ni = ny * w + nx;
+                    if (relaxed[ni]) return;
+                    int pi = ny * stride + nx * bpp;
+                    byte pr = bpp == 1 ? pixels[pi] : pixels[pi + 2];
+                    byte pg = bpp == 1 ? pixels[pi] : pixels[pi + 1];
+                    byte pb = bpp == 1 ? pixels[pi] : pixels[pi];
+                    var (br, bg, bb) = bgColors[colorIndex];
+                    double dist = PerceptualDistance(pr, pg, pb,
+                        (byte)Math.Max(0, Math.Min(255, br)),
+                        (byte)Math.Max(0, Math.Min(255, bg)),
+                        (byte)Math.Max(0, Math.Min(255, bb)));
+                    if (dist > relaxedThreshold) return;
+                    relaxed[ni] = true;
+                    _queueBuffer[_qTail++] = ni;
+                }
+
+                if (cx > 0) TryRelax(cx - 1, cy);
+                if (cx < w - 1) TryRelax(cx + 1, cy);
+                if (cy > 0) TryRelax(cx, cy - 1);
+                if (cy < h - 1) TryRelax(cx, cy + 1);
+            }
+
+            return relaxed;
+        }
         // =====================
         // MASK UTILITIES
         // =====================
@@ -333,7 +423,7 @@ namespace DinoLino.Utilities
                     double neighborDist = PerceptualDistance(pr, pg, pb, cr, cg, cb);
                     bool strongEdge = neighborDist > edgeThreshold;
                     bool seedMatch = seedDist <= tolerance;
-                    bool gradientMatch = neighborDist <= gradientLeniency && seedDist <= tolerance * 6.0;
+                    bool gradientMatch = neighborDist <= gradientLeniency&& seedDist <= Math.Max(tolerance * 5.0, 150.0);
                     if ((!strongEdge || seedMatch) && (seedMatch || gradientMatch))
                     { inside[ni] = true; _queueBuffer[_qTail++] = ni; }
                 }

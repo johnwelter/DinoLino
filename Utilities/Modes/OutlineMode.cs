@@ -114,8 +114,35 @@ namespace DinoLino.Utilities.Modes
 
             var bgColors = EstimateBackgroundColors();
             _bgColors = bgColors;
-            _backgroundMask = _processor.BuildBackgroundMask(
-                _cachedPixels, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp, bgColors, threshold: 45);
+            // Compute variance across the four corner patch averages to estimate
+            // how uniform the background is. High variance = noisy/gradient background
+            // = use a higher threshold. Low variance = clean background = use lower threshold.
+            double adaptiveThreshold = ComputeAdaptiveBackgroundThreshold(bgColors);
+            _backgroundMask = _processor.BuildBackgroundMaskProgressive(
+                _cachedPixels, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp,
+                bgColors,
+                tightThreshold: adaptiveThreshold * 0.6,
+                relaxedThreshold: adaptiveThreshold);
+        }
+
+        private double ComputeAdaptiveBackgroundThreshold((double r, double g, double b)[] bgColors)
+        {
+            // Compute mean color across all four corners
+            double mr = 0, mg = 0, mb = 0;
+            foreach (var (r, g, b) in bgColors) { mr += r; mg += g; mb += b; }
+            mr /= 4; mg /= 4; mb /= 4;
+
+            // Compute max perceptual distance between any corner and the mean
+            double maxDist = 0;
+            foreach (var (r, g, b) in bgColors)
+            {
+                double dr = r - mr, dg = g - mg, db = b - mb;
+                double dist = Math.Sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db);
+                if (dist > maxDist) maxDist = dist;
+            }
+
+            // Map corner spread to threshold: uniform background → 35, noisy → 60
+            return Math.Max(35, Math.Min(60, 35 + maxDist * 0.8));
         }
 
 
@@ -123,17 +150,31 @@ namespace DinoLino.Utilities.Modes
         // Samples one pixel at each corner for use as individual background seeds.
         private (double r, double g, double b)[] EstimateBackgroundColors()
         {
+            int w = _cachedWidth, h = _cachedHeight;
+            int patch = Math.Max(4, Math.Min(20, Math.Min(w, h) / 10));
+
+            (double r, double g, double b) SamplePatch(int x0, int y0, int x1, int y1)
+            {
+                double tr = 0, tg = 0, tb = 0; int count = 0;
+                for (int y = y0; y <= y1; y++)
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        var (r, g, b) = ReadPixel(x, y);
+                        tr += r; tg += g; tb += b; count++;
+                    }
+                return count > 0 ? (tr / count, tg / count, tb / count) : (0, 0, 0);
+            }
+
+            int inset = Math.Min(5, Math.Min(w, h) / 20); // skip the outermost pixels
+            int p = patch - 1;
             return new[]
             {
-        ToDouble(ReadPixel(0, 0)),
-        ToDouble(ReadPixel(_cachedWidth - 1, 0)),
-        ToDouble(ReadPixel(0, _cachedHeight - 1)),
-        ToDouble(ReadPixel(_cachedWidth - 1, _cachedHeight - 1))
-    };
+                SamplePatch(inset,         inset,         inset + p,         inset + p),         // top-left
+                SamplePatch(w - patch - inset, inset,     w - 1 - inset,     inset + p),         // top-right
+                SamplePatch(inset,         h - patch - inset, inset + p,     h - 1 - inset),     // bottom-left
+                SamplePatch(w - patch - inset, h - patch - inset, w - 1 - inset, h - 1 - inset), // bottom-right
+            };
         }
-
-        private (double r, double g, double b) ToDouble((byte r, byte g, byte b) px)
-            => (px.r, px.g, px.b);
 
         private bool[] _backgroundMask;
         
@@ -198,6 +239,82 @@ namespace DinoLino.Utilities.Modes
         // USER PARAMETERS
         // =====================
 
+        // =====================
+        // CONFIRMATION MODE FIELDS
+        // =====================
+        private bool _requireConfirmation = false;
+        public bool RequireConfirmation
+        {
+            get => _requireConfirmation;
+            set { _requireConfirmation = value; OnPropertyChanged(nameof(RequireConfirmation)); }
+        }
+
+        private Polyline _pendingPolyline = null;
+        private bool _hasPendingOutline = false;
+        private bool _mergeNextClick = false;
+        private bool[] _pendingRawMask = null;
+        private int _pendingBx0, _pendingBy0, _pendingBx1, _pendingBy1;
+
+        public Action<Polyline, Polyline> OnPendingOutlineReady; // (newPending, oldPending to remove)
+
+        private void CommitOutline(Polyline polyline)
+        {
+            polyline.StrokeDashArray = null;
+            polyline.Opacity = 1.0;
+
+            _activePolyline = polyline;
+            _preSmoothSnapshot = new List<Point>(polyline.Points);
+            _pendingPolyline = null;
+            _pendingRawMask = null;
+            _hasPendingOutline = false;
+            _mergeNextClick = false;
+
+            var output = new List<UIElement> { polyline };
+            CommitOperation(new OutlineOperation
+            {
+                OperationKind = "Outline",
+                SourceMode = this,
+                Elements = new List<UIElement>(output)
+            });
+            OnOutlineReady?.Invoke(output);
+        }
+
+        public bool TryConfirmOrMergePendingOutline(double canvasX, double canvasY)
+        {
+            if (!_hasPendingOutline || _pendingPolyline == null) return false;
+
+            double imgX = (canvasX - OffsetX) / ScaleX;
+            double imgY = (canvasY - OffsetY) / ScaleY;
+
+            bool isInside = imgX >= _pendingBx0 && imgX <= _pendingBx1
+                         && imgY >= _pendingBy0 && imgY <= _pendingBy1;
+
+            if (isInside)
+            {
+                CommitOutline(_pendingPolyline);
+                return true;
+            }
+
+            // Outside — seed the second click location into the pending raw mask
+            // so the next ProcessClick run merges from the expanded mask
+            if (_pendingRawMask != null)
+            {
+                int w = _cachedWidth, h = _cachedHeight;
+                int ix = (int)Math.Round(imgX), iy = (int)Math.Round(imgY);
+                int radius = 3;
+                for (int dy = -radius; dy <= radius; dy++)
+                    for (int dx = -radius; dx <= radius; dx++)
+                    {
+                        int nx = ix + dx, ny = iy + dy;
+                        if ((uint)nx >= w || (uint)ny >= h) continue;
+                        if (dx * dx + dy * dy <= radius * radius)
+                            _pendingRawMask[ny * w + nx] = true;
+                    }
+            }
+
+            return false; // signal ProcessClick to re-run with _mergeNextClick = true
+        }
+
         private bool _useActiveContour = false;
         public bool UseActiveContour
         {
@@ -251,6 +368,11 @@ namespace DinoLino.Utilities.Modes
             _efd.Clear();
             ClearMetadata();
             ClearEFDPreview();
+            _pendingPolyline = null;
+            _pendingRawMask = null;
+            _hasPendingOutline = false;
+            _mergeNextClick = false;
+            _pendingBx0 = _pendingBy0 = _pendingBx1 = _pendingBy1 = 0;
         }
 
         private readonly OutlineProcessor _processor = new OutlineProcessor();
@@ -262,6 +384,17 @@ namespace DinoLino.Utilities.Modes
 
         public override List<UIElement> ProcessClick(Vector2 mousePos)
         {
+            if (_requireConfirmation && _hasPendingOutline)
+            {
+                if (TryConfirmOrMergePendingOutline(mousePos.X, mousePos.Y))
+                    return new List<UIElement>();
+                _mergeNextClick = true;
+            }
+            else
+            {
+                _mergeNextClick = false;
+            }
+
             BeginOperation();
 
             if (_eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode)
@@ -277,11 +410,11 @@ namespace DinoLino.Utilities.Modes
 
             var token = CancellationToken;
 
-            // Snapshot everything the background thread needs
-            // so it doesn't touch UI-thread objects
             var snap = new ImageSnapshot(_cachedPixels, _backgroundMask, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp);
-            double scaleX = ScaleX, scaleY = ScaleY;
-            double offsetX = OffsetX, offsetY = OffsetY;
+
+            // Capture merge state for the background thread
+            bool mergeThisClick = _mergeNextClick;
+            bool[] pendingMaskSnapshot = mergeThisClick ? _pendingRawMask : null;
 
             System.Threading.Tasks.Task.Run(() =>
             {
@@ -289,7 +422,7 @@ namespace DinoLino.Utilities.Modes
                 {
                     token.ThrowIfCancellationRequested();
 
-                    (byte sr, byte sg, byte sb) = _processor.ReadPixel(px, py, snap);
+                    (byte sr, byte sg, byte sb) = _processor.SampleSeedColor(px, py, snap, radius: 2);
                     bool[] raw;
                     if (_useWatershed)
                     {
@@ -304,23 +437,36 @@ namespace DinoLino.Utilities.Modes
                     if (!_processor.HasMinimumPixels(raw, 1)) return;
                     token.ThrowIfCancellationRequested();
 
-                    // Crop before FillHoles — avoids running hole-filling on the full image.
+                    // Strip any foreground pixels within 5 pixels of the image border.
+                    int sw = snap.Width, sh = snap.Height;
+                    for (int i = 0; i < raw.Length; i++)
+                    {
+                        if (!raw[i]) continue;
+                        int rx = i % sw, ry = i / sw;
+                        if (rx <= 4 || rx >= sw - 5 || ry <= 4 || ry >= sh - 5)
+                            raw[i] = false;
+                    }
+
+                    // If this is a merge click, union the new raw mask with the pending mask
+                    if (mergeThisClick && pendingMaskSnapshot != null)
+                    {
+                        for (int i = 0; i < raw.Length; i++)
+                            raw[i] = raw[i] || pendingMaskSnapshot[i];
+                    }
+
+                    // Crop before FillHoles
                     var (bx0, by0, bx1, by1) = _processor.GetMaskBounds(raw, snap.Width, snap.Height, margin: 4);
                     var (croppedRaw, cw, ch) = _processor.CropMask(raw, snap.Width, bx0, by0, bx1, by1);
                     var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
-                    // FillHoles and ExtractLargestComponent now operate only on the small cropped region.
                     bool[] work = _processor.FillHoles(croppedRaw, croppedSnap);
                     work = _processor.ExtractLargestComponent(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
-                    // Open pass: erode then dilate — removes thin background-bleed bridges
-                    // before corridor enforcement, so EnforceMinimumCorridorWidth has less to clean up
                     work = _processor.MorphOpen(work, cw, ch, radius: 2);
-                    work = _processor.ExtractLargestComponent(work, croppedSnap);   // re-extract: open can split components
+                    work = _processor.ExtractLargestComponent(work, croppedSnap);
                     token.ThrowIfCancellationRequested();
 
-                    // Close pass: dilate then erode — seals small surface gaps left by the open
                     work = _processor.MorphClose(work, cw, ch, radius: 1);
                     token.ThrowIfCancellationRequested();
 
@@ -355,8 +501,19 @@ namespace DinoLino.Utilities.Modes
 
                     List<Point> simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
                     if (simplified.Count < 3) return;
+
+                    const int borderMargin = 5;
+                    for (int pi2 = 0; pi2 < simplified.Count; pi2++)
+                    {
+                        double cx2 = Math.Max(borderMargin, Math.Min(snap.Width - borderMargin - 1, simplified[pi2].X));
+                        double cy2 = Math.Max(borderMargin, Math.Min(snap.Height - borderMargin - 1, simplified[pi2].Y));
+                        simplified[pi2] = new Point(cx2, cy2);
+                    }
                     token.ThrowIfCancellationRequested();
 
+                    // Capture raw mask and bounds for potential merge on a subsequent click
+                    bool[] rawForMerge = (bool[])raw.Clone();
+                    int rawBx0 = bx0, rawBy0 = by0, rawBx1 = bx1, rawBy1 = by1;
 
                     System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
@@ -369,7 +526,6 @@ namespace DinoLino.Utilities.Modes
                             FillRule = FillRule.EvenOdd
                         };
 
-                        // Boundary points are in cropped coordinates — translate back to canvas
                         foreach (var p in simplified)
                             polyline.Points.Add(new Point(
                                 (p.X + bx0) * ScaleX + OffsetX,
@@ -379,25 +535,29 @@ namespace DinoLino.Utilities.Modes
                             (simplified[0].X + bx0) * ScaleX + OffsetX,
                             (simplified[0].Y + by0) * ScaleY + OffsetY));
 
-                        _activePolyline = polyline;
-                        _preSmoothSnapshot = new List<Point>(polyline.Points);
-
-                        var output = new List<UIElement> { polyline };
-
-                        CommitOperation(new OutlineOperation
+                        if (_requireConfirmation)
                         {
-                            OperationKind = "Outline",
-                            SourceMode = this,
-                            Elements = new List<UIElement>(output)
-                        });
+                            polyline.StrokeDashArray = new DoubleCollection { 6, 3 };
+                            polyline.Opacity = 0.6;
 
-                        OnOutlineReady?.Invoke(output);
+                            OnPendingOutlineReady?.Invoke(polyline, _pendingPolyline);
+                            _pendingPolyline = polyline;
+                            _pendingRawMask = rawForMerge;
+                            _pendingBx0 = rawBx0;
+                            _pendingBy0 = rawBy0;
+                            _pendingBx1 = rawBx1;
+                            _pendingBy1 = rawBy1;
+                            _hasPendingOutline = true;
+                        }
+                        else
+                        {
+                            CommitOutline(polyline);
+                        }
                     });
                 }
                 catch (OperationCanceledException) { }
             }, token);
 
-            // Return empty immediately; results arrive via OnOutlineReady
             return new List<UIElement>();
         }
 
@@ -922,27 +1082,27 @@ namespace DinoLino.Utilities.Modes
                     ? new[] 
                     { 
                         "💡 Use Watershed to generate more accurate outlines on complex images, at the cost of reduced speed.",
-                        "💡 To increase speed, try decimating pixel count using the 'Decimate' function in the 'View' menu.",
+                        "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
                         "💡 Outline mode performs best on unpatterned images with a solid background.",
-                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
-                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
                         "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
                         "💡 Zoom in or out using the scroll wheel.",
-                        "💡 Toggle tip visibility in the 'View' menu."
+                        "💡 Toggle tip visibility in the View menu."
                     }
                     : new[] 
                     { 
                         "💡 Set fill sensitivity to maximum values for images on a solid background.",
-                        "💡 To increase speed, try decimating pixel count using the 'Decimate' function in the 'View' menu.",
+                        "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
                         "💡 Having trouble with the outline? Watershed mode may improve accuracy for complex or textured images.",
                         "💡 Outline mode performs best on unpatterned images with a solid background.",
-                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
-                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
                         "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
                         "💡 Zoom in or out using the scroll wheel.",
-                        "💡 Toggle tip visibility in the 'View' menu."
+                        "💡 Toggle tip visibility in the View menu."
                     };
             if (EraseOutlineMode)
                 return new[] 
@@ -950,9 +1110,9 @@ namespace DinoLino.Utilities.Modes
                     "💡 Click and drag over the outline to erase. Adjust brush size for precision.",
                     "💡 Outline mode performs best on unpatterned images with a solid background.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
                     "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Toggle tip visibility in the 'View' menu."
+                    "💡 Toggle tip visibility in the View menu."
                 };
             if (SmoothOutlineMode)
                 return new[] 
@@ -960,9 +1120,9 @@ namespace DinoLino.Utilities.Modes
                     "💡 Adjust smooth strength for cleaner outlines. Too high may distort sharp features.",
                     "💡 Outline mode performs best on unpatterned images with a solid background.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
                     "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Toggle tip visibility in the 'View' menu."
+                    "💡 Toggle tip visibility in the View menu."
                 };
             if (OutlineMetadataMode)
                 return new[] 
@@ -974,9 +1134,9 @@ namespace DinoLino.Utilities.Modes
                     "💡 Mean of turning angles is the average turning angle per vertex, representing the typical magnitude of directional change around the outline.",
                     "💡 Variance of turning angles indicates how consistent or uneven curvature is around the outline.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
                     "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Toggle tip visibility in the 'View' menu."
+                    "💡 Toggle tip visibility in the View menu."
                 };
             return new[] { string.Empty };
         }

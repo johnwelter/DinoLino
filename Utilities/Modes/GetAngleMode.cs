@@ -308,12 +308,12 @@ namespace DinoLino.Utilities.Modes
         {
             "💡 Click three points to define a triangle. Results update automatically after the third click.",
             "💡 The aspect ratio of any triangle is the length of its longest side divided by its height.",
-            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
-            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
             "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
             "💡 Zoom in or out using the scroll wheel.",
-            "💡 Toggle tip visibility in the 'View' menu."
+            "💡 Toggle tip visibility in the View menu."
         };
     }
 }

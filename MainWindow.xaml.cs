@@ -71,7 +71,24 @@ namespace DinoLino
             _tipCycleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
             _tipCycleTimer.Tick += TipCycle_Tick;
 
-            _imageAdjuster.OnAdjustmentApplied = bitmap => UI_WorkImage.Source = bitmap;
+            _imageAdjuster.OnAdjustmentApplied = bitmap =>
+            {
+                UI_WorkImage.Source = bitmap;
+
+                // Convert the adjusted BitmapSource to BitmapImage so OutlineMode can cache its pixels.
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                using var stream = new System.IO.MemoryStream();
+                encoder.Save(stream);
+                stream.Position = 0;
+                var bmi = new BitmapImage();
+                bmi.BeginInit();
+                bmi.CacheOption = BitmapCacheOption.OnLoad;
+                bmi.StreamSource = stream;
+                bmi.EndInit();
+                bmi.Freeze();
+                OutlineMode.SourceImage = bmi;
+            };
             SpecimenManager.BindToTextBox(UI_SpecimenNameBox);
 
             // Keyboard shortcuts
@@ -100,6 +117,13 @@ namespace DinoLino
             GetAngleMode.OnTipChanged = UpdateTip;
             DrawMode.OnTipChanged = UpdateTip;
             OutlineMode.OnTipChanged = UpdateTip;
+
+            OutlineMode.OnPendingOutlineReady = (newPending, oldPending) =>
+            {
+                if (oldPending != null)
+                    UI_WorkCanvas.Children.Remove(oldPending);
+                AddElementToWorkSpace(newPending);
+            };
 
             OutlineMode.OnOutlineReady = elements =>
             {
