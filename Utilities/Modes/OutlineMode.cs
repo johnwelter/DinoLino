@@ -3,6 +3,7 @@ using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -239,81 +240,21 @@ namespace DinoLino.Utilities.Modes
         // USER PARAMETERS
         // =====================
 
-        // =====================
-        // CONFIRMATION MODE FIELDS
-        // =====================
-        private bool _requireConfirmation = false;
-        public bool RequireConfirmation
+        // Multi-click toggle (bound in XAML)
+        private bool _multiClickOutline = false;
+        public bool MultiClickOutline
         {
-            get => _requireConfirmation;
-            set { _requireConfirmation = value; OnPropertyChanged(nameof(RequireConfirmation)); }
+            get => _multiClickOutline;
+            set { _multiClickOutline = value; OnPropertyChanged(nameof(MultiClickOutline)); OnTipChanged?.Invoke(); }
         }
 
-        private Polyline _pendingPolyline = null;
-        private bool _hasPendingOutline = false;
-        private bool _mergeNextClick = false;
-        private bool[] _pendingRawMask = null;
-        private int _pendingBx0, _pendingBy0, _pendingBx1, _pendingBy1;
+        // Pending (uncommitted) outline state for multi-click
+        private bool[] _pendingMask;          // full-image-space accumulated foreground mask
+        private Polyline _pendingPolyline;    // the dashed preview currently shown
+        private bool _hasPending = false;
 
-        public Action<Polyline, Polyline> OnPendingOutlineReady; // (newPending, oldPending to remove)
-
-        private void CommitOutline(Polyline polyline)
-        {
-            polyline.StrokeDashArray = null;
-            polyline.Opacity = 1.0;
-
-            _activePolyline = polyline;
-            _preSmoothSnapshot = new List<Point>(polyline.Points);
-            _pendingPolyline = null;
-            _pendingRawMask = null;
-            _hasPendingOutline = false;
-            _mergeNextClick = false;
-
-            var output = new List<UIElement> { polyline };
-            CommitOperation(new OutlineOperation
-            {
-                OperationKind = "Outline",
-                SourceMode = this,
-                Elements = new List<UIElement>(output)
-            });
-            OnOutlineReady?.Invoke(output);
-        }
-
-        public bool TryConfirmOrMergePendingOutline(double canvasX, double canvasY)
-        {
-            if (!_hasPendingOutline || _pendingPolyline == null) return false;
-
-            double imgX = (canvasX - OffsetX) / ScaleX;
-            double imgY = (canvasY - OffsetY) / ScaleY;
-
-            bool isInside = imgX >= _pendingBx0 && imgX <= _pendingBx1
-                         && imgY >= _pendingBy0 && imgY <= _pendingBy1;
-
-            if (isInside)
-            {
-                CommitOutline(_pendingPolyline);
-                return true;
-            }
-
-            // Outside — seed the second click location into the pending raw mask
-            // so the next ProcessClick run merges from the expanded mask
-            if (_pendingRawMask != null)
-            {
-                int w = _cachedWidth, h = _cachedHeight;
-                int ix = (int)Math.Round(imgX), iy = (int)Math.Round(imgY);
-                int radius = 3;
-                for (int dy = -radius; dy <= radius; dy++)
-                    for (int dx = -radius; dx <= radius; dx++)
-                    {
-                        int nx = ix + dx, ny = iy + dy;
-                        if ((uint)nx >= w || (uint)ny >= h) continue;
-                        if (dx * dx + dy * dy <= radius * radius)
-                            _pendingRawMask[ny * w + nx] = true;
-                    }
-            }
-
-            return false; // signal ProcessClick to re-run with _mergeNextClick = true
-        }
+        // (newPending, oldPending) — MainWindow swaps them on the canvas
+        public Action<Polyline, Polyline> OnPendingOutlineReady;
 
         private bool _useActiveContour = false;
         public bool UseActiveContour
@@ -365,14 +306,12 @@ namespace DinoLino.Utilities.Modes
         {
             base.Reset();
             _activePolyline = null;
+            _pendingMask = null;
+            _pendingPolyline = null;
+            _hasPending = false;
             _efd.Clear();
             ClearMetadata();
             ClearEFDPreview();
-            _pendingPolyline = null;
-            _pendingRawMask = null;
-            _hasPendingOutline = false;
-            _mergeNextClick = false;
-            _pendingBx0 = _pendingBy0 = _pendingBx1 = _pendingBy1 = 0;
         }
 
         private readonly OutlineProcessor _processor = new OutlineProcessor();
@@ -382,183 +321,251 @@ namespace DinoLino.Utilities.Modes
         // =====================
         public Action<List<UIElement>> OnOutlineReady;
 
-        public override List<UIElement> ProcessClick(Vector2 mousePos)
+        // Runs the full cleanup pipeline on a full-image-space mask.
+        // Returns the cleaned full-image-space mask, or null if it fails.
+        private bool[] CleanMaskFullSpace(bool[] rawFull, ImageSnapshot snap,
+            int seedPxX, int seedPxY, CancellationToken token)
         {
-            if (_requireConfirmation && _hasPendingOutline)
+            // border strip
+            int sw = snap.Width, sh = snap.Height;
+            for (int i = 0; i < rawFull.Length; i++)
             {
-                if (TryConfirmOrMergePendingOutline(mousePos.X, mousePos.Y))
-                    return new List<UIElement>();
-                _mergeNextClick = true;
-            }
-            else
-            {
-                _mergeNextClick = false;
+                if (!rawFull[i]) continue;
+                int rx = i % sw, ry = i / sw;
+                if (rx <= 4 || rx >= sw - 5 || ry <= 4 || ry >= sh - 5) rawFull[i] = false;
             }
 
+            var (bx0, by0, bx1, by1) = _processor.GetMaskBounds(rawFull, sw, sh, margin: 4);
+            var (cropped, cw, ch) = _processor.CropMask(rawFull, sw, bx0, by0, bx1, by1);
+            var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
+
+            bool[] work = _processor.FillHoles(cropped, croppedSnap);
+            work = _processor.ExtractLargestComponent(work, croppedSnap);
+            work = _processor.MorphOpen(work, cw, ch, radius: 2);
+            work = _processor.ExtractLargestComponent(work, croppedSnap);
+            work = _processor.MorphClose(work, cw, ch, radius: 1);
+            _processor.EnforceMinimumCorridorWidth(work, croppedSnap, minWidth: 3);
+            _processor.SmoothBorderTopology(work, croppedSnap);
+            _processor.PruneDeadEnds(work, croppedSnap);
+            work = _processor.KeepLargestComponent(work, croppedSnap);
+
+            int cpx = seedPxX - bx0, cpy = seedPxY - by0;
+            bool[] traced = _processor.PrepareMaskForTracing(work, cropped, cpx, cpy, MinAreaPixels, croppedSnap);
+
+            // Paste cropped result back into full-image space
+            bool[] full = new bool[sw * sh];
+            for (int y = 0; y < ch; y++)
+                for (int x = 0; x < cw; x++)
+                    if (traced[y * cw + x]) full[(by0 + y) * sw + (bx0 + x)] = true;
+            return full;
+        }
+
+        private Polyline BuildPolylineFromFullMask(bool[] full, ImageSnapshot snap, bool dashed)
+        {
+            var (bx0, by0, bx1, by1) = _processor.GetMaskBounds(full, snap.Width, snap.Height, margin: 2);
+            var (cropped, cw, ch) = _processor.CropMask(full, snap.Width, bx0, by0, bx1, by1);
+            var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
+
+            var boundary = _processor.TraceBoundary(cropped, croppedSnap);
+            if (boundary.Count < 8) return null;
+
+            var simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
+            if (simplified.Count < 3) return null;
+
+            const int borderMargin = 5;
+            for (int i = 0; i < simplified.Count; i++)
+            {
+                double cx = Math.Max(borderMargin, Math.Min(snap.Width - borderMargin - 1, simplified[i].X + bx0));
+                double cy = Math.Max(borderMargin, Math.Min(snap.Height - borderMargin - 1, simplified[i].Y + by0));
+                simplified[i] = new Point(cx, cy);
+            }
+
+            var poly = new Polyline
+            {
+                Stroke = dashed ? Brushes.OrangeRed : this.LineColor,
+                StrokeThickness = 2,
+                FillRule = FillRule.EvenOdd
+            };
+            if (dashed) poly.StrokeDashArray = new DoubleCollection { 4, 2 };
+
+            foreach (var p in simplified)
+                poly.Points.Add(new Point(p.X * ScaleX + OffsetX, p.Y * ScaleY + OffsetY));
+            poly.Points.Add(new Point(simplified[0].X * ScaleX + OffsetX, simplified[0].Y * ScaleY + OffsetY));
+            return poly;
+        }
+
+        public override List<UIElement> ProcessClick(Vector2 mousePos)
+        {
             BeginOperation();
 
             if (_eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode)
                 return new List<UIElement>();
-
             if (_cachedPixels == null) return new List<UIElement>();
 
             int px = (int)((mousePos.X - OffsetX) / ScaleX);
             int py = (int)((mousePos.Y - OffsetY) / ScaleY);
-
             if ((uint)px >= _cachedWidth || (uint)py >= _cachedHeight)
                 return new List<UIElement>();
 
+            // ── Multi-click: a pending outline already exists ──
+            if (_multiClickOutline && _hasPending && _pendingMask != null)
+            {
+                int idx = py * _cachedWidth + px;
+                bool clickInside = _pendingMask[idx];
+
+                if (clickInside)
+                {
+                    ConfirmPending();          // commit + clear pending state
+                    return new List<UIElement>();
+                }
+                else
+                {
+                    ExpandPending(px, py);     // flood new seed, merge, re-preview
+                    return new List<UIElement>();
+                }
+            }
+
+            // ── First click (single-click mode OR first click of multi-click) ──
+            StartNewOutline(px, py);
+            return new List<UIElement>();
+        }
+
+        private void StartNewOutline(int px, int py)
+        {
             var token = CancellationToken;
-
             var snap = new ImageSnapshot(_cachedPixels, _backgroundMask, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp);
-
-            // Capture merge state for the background thread
-            bool mergeThisClick = _mergeNextClick;
-            bool[] pendingMaskSnapshot = mergeThisClick ? _pendingRawMask : null;
 
             System.Threading.Tasks.Task.Run(() =>
             {
                 try
                 {
                     token.ThrowIfCancellationRequested();
+                    bool[] full = FloodFullSpace(px, py, snap);
+                    if (full == null) return;
 
-                    (byte sr, byte sg, byte sb) = _processor.SampleSeedColor(px, py, snap, radius: 2);
-                    bool[] raw;
-                    if (_useWatershed)
-                    {
-                        raw = _processor.WatershedSegment(px, py, snap, seedRadius: 3, _watershedBlurLevel)
-                              ?? _processor.FloodFill(px, py, sr, sg, sb, snap, _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold);
-                    }
-                    else
-                    {
-                        raw = _processor.FloodFill(px, py, sr, sg, sb, snap, _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold);
-                    }
-
-                    if (!_processor.HasMinimumPixels(raw, 1)) return;
+                    bool[] cleaned = CleanMaskFullSpace(full, snap, px, py, token);
+                    if (cleaned == null || !_processor.HasMinimumPixels(cleaned, MinAreaPixels)) return;
                     token.ThrowIfCancellationRequested();
-
-                    // Strip any foreground pixels within 5 pixels of the image border.
-                    int sw = snap.Width, sh = snap.Height;
-                    for (int i = 0; i < raw.Length; i++)
-                    {
-                        if (!raw[i]) continue;
-                        int rx = i % sw, ry = i / sw;
-                        if (rx <= 4 || rx >= sw - 5 || ry <= 4 || ry >= sh - 5)
-                            raw[i] = false;
-                    }
-
-                    // If this is a merge click, union the new raw mask with the pending mask
-                    if (mergeThisClick && pendingMaskSnapshot != null)
-                    {
-                        for (int i = 0; i < raw.Length; i++)
-                            raw[i] = raw[i] || pendingMaskSnapshot[i];
-                    }
-
-                    // Crop before FillHoles
-                    var (bx0, by0, bx1, by1) = _processor.GetMaskBounds(raw, snap.Width, snap.Height, margin: 4);
-                    var (croppedRaw, cw, ch) = _processor.CropMask(raw, snap.Width, bx0, by0, bx1, by1);
-                    var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
-
-                    bool[] work = _processor.FillHoles(croppedRaw, croppedSnap);
-                    work = _processor.ExtractLargestComponent(work, croppedSnap);
-                    token.ThrowIfCancellationRequested();
-
-                    work = _processor.MorphOpen(work, cw, ch, radius: 2);
-                    work = _processor.ExtractLargestComponent(work, croppedSnap);
-                    token.ThrowIfCancellationRequested();
-
-                    work = _processor.MorphClose(work, cw, ch, radius: 1);
-                    token.ThrowIfCancellationRequested();
-
-                    _processor.EnforceMinimumCorridorWidth(work, croppedSnap, minWidth: 3);
-                    token.ThrowIfCancellationRequested();
-
-                    _processor.SmoothBorderTopology(work, croppedSnap);
-                    token.ThrowIfCancellationRequested();
-
-                    _processor.PruneDeadEnds(work, croppedSnap);
-                    work = _processor.KeepLargestComponent(work, croppedSnap);
-                    token.ThrowIfCancellationRequested();
-
-                    int cpx = px - bx0, cpy = py - by0;
-                    bool[] tracedMask = _processor.PrepareMaskForTracing(work, croppedRaw, cpx, cpy, MinAreaPixels, croppedSnap);
-                    token.ThrowIfCancellationRequested();
-
-                    List<Point> boundary = _processor.TraceBoundary(tracedMask, croppedSnap);
-                    token.ThrowIfCancellationRequested();
-
-                    if (!HasMinimumBorderLength(boundary, 8))
-                    {
-                        bool[] expanded = _processor.ExpandConnectedComponentToArea(
-                            _processor.KeepComponentContainingSeed(croppedRaw, cpy * cw + cpx, croppedSnap),
-                            cpy * cw + cpx, MinAreaPixels, croppedSnap);
-                        token.ThrowIfCancellationRequested();
-                        boundary = _processor.TraceBoundary(expanded, croppedSnap);
-                    }
-
-                    if (boundary.Count < 8) return;
-                    token.ThrowIfCancellationRequested();
-
-                    List<Point> simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
-                    if (simplified.Count < 3) return;
-
-                    const int borderMargin = 5;
-                    for (int pi2 = 0; pi2 < simplified.Count; pi2++)
-                    {
-                        double cx2 = Math.Max(borderMargin, Math.Min(snap.Width - borderMargin - 1, simplified[pi2].X));
-                        double cy2 = Math.Max(borderMargin, Math.Min(snap.Height - borderMargin - 1, simplified[pi2].Y));
-                        simplified[pi2] = new Point(cx2, cy2);
-                    }
-                    token.ThrowIfCancellationRequested();
-
-                    // Capture raw mask and bounds for potential merge on a subsequent click
-                    bool[] rawForMerge = (bool[])raw.Clone();
-                    int rawBx0 = bx0, rawBy0 = by0, rawBx1 = bx1, rawBy1 = by1;
 
                     System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
                         if (token.IsCancellationRequested) return;
 
-                        var polyline = new Polyline
+                        if (_multiClickOutline)
                         {
-                            Stroke = this.LineColor,
-                            StrokeThickness = 2,
-                            FillRule = FillRule.EvenOdd
-                        };
-
-                        foreach (var p in simplified)
-                            polyline.Points.Add(new Point(
-                                (p.X + bx0) * ScaleX + OffsetX,
-                                (p.Y + by0) * ScaleY + OffsetY));
-
-                        polyline.Points.Add(new Point(
-                            (simplified[0].X + bx0) * ScaleX + OffsetX,
-                            (simplified[0].Y + by0) * ScaleY + OffsetY));
-
-                        if (_requireConfirmation)
-                        {
-                            polyline.StrokeDashArray = new DoubleCollection { 6, 3 };
-                            polyline.Opacity = 0.6;
-
-                            OnPendingOutlineReady?.Invoke(polyline, _pendingPolyline);
-                            _pendingPolyline = polyline;
-                            _pendingRawMask = rawForMerge;
-                            _pendingBx0 = rawBx0;
-                            _pendingBy0 = rawBy0;
-                            _pendingBx1 = rawBx1;
-                            _pendingBy1 = rawBy1;
-                            _hasPendingOutline = true;
+                            var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true);
+                            if (poly == null) return;
+                            SwapPending(cleaned, poly);   // store mask + show dashed preview
                         }
                         else
                         {
-                            CommitOutline(polyline);
+                            var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: false);
+                            if (poly == null) return;
+                            CommitFinalOutline(poly);     // your existing commit path
                         }
                     });
                 }
                 catch (OperationCanceledException) { }
             }, token);
+        }
 
-            return new List<UIElement>();
+        private bool[] FloodFullSpace(int px, int py, ImageSnapshot snap)
+        {
+            var (sr, sg, sb) = _processor.SampleSeedColor(px, py, snap, radius: 2);
+            bool[] raw = _useWatershed
+                ? (_processor.WatershedSegment(px, py, snap, seedRadius: 3, _watershedBlurLevel)
+                   ?? _processor.FloodFill(px, py, sr, sg, sb, snap, _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold))
+                : _processor.FloodFill(px, py, sr, sg, sb, snap, _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold);
+            return _processor.HasMinimumPixels(raw, 1) ? raw : null;
+        }
+
+        private void ExpandPending(int px, int py)
+        {
+            var token = CancellationToken;
+            var snap = new ImageSnapshot(_cachedPixels, _backgroundMask, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp);
+            bool[] accumulated = (bool[])_pendingMask.Clone();
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    token.ThrowIfCancellationRequested();
+                    bool[] newFlood = FloodFullSpace(px, py, snap);
+                    if (newFlood == null) return;
+
+                    // Union the new seed's region with the accumulated outline
+                    for (int i = 0; i < accumulated.Length; i++)
+                        if (newFlood[i]) accumulated[i] = true;
+
+                    // Re-clean the union. Use the new click as the trace seed so
+                    // PrepareMaskForTracing keeps the component the user just added.
+                    bool[] cleaned = CleanMaskFullSpace(accumulated, snap, px, py, token);
+                    if (cleaned == null) return;
+                    token.ThrowIfCancellationRequested();
+
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        if (token.IsCancellationRequested) return;
+                        var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true);
+                        if (poly == null) return;
+                        SwapPending(cleaned, poly);
+                    });
+                }
+                catch (OperationCanceledException) { }
+            }, token);
+        }
+
+        private void SwapPending(bool[] mask, Polyline newPoly)
+        {
+            var old = _pendingPolyline;
+            _pendingMask = mask;
+            _pendingPolyline = newPoly;
+            _activePolyline = newPoly;   // so smooth/erase/metadata operate on it if confirmed
+            _hasPending = true;
+            OnPendingOutlineReady?.Invoke(newPoly, old);
+        }
+
+        private void ConfirmPending()
+        {
+            if (_pendingPolyline == null) return;
+
+            // Recolor from dashed preview to a solid committed outline
+            _pendingPolyline.StrokeDashArray = null;
+            _pendingPolyline.Stroke = this.LineColor;
+
+            var output = new List<UIElement> { _pendingPolyline };
+            _activePolyline = _pendingPolyline;
+            _preSmoothSnapshot = new List<Point>(_pendingPolyline.Points);
+
+            CommitOperation(new OutlineOperation
+            {
+                OperationKind = "Outline",
+                SourceMode = this,
+                Elements = new List<UIElement>(output)
+            });
+
+            OnOutlineReady?.Invoke(output);
+
+            _hasPending = false;
+            _pendingMask = null;
+            _pendingPolyline = null;
+        }
+
+        private void CommitFinalOutline(Polyline poly)
+        {
+            _activePolyline = poly;
+            _preSmoothSnapshot = new List<Point>(poly.Points);
+
+            var output = new List<UIElement> { poly };
+
+            CommitOperation(new OutlineOperation
+            {
+                OperationKind = "Outline",
+                SourceMode = this,
+                Elements = new List<UIElement>(output)
+            });
+
+            OnOutlineReady?.Invoke(output);
         }
 
         private (byte r, byte g, byte b) ReadPixel(int x, int y)
@@ -1082,6 +1089,7 @@ namespace DinoLino.Utilities.Modes
                     ? new[] 
                     { 
                         "💡 Use Watershed to generate more accurate outlines on complex images, at the cost of reduced speed.",
+                        "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.",
                         "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
                         "💡 Outline mode performs best on unpatterned images with a solid background.",
                         "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
