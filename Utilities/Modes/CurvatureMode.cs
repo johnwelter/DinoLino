@@ -148,8 +148,11 @@ namespace DinoLino.Utilities.Modes
             PChordArcRatioResult = 0;
             RiseSpanRatioResult = 0;
             VertexCurvatureResult = 0;
-            TurningAngleResult = 0;
+            TurningAngleArcRatioResult = 0;
             SChordArcRatioResult = 0;
+            SumTurningAnglesResult = 0;
+            MeanTurningAngleResult = 0;
+            VarianceTurningAnglesResult = 0;
         }
 
         protected override void OnOperationUndone(WorkOperation operation)
@@ -169,8 +172,11 @@ namespace DinoLino.Utilities.Modes
             }
             else if (operation is SplineOperation)
             {
-                TurningAngleResult = 0;
+                TurningAngleArcRatioResult = 0;
                 SChordArcRatioResult = 0;
+                SumTurningAnglesResult = 0;
+                MeanTurningAngleResult = 0;
+                VarianceTurningAnglesResult = 0;
             }
         }
 
@@ -192,7 +198,7 @@ namespace DinoLino.Utilities.Modes
 
             else if (operation is SplineOperation sop)
             {
-                TurningAngleResult = sop.TurningAngle;
+                TurningAngleArcRatioResult = sop.TurningAngleArcRatio;
                 SChordArcRatioResult = sop.SChordArcRatio;
             }
         }
@@ -687,15 +693,36 @@ namespace DinoLino.Utilities.Modes
 
         // Bindable results of curvature calculations
         // private/public pair used to handle propagation of results to UI bindings
-        private double _turningAngleResult;
-        public double TurningAngleResult
+        private double _turningAngleArcRatioResult;
+        public double TurningAngleArcRatioResult
         {
-            get => _turningAngleResult;
+            get => _turningAngleArcRatioResult;
             set
             {
-                _turningAngleResult = value;
-                OnPropertyChanged(nameof(TurningAngleResult));
+                _turningAngleArcRatioResult = value;
+                OnPropertyChanged(nameof(TurningAngleArcRatioResult));
             }
+        }
+
+        private double _sumTurningAnglesResult;
+        public double SumTurningAnglesResult
+        {
+            get => _sumTurningAnglesResult;
+            set { _sumTurningAnglesResult = value; OnPropertyChanged(nameof(SumTurningAnglesResult)); }
+        }
+
+        private double _meanTurningAngleResult;
+        public double MeanTurningAngleResult
+        {
+            get => _meanTurningAngleResult;
+            set { _meanTurningAngleResult = value; OnPropertyChanged(nameof(MeanTurningAngleResult)); }
+        }
+
+        private double _varianceTurningAnglesResult;
+        public double VarianceTurningAnglesResult
+        {
+            get => _varianceTurningAnglesResult;
+            set { _varianceTurningAnglesResult = value; OnPropertyChanged(nameof(VarianceTurningAnglesResult)); }
         }
 
         private double _sChordArcRatioResult;
@@ -746,7 +773,7 @@ namespace DinoLino.Utilities.Modes
 
                 // generate new spline through all current points
                 _splinePreview = _splineAlgorithm == SplineAlgorithm.Bezier
-                    ? MakeBezierSplinePath(_splinePoints)
+                    ? MakeSchneiderBezierPath(_splinePoints)
                     : MakeCatmullRomPath(_splinePoints);
                 _splineCurrentOperation.Add(_splinePreview);
                 output.Add(_splinePreview);
@@ -781,10 +808,13 @@ namespace DinoLino.Utilities.Modes
 
             // calculate results
             List<Vector2> splinePointsDense = _splineAlgorithm == SplineAlgorithm.Bezier
-                ? GetBezierSplinePoints(_splinePoints, 50)
+                ? GetSchneiderBezierPoints(_splinePoints, 50)
                 : GetCatmullRomPoints(_splinePoints, 50);
-            TurningAngleResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 2);
+            TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 2);
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 2);
+            SumTurningAnglesResult = GeometryCalculations.SumTurningAnglesOpen(splinePointsDense);
+            MeanTurningAngleResult = GeometryCalculations.MeanTurningAngleOpen(splinePointsDense);
+            VarianceTurningAnglesResult = GeometryCalculations.VarianceTurningAnglesOpen(splinePointsDense);
 
             // store in history
             CommitOperation(new SplineOperation
@@ -794,8 +824,11 @@ namespace DinoLino.Utilities.Modes
                     : "n-Point Catmull-Rom Spline",
                 SourceMode = this,
                 Elements = new List<UIElement>(_splineCurrentOperation),
-                TurningAngle = TurningAngleResult,
-                SChordArcRatio = SChordArcRatioResult
+                TurningAngleArcRatio = TurningAngleArcRatioResult,
+                SChordArcRatio = SChordArcRatioResult,
+                SumTurningAngles = SumTurningAnglesResult,
+                MeanTurningAngle = MeanTurningAngleResult,
+                VarianceTurningAngles = VarianceTurningAnglesResult
             });
 
             var output = new List<UIElement>(_splineCurrentOperation);
@@ -833,22 +866,36 @@ namespace DinoLino.Utilities.Modes
         }
 
         // Catmull-Rom interpolation between p1 and p2
+        // Centripetal Catmull-Rom: evaluates the curve at parameter t, 
+        // where t is between t1 and t2 in the knot sequence.
+        // alpha = 0.5 gives centripetal parameterization.
         private Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, double t)
         {
-            double t2 = t * t;
-            double t3 = t2 * t;
+            // Compute centripetal knot intervals (alpha = 0.5)
+            double t0 = 0;
+            double t1 = t0 + KnotInterval(p0, p1);
+            double t2 = t1 + KnotInterval(p1, p2);
+            double t3 = t2 + KnotInterval(p2, p3);
 
-            double x = 0.5 * ((2 * p1.X) +
-                       (-p0.X + p2.X) * t +
-                       (2 * p0.X - 5 * p1.X + 4 * p2.X - p3.X) * t2 +
-                       (-p0.X + 3 * p1.X - 3 * p2.X + p3.X) * t3);
+            // Remap t from [0,1] into [t1, t2]
+            double s = t1 + t * (t2 - t1);
 
-            double y = 0.5 * ((2 * p1.Y) +
-                       (-p0.Y + p2.Y) * t +
-                       (2 * p0.Y - 5 * p1.Y + 4 * p2.Y - p3.Y) * t2 +
-                       (-p0.Y + 3 * p1.Y - 3 * p2.Y + p3.Y) * t3);
+            // Barry-Goldman recursive evaluation
+            Vector2 A1 = t1 > t0 ? p0 * ((t1 - s) / (t1 - t0)) + p1 * ((s - t0) / (t1 - t0)) : p1;
+            Vector2 A2 = p1 * ((t2 - s) / (t2 - t1)) + p2 * ((s - t1) / (t2 - t1));
+            Vector2 A3 = t3 > t2 ? p2 * ((t3 - s) / (t3 - t2)) + p3 * ((s - t2) / (t3 - t2)) : p2;
 
-            return new Vector2(x, y);
+            Vector2 B1 = t2 > t0 ? A1 * ((t2 - s) / (t2 - t0)) + A2 * ((s - t0) / (t2 - t0)) : A2;
+            Vector2 B2 = t3 > t1 ? A2 * ((t3 - s) / (t3 - t1)) + A3 * ((s - t1) / (t3 - t1)) : A2;
+
+            return B1 * ((t2 - s) / (t2 - t1)) + B2 * ((s - t1) / (t2 - t1));
+        }
+
+        private double KnotInterval(Vector2 a, Vector2 b)
+        {
+            double dx = b.X - a.X, dy = b.Y - a.Y;
+            // alpha = 0.5: interval = distance^0.5
+            return Math.Pow(dx * dx + dy * dy, 0.25); // (dist^2)^0.25 = dist^0.5
         }
 
         // builds a WPF Path from Catmull-Rom interpolated points
@@ -856,31 +903,292 @@ namespace DinoLino.Utilities.Modes
         {
             if (controlPoints.Count < 2) return null;
 
-            var figure = new PathFigure();
-            figure.StartPoint = new Point(controlPoints[0].X, controlPoints[0].Y);
+            // Phantom endpoints: duplicate first and last so every segment has a full 4-point neighborhood
+            var pts = new List<Vector2>(controlPoints.Count + 2);
+            pts.Add(controlPoints[0]);
+            pts.AddRange(controlPoints);
+            pts.Add(controlPoints[controlPoints.Count - 1]);
 
-            var segments = new PathSegmentCollection();
+            const int samplesPerSegment = 20;
+            var figure = new PathFigure { IsClosed = false };
+            var polyline = new PolyLineSegment();
 
-            for (int i = 0; i < controlPoints.Count - 1; i++)
+            for (int i = 1; i < pts.Count - 2; i++)
             {
-                Vector2 p0 = i > 0 ? controlPoints[i - 1] : controlPoints[i];
-                Vector2 p1 = controlPoints[i];
-                Vector2 p2 = controlPoints[i + 1];
-                Vector2 p3 = (i + 2 < controlPoints.Count) ? controlPoints[i + 2] : p2;
+                for (int j = 0; j < samplesPerSegment; j++)
+                {
+                    double t = (double)j / samplesPerSegment;
+                    var pt = CatmullRom(pts[i - 1], pts[i], pts[i + 1], pts[i + 2], t);
+                    if (i == 1 && j == 0)
+                        figure.StartPoint = new Point(pt.X, pt.Y);
+                    else
+                        polyline.Points.Add(new Point(pt.X, pt.Y));
+                }
+            }
+            // Add the final endpoint
+            var last = controlPoints[controlPoints.Count - 1];
+            polyline.Points.Add(new Point(last.X, last.Y));
 
-                // Convert Catmull-Rom to Bezier
-                Vector2 c1 = p1 + (p2 - p0) * (1.0 / 6.0);
-                Vector2 c2 = p2 - (p3 - p1) * (1.0 / 6.0);
+            figure.Segments.Add(polyline);
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
 
-                segments.Add(new BezierSegment(
-                    new Point(c1.X, c1.Y),
-                    new Point(c2.X, c2.Y),
-                    new Point(p2.X, p2.Y),
+            return new Path { Stroke = this.LineColor, StrokeThickness = 2, Data = geometry };
+        }
+
+        private struct CubicBezierSegmentData
+        {
+            public Vector2 P0;
+            public Vector2 P1;
+            public Vector2 P2;
+            public Vector2 P3;
+
+            public CubicBezierSegmentData(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3)
+            {
+                P0 = p0;
+                P1 = p1;
+                P2 = p2;
+                P3 = p3;
+            }
+        }
+
+        private List<CubicBezierSegmentData> FitSchneiderBezier(List<Vector2> points, double tolerance)
+        {
+            var result = new List<CubicBezierSegmentData>();
+            if (points == null || points.Count < 2)
+                return result;
+
+            FitSchneiderBezierRecursive(points, 0, points.Count - 1, tolerance, result);
+            return result;
+        }
+
+        private void FitSchneiderBezierRecursive(
+    List<Vector2> points,
+    int first,
+    int last,
+    double tolerance,
+    List<CubicBezierSegmentData> output)
+        {
+            int count = last - first + 1;
+            if (count < 2)
+                return;
+
+            if (count == 2)
+            {
+                Vector2 p0 = points[first];
+                Vector2 p3 = points[last];
+                Vector2 d = (p3 - p0) * (1.0 / 3.0);
+                output.Add(new CubicBezierSegmentData(p0, p0 + d, p3 - d, p3));
+                return;
+            }
+
+            Vector2 tHat1 = ComputeStartTangent(points, first, last);
+            Vector2 tHat2 = ComputeEndTangent(points, first, last);
+
+            var bez = GenerateBezier(points, first, last, tHat1, tHat2);
+            int splitPoint = FindMaxErrorPoint(points, first, last, bez, out double maxError);
+
+            if (maxError <= tolerance || splitPoint <= first + 1 || splitPoint >= last - 1)
+            {
+                output.Add(bez);
+                return;
+            }
+
+            Vector2 tHatCenter = ComputeCenterTangent(points, splitPoint);
+
+            FitSchneiderBezierRecursive(points, first, splitPoint, tolerance, output);
+            FitSchneiderBezierRecursive(points, splitPoint, last, tolerance, output);
+        }
+
+        private Vector2 ComputeStartTangent(List<Vector2> points, int first, int last)
+        {
+            Vector2 t = points[first + 1] - points[first];
+            if (t.Magnitude() < 1e-9 && last > first + 1)
+                t = points[first + 2] - points[first];
+            t.Normalize();
+            return t;
+        }
+
+        private Vector2 ComputeEndTangent(List<Vector2> points, int first, int last)
+        {
+            Vector2 t = points[last - 1] - points[last];
+            if (t.Magnitude() < 1e-9 && last > first + 1)
+                t = points[last - 2] - points[last];
+            t.Normalize();
+            return t;
+        }
+
+        private Vector2 ComputeCenterTangent(List<Vector2> points, int splitPoint)
+        {
+            Vector2 t = points[splitPoint + 1] - points[splitPoint - 1];
+            if (t.Magnitude() < 1e-9)
+                return new Vector2(1, 0);
+            t.Normalize();
+            return t;
+        }
+
+        private CubicBezierSegmentData GenerateBezier(
+    List<Vector2> points,
+    int first,
+    int last,
+    Vector2 tHat1,
+    Vector2 tHat2)
+        {
+            Vector2 p0 = points[first];
+            Vector2 p3 = points[last];
+
+            int nPts = last - first + 1;
+            var u = ChordLengthParameterize(points, first, last);
+
+            double c00 = 0, c01 = 0, c11 = 0;
+            double x0 = 0, x1 = 0;
+
+            for (int i = 0; i < nPts; i++)
+            {
+                double ui = u[i];
+                double b0 = Bernstein0(ui);
+                double b1 = Bernstein1(ui);
+                double b2 = Bernstein2(ui);
+                double b3 = Bernstein3(ui);
+
+                Vector2 a1 = tHat1 * b1;
+                Vector2 a2 = tHat2 * b2;
+
+                Vector2 tmp = points[first + i] - (p0 * (b0 + b1) + p3 * (b2 + b3));
+
+                c00 += a1 | a1;
+                c01 += a1 | a2;
+                c11 += a2 | a2;
+
+                x0 += a1 | tmp;
+                x1 += a2 | tmp;
+            }
+
+            double det = c00 * c11 - c01 * c01;
+            double alphaL, alphaR;
+
+            if (Math.Abs(det) > 1e-12)
+            {
+                alphaL = (x0 * c11 - x1 * c01) / det;
+                alphaR = (c00 * x1 - c01 * x0) / det;
+            }
+            else
+            {
+                double dist = (p3 - p0).Magnitude() / 3.0;
+                alphaL = alphaR = dist;
+            }
+
+            double segLength = (p3 - p0).Magnitude();
+            double epsilon = segLength * 1e-6;
+
+            if (alphaL < epsilon || alphaR < epsilon)
+            {
+                double dist = segLength / 3.0;
+                alphaL = alphaR = dist;
+            }
+
+            Vector2 p1 = p0 + tHat1 * alphaL;
+            Vector2 p2 = p3 + tHat2 * alphaR;
+
+            return new CubicBezierSegmentData(p0, p1, p2, p3);
+        }
+
+        private int FindMaxErrorPoint(
+    List<Vector2> points,
+    int first,
+    int last,
+    CubicBezierSegmentData bez,
+    out double maxError)
+        {
+            maxError = -1;
+            int splitPoint = (first + last) / 2;
+
+            int samples = last - first + 1;
+            for (int i = 1; i < samples - 1; i++)
+            {
+                double u = (double)i / (samples - 1);
+                Vector2 curvePt = EvaluateCubicBezier(bez, u);
+                double err = (points[first + i] - curvePt).Magnitude();
+
+                if (err > maxError)
+                {
+                    maxError = err;
+                    splitPoint = first + i;
+                }
+            }
+
+            return splitPoint;
+        }
+
+        private Vector2 EvaluateCubicBezier(CubicBezierSegmentData bez, double t)
+        {
+            double mt = 1.0 - t;
+            double b0 = mt * mt * mt;
+            double b1 = 3 * mt * mt * t;
+            double b2 = 3 * mt * t * t;
+            double b3 = t * t * t;
+
+            return bez.P0 * b0 + bez.P1 * b1 + bez.P2 * b2 + bez.P3 * b3;
+        }
+
+        private double[] ChordLengthParameterize(List<Vector2> points, int first, int last)
+        {
+            int n = last - first + 1;
+            var u = new double[n];
+            u[0] = 0;
+
+            double total = 0;
+            for (int i = first + 1; i <= last; i++)
+                total += (points[i] - points[i - 1]).Magnitude();
+
+            if (total < 1e-12)
+            {
+                for (int i = 1; i < n; i++)
+                    u[i] = (double)i / (n - 1);
+                return u;
+            }
+
+            double accum = 0;
+            for (int i = first + 1; i <= last; i++)
+            {
+                accum += (points[i] - points[i - 1]).Magnitude();
+                u[i - first] = accum / total;
+            }
+
+            return u;
+        }
+
+        private double Bernstein0(double t) => Math.Pow(1 - t, 3);
+        private double Bernstein1(double t) => 3 * t * Math.Pow(1 - t, 2);
+        private double Bernstein2(double t) => 3 * t * t * (1 - t);
+        private double Bernstein3(double t) => t * t * t;
+
+        private Path MakeSchneiderBezierPath(List<Vector2> controlPoints, double tolerance = 2.0)
+        {
+            if (controlPoints == null || controlPoints.Count < 2)
+                return null;
+
+            var segments = FitSchneiderBezier(controlPoints, tolerance);
+            if (segments.Count == 0)
+                return null;
+
+            var figure = new PathFigure
+            {
+                StartPoint = new Point(segments[0].P0.X, segments[0].P0.Y),
+                IsClosed = false
+            };
+
+            var pathSegments = new PathSegmentCollection();
+            foreach (var seg in segments)
+            {
+                pathSegments.Add(new BezierSegment(
+                    new Point(seg.P1.X, seg.P1.Y),
+                    new Point(seg.P2.X, seg.P2.Y),
+                    new Point(seg.P3.X, seg.P3.Y),
                     true));
             }
 
-            figure.Segments = segments;
-
+            figure.Segments = pathSegments;
             var geometry = new PathGeometry();
             geometry.Figures.Add(figure);
 
@@ -892,149 +1200,28 @@ namespace DinoLino.Utilities.Modes
             };
         }
 
-        // Solves the tridiagonal system for C2-continuous cubic Bezier control points
-        // through the given knot sequence using the Thomas algorithm.
-        // Returns one pair of control points per segment.
-        private (Vector2[] A, Vector2[] B) ComputeBezierControlPoints(List<Vector2> knots)
+        private List<Vector2> GetSchneiderBezierPoints(List<Vector2> controlPoints, int samplesPerSegment, double tolerance = 2.0)
         {
-            int n = knots.Count - 1; // number of segments
-            var A = new Vector2[n];
-            var B = new Vector2[n];
-
-            if (n == 1)
-            {
-                // Degenerate case: 2 knots → 1 segment; reduce to the straight-line Bezier
-                A[0] = new Vector2(
-                    (2 * knots[0].X + knots[1].X) / 3,
-                    (2 * knots[0].Y + knots[1].Y) / 3);
-                B[0] = new Vector2(
-                    (knots[0].X + 2 * knots[1].X) / 3,
-                    (knots[0].Y + 2 * knots[1].Y) / 3);
-                return (A, B);
-            }
-
-            // Build the tridiagonal system coefficients
-            var diag = new double[n];
-            var upper = new double[n]; // upper[n-1] unused
-            var lower = new double[n]; // lower[0]   unused
-            var rhsX = new double[n];
-            var rhsY = new double[n];
-
-            // Boundary rows
-            diag[0] = 2; upper[0] = 1;
-            rhsX[0] = knots[0].X + 2 * knots[1].X;
-            rhsY[0] = knots[0].Y + 2 * knots[1].Y;
-
-            diag[n - 1] = 7; lower[n - 1] = 2;
-            rhsX[n - 1] = 8 * knots[n - 1].X + knots[n].X;
-            rhsY[n - 1] = 8 * knots[n - 1].Y + knots[n].Y;
-
-            // Interior rows
-            for (int i = 1; i < n - 1; i++)
-            {
-                lower[i] = 1; diag[i] = 4; upper[i] = 1;
-                rhsX[i] = 4 * knots[i].X + 2 * knots[i + 1].X;
-                rhsY[i] = 4 * knots[i].Y + 2 * knots[i + 1].Y;
-            }
-
-            // Thomas algorithm — forward elimination
-            for (int i = 1; i < n; i++)
-            {
-                double m = lower[i] / diag[i - 1];
-                diag[i] -= m * upper[i - 1];
-                rhsX[i] -= m * rhsX[i - 1];
-                rhsY[i] -= m * rhsY[i - 1];
-            }
-
-            // Back substitution → first control points A
-            var ax = new double[n];
-            var ay = new double[n];
-            ax[n - 1] = rhsX[n - 1] / diag[n - 1];
-            ay[n - 1] = rhsY[n - 1] / diag[n - 1];
-            for (int i = n - 2; i >= 0; i--)
-            {
-                ax[i] = (rhsX[i] - upper[i] * ax[i + 1]) / diag[i];
-                ay[i] = (rhsY[i] - upper[i] * ay[i + 1]) / diag[i];
-            }
-
-            for (int i = 0; i < n; i++)
-                A[i] = new Vector2(ax[i], ay[i]);
-
-            // Derive second control points B from C1 continuity condition
-            for (int i = 0; i < n - 1; i++)
-                B[i] = new Vector2(
-                    2 * knots[i + 1].X - ax[i + 1],
-                    2 * knots[i + 1].Y - ay[i + 1]);
-
-            B[n - 1] = new Vector2(
-                (ax[n - 1] + knots[n].X) / 2,
-                (ay[n - 1] + knots[n].Y) / 2);
-
-            return (A, B);
-        }
-
-        private Path MakeBezierSplinePath(List<Vector2> controlPoints)
-        {
-            if (controlPoints.Count < 2) return null;
-
-            var (A, B) = ComputeBezierControlPoints(controlPoints);
-
-            var figure = new PathFigure
-            {
-                StartPoint = new Point(controlPoints[0].X, controlPoints[0].Y),
-                IsClosed = false
-            };
-
-            var segments = new PathSegmentCollection();
-            for (int i = 0; i < controlPoints.Count - 1; i++)
-            {
-                segments.Add(new BezierSegment(
-                    new Point(A[i].X, A[i].Y),
-                    new Point(B[i].X, B[i].Y),
-                    new Point(controlPoints[i + 1].X, controlPoints[i + 1].Y),
-                    isStroked: true));
-            }
-
-            figure.Segments = segments;
-            var geometry = new PathGeometry();
-            geometry.Figures.Add(figure);
-
-            return new Path { Stroke = this.LineColor, StrokeThickness = 2, Data = geometry };
-        }
-
-        // Samples the Bezier spline at uniform t-intervals for metric computation.
-        private List<Vector2> GetBezierSplinePoints(List<Vector2> controlPoints, int samplesPerSegment)
-        {
-            if (controlPoints.Count < 2) return new List<Vector2>(controlPoints);
-
-            var (A, B) = ComputeBezierControlPoints(controlPoints);
+            var segments = FitSchneiderBezier(controlPoints, tolerance);
             var result = new List<Vector2>();
 
-            for (int i = 0; i < controlPoints.Count - 1; i++)
+            foreach (var seg in segments)
             {
-                for (int j = 0; j < samplesPerSegment; j++)
+                for (int i = 0; i < samplesPerSegment; i++)
                 {
-                    double t = (double)j / samplesPerSegment;
-                    result.Add(CubicBezierPoint(controlPoints[i], A[i], B[i], controlPoints[i + 1], t));
+                    double t = (double)i / samplesPerSegment;
+                    result.Add(EvaluateCubicBezier(seg, t));
                 }
             }
 
-            result.Add(controlPoints[controlPoints.Count - 1]);
+            if (segments.Count > 0)
+                result.Add(segments[segments.Count - 1].P3);
+
             return result;
         }
+        #endregion
 
-        private static Vector2 CubicBezierPoint(Vector2 p0, Vector2 c1, Vector2 c2, Vector2 p1, double t)
-        {
-            double u = 1 - t;
-            double uu = u * u;
-            double uuu = uu * u;
-            double tt = t * t;
-            double ttt = tt * t;
-            return new Vector2(
-                uuu * p0.X + 3 * uu * t * c1.X + 3 * u * tt * c2.X + ttt * p1.X,
-                uuu * p0.Y + 3 * uu * t * c1.Y + 3 * u * tt * c2.Y + ttt * p1.Y);
-        }
-
+        #region results and tips
         private double CalculateSChordArcRatio(List<Vector2> densePoints, List<Vector2> controlPoints)
         {
             double arcLength = GeometryCalculations.ArcLength(densePoints);
@@ -1076,8 +1263,12 @@ namespace DinoLino.Utilities.Modes
                 return new[]
                 {
             "💡 Draw an irregular curve using any number of points. Double click to finish drawing.",
+            "💡 Catmull-Rom splines pass through every clicked point. Bezier splines are pulled toward points, using them to approximate a smooth curve.",
             "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
-            "💡 Turning angle per unit length measures how sharply the curve bends, on average, along its length.",
+            "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
+            "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
+            "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
+            "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
             "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
             "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
             "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",

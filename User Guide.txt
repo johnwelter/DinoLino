@@ -47,10 +47,16 @@ Vertex Curvature: The slope (m) of the parabolic arc (y=mx^2...)
 
 ----- n-Point Spline -----
 
-Click any amount of times along the curve, and finalize with a double click. This creates an n-point Catmull-Rom spline. Clicking again after spline completion begins another operation.
+Click any amount of times along the curve, and finalize with a double click. This creates an n-point spline. Clicking again after spline completion begins another operation.
 
-Turning Angle: A measure of curvature. Change in angle of the tangent lines at the start and end points of the curve divided by the length of the curve.
-Chord-Arc Ratio: A measure of curvature. The length of the straight line (chord) connecting the start and end points of the curve divided by the length of the curve.
+Catmull-Rom splines: The spline must pass through every point. This operation uses centripetal Catmull-Rom splines, which are well-suited for non-uniform biological shapes. 
+Bezier splines: The spline
+
+Turn.Angles/Length: A measure of curvature. The sum of the turning angles (change in angle of the tangent lines along the spline) divided by the length of the spline.
+Sum Turn. Angles: A measure of curvature. The total change in angle of the tangent lines at the start and end points of the spline.
+Mean Turn. Angle: A measure of curvature. The average change in angle of the tangent lines along the spline.
+Turn. Angle Var.: A measure of curvature. The variance of the turning angles along the spline. A higher variance indicates more variability in curvature along the spline, while a lower variance indicates more consistent curvature.
+Chord-Arc Ratio: A measure of curvature. The length of the straight line (chord) connecting the start and end points of the curve divided by the length of the spline.
 ------------------------------------------------------------------------------------------------
 TRIANGLE MODE:
 

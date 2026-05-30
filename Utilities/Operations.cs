@@ -50,17 +50,23 @@ namespace DinoLino.Utilities.Operations
         }
     }
 
-    // Stores metadata for n-point Catmull-Rom spline operations in CurvatureMode
+    // Stores metadata for n-point spline operations in CurvatureMode
     public class SplineOperation : WorkOperation
     {
-        public double TurningAngle { get; set; }
+        public double TurningAngleArcRatio { get; set; }
         public double SChordArcRatio { get; set; }
+        public double SumTurningAngles { get; set; }
+        public double MeanTurningAngle { get; set; }
+        public double VarianceTurningAngles { get; set; }
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is CurvatureMode mode)
             {
-                mode.TurningAngleResult = TurningAngle;
+                mode.TurningAngleArcRatioResult = TurningAngleArcRatio;
                 mode.SChordArcRatioResult = SChordArcRatio;
+                mode.SumTurningAnglesResult = SumTurningAngles;
+                mode.MeanTurningAngleResult = MeanTurningAngle;
+                mode.VarianceTurningAnglesResult = VarianceTurningAngles;
             }
         }
     }

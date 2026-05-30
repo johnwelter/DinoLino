@@ -89,21 +89,36 @@
 
             <!-- Algorithm selection -->
             <StackPanel Orientation="Horizontal" Margin="10,4,0,4">
-                <RadioButton Content="Catmull-Rom"
+                <Label Content="Method:"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="10,4,0,4">
+                    <RadioButton Content="Catmull-Rom"
                              Style="{StaticResource CheckBoxRadioButton}"
                              GroupName="SplineAlgorithm"
                              IsChecked="{Binding IsCatmullRomSelected, Mode=TwoWay}"
                              Margin="0,0,12,0"/>
-                <RadioButton Content="Bézier"
-                             Style="{StaticResource CheckBoxRadioButton}"
-                             GroupName="SplineAlgorithm"
-                             IsChecked="{Binding IsBezierSelected, Mode=TwoWay}"/>
-            </StackPanel>
+                    <RadioButton Content="Bézier"
+                                 Style="{StaticResource CheckBoxRadioButton}"
+                                 GroupName="SplineAlgorithm"
+                                 IsChecked="{Binding IsBezierSelected, Mode=TwoWay}"/>
+                </StackPanel>
 
             <!-- Outputs -->
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
-                <Label Content="Turning Angle:"/>
+                <Label Content="Turn.Angles/Length:"/>
                 <Label Content="{Binding TurningAngleResult}" Width="175"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+                <Label Content="Sum Turn. Angles:"/>
+                <Label Content="{Binding SumTurningAnglesResult}" Width="175"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+                <Label Content="Mean Turn. Angle:"/>
+                <Label Content="{Binding MeanTurningAngleResult}" Width="175"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+                <Label Content="Turn. Angle Var.:"/>
+                <Label Content="{Binding VarianceTurningAnglesResult}" Width="175"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
                 <Label Content="Chord-Arc Ratio:"/>
