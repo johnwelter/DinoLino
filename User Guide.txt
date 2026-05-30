@@ -96,6 +96,11 @@ Fill Sensitivity:
 For objects on a solid background, set fill sensitivity to the maximum value. 
 Higher fill sensitivity values allows greater variation of colors and shades within the outlined object, but also increases chances of capturing background on non-uniform backgrounds.
 
+Multi-Click:
+Click multiple times to expand the outline. 
+Click outside of the region bounded by a dashed line to expand the outline to include that region. 
+Click inside the region bounded by a dashed line to finalize the outline.
+
 Watershed:
 Higher computational expense leads to slower execution, but it tends to yield a more accurate outline.
 Better-suited for complex images (e.g., multi-toned objects, patterned objects, and/or objects on a non-uniform background).

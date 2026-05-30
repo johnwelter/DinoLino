@@ -17,7 +17,7 @@ namespace DinoLino.Utilities.Modes
         public override string TabName => "Curvature";
         public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
 
-        // enum for toggling between curvature methods
+        // enums for toggling between curvature methods and spline methods
         public enum CurvatureMethod
         {
             None,
@@ -25,6 +25,8 @@ namespace DinoLino.Utilities.Modes
             ParabolicArc,
             NPointSpline
         }
+
+        public enum SplineAlgorithm { CatmullRom, Bezier }
 
         // set default nethod to none until selection made
         private CurvatureMethod _currentMethod { get; set; } = CurvatureMethod.None;
@@ -656,6 +658,32 @@ namespace DinoLino.Utilities.Modes
         private UIElement _splinePreview = null;
         private List<UIElement> _splineCurrentOperation = new List<UIElement>();
 
+        private SplineAlgorithm _splineAlgorithm = SplineAlgorithm.CatmullRom;
+        public SplineAlgorithm CurrentSplineAlgorithm
+        {
+            get => _splineAlgorithm;
+            set
+            {
+                _splineAlgorithm = value;
+                OnPropertyChanged(nameof(CurrentSplineAlgorithm));
+                OnPropertyChanged(nameof(IsCatmullRomSelected));
+                OnPropertyChanged(nameof(IsBezierSelected));
+                OnTipChanged?.Invoke();
+                ResetDrawingState(); // switching algorithm mid-draw starts fresh
+            }
+        }
+
+        public bool IsCatmullRomSelected
+        {
+            get => _splineAlgorithm == SplineAlgorithm.CatmullRom;
+            set { if (value) CurrentSplineAlgorithm = SplineAlgorithm.CatmullRom; }
+        }
+
+        public bool IsBezierSelected
+        {
+            get => _splineAlgorithm == SplineAlgorithm.Bezier;
+            set { if (value) CurrentSplineAlgorithm = SplineAlgorithm.Bezier; }
+        }
 
         // Bindable results of curvature calculations
         // private/public pair used to handle propagation of results to UI bindings
@@ -717,7 +745,9 @@ namespace DinoLino.Utilities.Modes
                 }
 
                 // generate new spline through all current points
-                _splinePreview = MakeCatmullRomPath(_splinePoints);
+                _splinePreview = _splineAlgorithm == SplineAlgorithm.Bezier
+                    ? MakeBezierSplinePath(_splinePoints)
+                    : MakeCatmullRomPath(_splinePoints);
                 _splineCurrentOperation.Add(_splinePreview);
                 output.Add(_splinePreview);
             }
@@ -729,6 +759,9 @@ namespace DinoLino.Utilities.Modes
         public void SelectNPointSpline()
         {
             CurrentMethod = CurvatureMethod.NPointSpline;
+            _splineAlgorithm = SplineAlgorithm.CatmullRom;
+            OnPropertyChanged(nameof(IsCatmullRomSelected));
+            OnPropertyChanged(nameof(IsBezierSelected));
             ResetDrawingState();
         }
 
@@ -747,14 +780,18 @@ namespace DinoLino.Utilities.Modes
             }
 
             // calculate results
-            List<Vector2> splinePointsDense = GetCatmullRomPoints(_splinePoints, 50);
+            List<Vector2> splinePointsDense = _splineAlgorithm == SplineAlgorithm.Bezier
+                ? GetBezierSplinePoints(_splinePoints, 50)
+                : GetCatmullRomPoints(_splinePoints, 50);
             TurningAngleResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 2);
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 2);
 
             // store in history
             CommitOperation(new SplineOperation
             {
-                OperationKind = "n-Point Spline",
+                OperationKind = _splineAlgorithm == SplineAlgorithm.Bezier
+                    ? "n-Point Bezier Spline"
+                    : "n-Point Catmull-Rom Spline",
                 SourceMode = this,
                 Elements = new List<UIElement>(_splineCurrentOperation),
                 TurningAngle = TurningAngleResult,
@@ -853,6 +890,149 @@ namespace DinoLino.Utilities.Modes
                 StrokeThickness = 2,
                 Data = geometry
             };
+        }
+
+        // Solves the tridiagonal system for C2-continuous cubic Bezier control points
+        // through the given knot sequence using the Thomas algorithm.
+        // Returns one pair of control points per segment.
+        private (Vector2[] A, Vector2[] B) ComputeBezierControlPoints(List<Vector2> knots)
+        {
+            int n = knots.Count - 1; // number of segments
+            var A = new Vector2[n];
+            var B = new Vector2[n];
+
+            if (n == 1)
+            {
+                // Degenerate case: 2 knots → 1 segment; reduce to the straight-line Bezier
+                A[0] = new Vector2(
+                    (2 * knots[0].X + knots[1].X) / 3,
+                    (2 * knots[0].Y + knots[1].Y) / 3);
+                B[0] = new Vector2(
+                    (knots[0].X + 2 * knots[1].X) / 3,
+                    (knots[0].Y + 2 * knots[1].Y) / 3);
+                return (A, B);
+            }
+
+            // Build the tridiagonal system coefficients
+            var diag = new double[n];
+            var upper = new double[n]; // upper[n-1] unused
+            var lower = new double[n]; // lower[0]   unused
+            var rhsX = new double[n];
+            var rhsY = new double[n];
+
+            // Boundary rows
+            diag[0] = 2; upper[0] = 1;
+            rhsX[0] = knots[0].X + 2 * knots[1].X;
+            rhsY[0] = knots[0].Y + 2 * knots[1].Y;
+
+            diag[n - 1] = 7; lower[n - 1] = 2;
+            rhsX[n - 1] = 8 * knots[n - 1].X + knots[n].X;
+            rhsY[n - 1] = 8 * knots[n - 1].Y + knots[n].Y;
+
+            // Interior rows
+            for (int i = 1; i < n - 1; i++)
+            {
+                lower[i] = 1; diag[i] = 4; upper[i] = 1;
+                rhsX[i] = 4 * knots[i].X + 2 * knots[i + 1].X;
+                rhsY[i] = 4 * knots[i].Y + 2 * knots[i + 1].Y;
+            }
+
+            // Thomas algorithm — forward elimination
+            for (int i = 1; i < n; i++)
+            {
+                double m = lower[i] / diag[i - 1];
+                diag[i] -= m * upper[i - 1];
+                rhsX[i] -= m * rhsX[i - 1];
+                rhsY[i] -= m * rhsY[i - 1];
+            }
+
+            // Back substitution → first control points A
+            var ax = new double[n];
+            var ay = new double[n];
+            ax[n - 1] = rhsX[n - 1] / diag[n - 1];
+            ay[n - 1] = rhsY[n - 1] / diag[n - 1];
+            for (int i = n - 2; i >= 0; i--)
+            {
+                ax[i] = (rhsX[i] - upper[i] * ax[i + 1]) / diag[i];
+                ay[i] = (rhsY[i] - upper[i] * ay[i + 1]) / diag[i];
+            }
+
+            for (int i = 0; i < n; i++)
+                A[i] = new Vector2(ax[i], ay[i]);
+
+            // Derive second control points B from C1 continuity condition
+            for (int i = 0; i < n - 1; i++)
+                B[i] = new Vector2(
+                    2 * knots[i + 1].X - ax[i + 1],
+                    2 * knots[i + 1].Y - ay[i + 1]);
+
+            B[n - 1] = new Vector2(
+                (ax[n - 1] + knots[n].X) / 2,
+                (ay[n - 1] + knots[n].Y) / 2);
+
+            return (A, B);
+        }
+
+        private Path MakeBezierSplinePath(List<Vector2> controlPoints)
+        {
+            if (controlPoints.Count < 2) return null;
+
+            var (A, B) = ComputeBezierControlPoints(controlPoints);
+
+            var figure = new PathFigure
+            {
+                StartPoint = new Point(controlPoints[0].X, controlPoints[0].Y),
+                IsClosed = false
+            };
+
+            var segments = new PathSegmentCollection();
+            for (int i = 0; i < controlPoints.Count - 1; i++)
+            {
+                segments.Add(new BezierSegment(
+                    new Point(A[i].X, A[i].Y),
+                    new Point(B[i].X, B[i].Y),
+                    new Point(controlPoints[i + 1].X, controlPoints[i + 1].Y),
+                    isStroked: true));
+            }
+
+            figure.Segments = segments;
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+
+            return new Path { Stroke = this.LineColor, StrokeThickness = 2, Data = geometry };
+        }
+
+        // Samples the Bezier spline at uniform t-intervals for metric computation.
+        private List<Vector2> GetBezierSplinePoints(List<Vector2> controlPoints, int samplesPerSegment)
+        {
+            if (controlPoints.Count < 2) return new List<Vector2>(controlPoints);
+
+            var (A, B) = ComputeBezierControlPoints(controlPoints);
+            var result = new List<Vector2>();
+
+            for (int i = 0; i < controlPoints.Count - 1; i++)
+            {
+                for (int j = 0; j < samplesPerSegment; j++)
+                {
+                    double t = (double)j / samplesPerSegment;
+                    result.Add(CubicBezierPoint(controlPoints[i], A[i], B[i], controlPoints[i + 1], t));
+                }
+            }
+
+            result.Add(controlPoints[controlPoints.Count - 1]);
+            return result;
+        }
+
+        private static Vector2 CubicBezierPoint(Vector2 p0, Vector2 c1, Vector2 c2, Vector2 p1, double t)
+        {
+            double u = 1 - t;
+            double uu = u * u;
+            double uuu = uu * u;
+            double tt = t * t;
+            double ttt = tt * t;
+            return new Vector2(
+                uuu * p0.X + 3 * uu * t * c1.X + 3 * u * tt * c2.X + ttt * p1.X,
+                uuu * p0.Y + 3 * uu * t * c1.Y + 3 * u * tt * c2.Y + ttt * p1.Y);
         }
 
         private double CalculateSChordArcRatio(List<Vector2> densePoints, List<Vector2> controlPoints)

@@ -1089,8 +1089,8 @@ namespace DinoLino.Utilities.Modes
                     ? new[] 
                     { 
                         "💡 Use Watershed to generate more accurate outlines on complex images, at the cost of reduced speed.",
-                        "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.",
                         "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
+                        "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.",
                         "💡 Outline mode performs best on unpatterned images with a solid background.",
                         "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
                         "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
@@ -1102,6 +1102,7 @@ namespace DinoLino.Utilities.Modes
                     : new[] 
                     { 
                         "💡 Set fill sensitivity to maximum values for images on a solid background.",
+                        "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.",
                         "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
                         "💡 Having trouble with the outline? Watershed mode may improve accuracy for complex or textured images.",
                         "💡 Outline mode performs best on unpatterned images with a solid background.",
