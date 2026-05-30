@@ -237,6 +237,56 @@ namespace DinoLino.Utilities
             return Math.Round(variance / angles.Count, 4);
         }
 
+        /// Computes the absolute turning angle at each interior vertex of an open polyline.
+        /// Endpoints are excluded — no wrap-around. Returns Count - 2 values.
+        public static List<double> TurningAnglesOpen(List<Vector2> pts)
+        {
+            var angles = new List<double>();
+            for (int i = 1; i < pts.Count - 1; i++)
+            {
+                Vector2 seg1 = pts[i] - pts[i - 1];
+                Vector2 seg2 = pts[i + 1] - pts[i];
+                double len1 = seg1.Magnitude();
+                double len2 = seg2.Magnitude();
+                if (len1 < 1e-10 || len2 < 1e-10) { angles.Add(0); continue; }
+                double cross = seg1.X * seg2.Y - seg1.Y * seg2.X;
+                double dot = seg1.X * seg2.X + seg1.Y * seg2.Y;
+                angles.Add(Math.Abs(Math.Atan2(cross, dot) * 180.0 / Math.PI));
+            }
+            return angles;
+        }
+
+        /// Sum of absolute turning angles at interior vertices of an open polyline (degrees).
+        public static double SumTurningAnglesOpen(List<Vector2> pts)
+        {
+            double sum = 0;
+            foreach (double a in TurningAnglesOpen(pts)) sum += a;
+            return Math.Round(sum, 4);
+        }
+
+        /// Mean absolute turning angle per interior vertex of an open polyline (degrees).
+        public static double MeanTurningAngleOpen(List<Vector2> pts)
+        {
+            var angles = TurningAnglesOpen(pts);
+            if (angles.Count == 0) return 0;
+            double sum = 0;
+            foreach (double a in angles) sum += a;
+            return Math.Round(sum / angles.Count, 4);
+        }
+
+        /// Variance of absolute turning angles at interior vertices of an open polyline (degrees²).
+        public static double VarianceTurningAnglesOpen(List<Vector2> pts)
+        {
+            var angles = TurningAnglesOpen(pts);
+            if (angles.Count < 2) return 0;
+            double mean = 0;
+            foreach (double a in angles) mean += a;
+            mean /= angles.Count;
+            double variance = 0;
+            foreach (double a in angles) { double d = a - mean; variance += d * d; }
+            return Math.Round(variance / angles.Count, 4);
+        }
+
         // =====================================================================
         // POLYLINE SIMPLIFICATION
         // =====================================================================

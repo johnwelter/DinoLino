@@ -558,28 +558,31 @@ namespace DinoLino.Utilities.Modes
                 {
             "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
             "💡 Aspect ratio is the horizontal length of the shape divided by its maximum height.",
-            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
-            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
             "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
-            "💡 Toggle tip visibility in the 'View' menu."
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
+            "💡 Zoom in or out using the scroll wheel.",
+            "💡 Toggle tip visibility in the View menu."
         };
             if (IsLineSelected)
                 return new[]
                 {
             "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
             "💡 Line ratio is the length of the most recently drawn line (Line n) divided by the length of the line drawn before it (Line n-1).",
-            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the 'Edit' menu.",
-            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the 'Edit' menu.",
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
             "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the 'File' menu.",
-            "💡 Toggle tip visibility in the 'View' menu."
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
+            "💡 Zoom in or out using the scroll wheel.",
+            "💡 Toggle tip visibility in the View menu."
         };
             return new[]
             {
                 "💡 Select a drawing method to begin.",
-                "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the 'File' menu.",
-                "💡 Toggle tip visibility in the 'View' menu."
+                "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the File menu.",
+                "💡 Zoom in or out using the scroll wheel.",
+                "💡 Toggle tip visibility in the View menu."
             };
         }
         #endregion

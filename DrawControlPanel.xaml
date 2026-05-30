@@ -18,6 +18,10 @@
             <RadioButton Content="Circle" Tag="Circle" GroupName="Draw"
                          Checked="Shape_Checked" MinHeight="25"/>
             </StackPanel>
+          <!-- Outputs -->
+          <StackPanel Orientation="Horizontal" Margin="10,-4,0,0">
+            <Label Content="Output:" FontWeight="Bold"/>
+          </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
                 <Label Content="Aspect Ratio:"/>
                 <Label Content="{Binding DrawAspectRatioResult}" Width="175"/>
@@ -46,6 +50,10 @@
                              TextChanged="DrawAngleValue_TextChanged"/>
                 </StackPanel>
             </StackPanel>
+          <!-- Outputs -->
+          <StackPanel Orientation="Horizontal" Margin="10,-4,0,0">
+            <Label Content="Output:" FontWeight="Bold"/>
+          </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
                 <Label Content="Line Ratio:"/>
                 <Label Content="{Binding LineLengthRatioResult}" Width="175"/>

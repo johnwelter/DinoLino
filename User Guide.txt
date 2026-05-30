@@ -47,10 +47,16 @@ Vertex Curvature: The slope (m) of the parabolic arc (y=mx^2...)
 
 ----- n-Point Spline -----
 
-Click any amount of times along the curve, and finalize with a double click. This creates an n-point Catmull-Rom spline. Clicking again after spline completion begins another operation.
+Click any amount of times along the curve, and finalize with a double click. This creates an n-point spline. Clicking again after spline completion begins another operation.
 
-Turning Angle: A measure of curvature. Change in angle of the tangent lines at the start and end points of the curve divided by the length of the curve.
-Chord-Arc Ratio: A measure of curvature. The length of the straight line (chord) connecting the start and end points of the curve divided by the length of the curve.
+Catmull-Rom splines: The spline must pass through every point. This operation uses centripetal Catmull-Rom splines, which are well-suited for non-uniform biological shapes. 
+Bezier splines: The spline is pulled towards the clicked points, but does not necessarily pass through them. This operation uses Schneider's Bezier fitting to convert n points into one or more smooth cubic Bezier segments. 
+
+Turn.Angles/Length: A measure of curvature. The sum of the turning angles (change in angle of the tangent lines along the spline) divided by the length of the spline.
+Sum Turn. Angles: A measure of curvature. The total change in angle of the tangent lines at the start and end points of the spline.
+Mean Turn. Angle: A measure of curvature. The average change in angle of the tangent lines along the spline.
+Turn. Angle Var.: A measure of curvature. The variance of the turning angles along the spline. A higher variance indicates more variability in curvature along the spline, while a lower variance indicates more consistent curvature.
+Chord-Arc Ratio: A measure of curvature. The length of the straight line (chord) connecting the start and end points of the curve divided by the length of the spline.
 ------------------------------------------------------------------------------------------------
 TRIANGLE MODE:
 
@@ -96,6 +102,11 @@ Fill Sensitivity:
 For objects on a solid background, set fill sensitivity to the maximum value. 
 Higher fill sensitivity values allows greater variation of colors and shades within the outlined object, but also increases chances of capturing background on non-uniform backgrounds.
 
+Multi-Click:
+Click multiple times to expand the outline. 
+Click outside of the region bounded by a dashed line to expand the outline to include that region. 
+Click inside the region bounded by a dashed line to finalize the outline.
+
 Watershed:
 Higher computational expense leads to slower execution, but it tends to yield a more accurate outline.
 Better-suited for complex images (e.g., multi-toned objects, patterned objects, and/or objects on a non-uniform background).
@@ -110,11 +121,22 @@ Click and drag anywhere on the outline to erase that part. Set the eraser size u
 Smooth a noisy outline to the desired amount by adjusting the slider value. 
 
 ----- Generate Metadata -----
+Aspect Ratio: Width of the outline (its longest side) divided by its height (maximum perpendicular distance from the width).
+Perimeter / Area: Length of the outline divided by its area.
+Circularity: 4π*Area / Perimeter^2
+Solidity: Area of the outlined shape / Convex hull area
+Sum. Turn. Angles: Sum of the turning angles at each point along the outline. Measures the total amount of directional change.
+Mean Turn. Angles: Mean of the turning angles at each point along the outline. Measures the average amount of directional change.
+Turn. Angle Var.: Variance of the turning angles at each point along the outline. Measures the consistency of directional change.
+EFD: Elliptic Fourier Descriptors. A mathematical representation of the shape of the outline. The number of harmonics can be adjusted to capture more or less detail of the shape.
 
 ------------------------------------------------------------------------------------------------
 VIEW:
 
 Adjust various properties using the View drop-down menu items.
+
+----- See Tips ----- 
+Toggle on or off to see advice for using the program displayed at the bottom of the screen. Guidelines are also available in the user guide.
 
 ----- See Previous Operations ----- 
 Toggle on or off to keep drawn elements of previous operations on the screen.

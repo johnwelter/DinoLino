@@ -22,7 +22,12 @@
                   Margin="0,6,0,0"
                   ToolTip="More accurate boundaries on complex images, slightly slower"/>
 
-        <StackPanel Visibility="{Binding UseWatershed, Converter={StaticResource BoolToVis}}">
+        <CheckBox Content="Multi-Click"
+                IsChecked="{Binding MultiClickOutline, Mode=TwoWay}"
+                Margin="0,6,0,0"
+                ToolTip="First click shows a candidate outline. Click inside to confirm, or outside to expand."/>
+
+          <StackPanel Visibility="{Binding UseWatershed, Converter={StaticResource BoolToVis}}">
           <TextBlock Text="Boundary Sensitivity:" FontWeight="Bold" Margin="0,8,0,0"/>
           <TextBlock TextWrapping="Wrap" Foreground="Gray"
                      Text="Pre-blur reduces noise. Lower sensitivity follows broader boundaries."
