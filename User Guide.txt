@@ -50,7 +50,7 @@ Vertex Curvature: The slope (m) of the parabolic arc (y=mx^2...)
 Click any amount of times along the curve, and finalize with a double click. This creates an n-point spline. Clicking again after spline completion begins another operation.
 
 Catmull-Rom splines: The spline must pass through every point. This operation uses centripetal Catmull-Rom splines, which are well-suited for non-uniform biological shapes. 
-Bezier splines: The spline
+Bezier splines: The spline is pulled towards the clicked points, but does not necessarily pass through them. This operation uses Schneider's Bezier fitting to convert n points into one or more smooth cubic Bezier segments. 
 
 Turn.Angles/Length: A measure of curvature. The sum of the turning angles (change in angle of the tangent lines along the spline) divided by the length of the spline.
 Sum Turn. Angles: A measure of curvature. The total change in angle of the tangent lines at the start and end points of the spline.

@@ -1260,23 +1260,42 @@ namespace DinoLino.Utilities.Modes
             "💡 Toggle tip visibility in the View menu."
         };
             if (IsNPointSplineSelected)
-                return new[]
-                {
-            "💡 Draw an irregular curve using any number of points. Double click to finish drawing.",
-            "💡 Catmull-Rom splines pass through every clicked point. Bezier splines are pulled toward points, using them to approximate a smooth curve.",
-            "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
-            "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
-            "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
-            "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
-            "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
-            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-            "💡 Zoom in or out using the scroll wheel.",
-            "💡 Toggle tip visibility in the View menu."
-        };
-            return new[] 
+                if (IsCircularArcSelected)
+                    return IsCatmullRomSelected
+                        ? new[]
+                    {
+                        "💡 Draw a curve of any shape using any number of points. Double click to finish drawing.",
+                        "💡 Catmull-Rom splines use local smoothing and must pass through every clicked point. This operation draws a centripetal Catmull-Rom spline.",
+                        "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
+                        "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
+                        "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
+                        "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
+                        "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
+                        "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
+                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
+                        "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
+                        "💡 Zoom in or out using the scroll wheel.",
+                        "💡 Toggle tip visibility in the View menu."
+                    }
+                : new[]
+                    {
+                        "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
+                        "💡 This operation uses Schneider's Bézier fitting to convert points into one or more smooth cubic Bézier segments.",
+                        "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
+                        "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
+                        "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
+                        "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
+                        "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
+                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
+                        "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
+                        "💡 Zoom in or out using the scroll wheel.",
+                        "💡 Toggle tip visibility in the View menu."
+                    };
+                return new[] 
             { 
                 "💡 Select a curvature method to begin.",
                 "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the File menu.",
