@@ -588,6 +588,57 @@ namespace DinoLino.Utilities
             return current;
         }
 
+        // Runs the full per-shape morphology/topology cleanup on a single mask,
+        // WITHOUT any component-selection. Caller decides whether to keep one or
+        // many components. This is the shape-only half of the old CleanMaskFullSpace.
+        internal bool[] CleanComponentMorphology(bool[] mask, ImageSnapshot snap,
+            int openRadius = 2, int closeRadius = 1, int minCorridorWidth = 3)
+        {
+            int w = snap.Width, h = snap.Height;
+            bool[] work = FillHoles(mask, snap);
+            work = MorphOpen(work, w, h, openRadius);
+            work = MorphClose(work, w, h, closeRadius);
+            EnforceMinimumCorridorWidth(work, snap, minCorridorWidth);
+            SmoothBorderTopology(work, snap);
+            PruneDeadEnds(work, snap);
+            return work;
+        }
+
+        // Splits the mask into connected components, runs CleanComponentMorphology on
+        // each ONE IN ISOLATION, then unions the cleaned components back together.
+        // Components whose cleaned area falls below minComponentArea are dropped.
+        // Isolating each component prevents the distance-transform-based morphology
+        // from letting nearby blobs influence each other's erode/dilate boundaries.
+        internal bool[] CleanEachComponent(bool[] mask, ImageSnapshot snap,
+            int minComponentArea,
+            int openRadius = 2, int closeRadius = 1, int minCorridorWidth = 3)
+        {
+            int w = snap.Width, h = snap.Height, total = w * h;
+            bool[] result = new bool[total];
+            bool[] visited = new bool[total];
+
+            for (int start = 0; start < total; start++)
+            {
+                if (!mask[start] || visited[start]) continue;
+
+                // Isolate this component into its own mask
+                var members = CollectComponent(mask, start, snap, visited);
+                bool[] isolated = new bool[total];
+                foreach (int i in members) isolated[i] = true;
+
+                // Clean it independently of all other components
+                bool[] cleaned = CleanComponentMorphology(isolated, snap,
+                    openRadius, closeRadius, minCorridorWidth);
+
+                if (!HasMinimumPixels(cleaned, minComponentArea)) continue;
+
+                // Union the survivor back into the combined result
+                for (int i = 0; i < total; i++)
+                    if (cleaned[i]) result[i] = true;
+            }
+
+            return result;
+        }
         // =====================
         // TOPOLOGY / SHAPE PROCESSING
         // =====================
@@ -699,35 +750,90 @@ namespace DinoLino.Utilities
         // =====================
         // BOUNDARY TRACING
         // =====================
+        // Traces the boundary of a filled region as a SIMPLE closed polygon by walking the
+        // cracks between filled and empty cells, NOT the pixel centers. Pixel-center (Moore)
+        // tracing connects diagonal pixels with crossing segments and can self-intersect;
+        // crack following cannot, because the result is the boundary of a union of unit
+        // cells — a simple rectilinear loop for a 4-connected, hole-free region.
+        // Vertices are emitted at integer grid CORNERS (range 0..w, 0..h), so the outline
+        // sits half a pixel out from the old center-based trace. That is sub-pixel and
+        // actually hugs the true region boundary more tightly.
         internal List<System.Windows.Point> TraceBoundary(bool[] inside, ImageSnapshot snap)
         {
             int w = snap.Width, h = snap.Height;
-            int startX = -1, startY = -1;
-            for (int i = 0; i < inside.Length && startX < 0; i++)
-                if (inside[i]) { startX = i % w; startY = i / w; }
-            if (startX < 0) return new List<System.Windows.Point>();
+            bool Filled(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h && inside[y * w + x];
+
+            // Topmost-leftmost filled cell; its north edge is guaranteed on the outer boundary.
+            int sx = -1, sy = -1;
+            for (int i = 0; i < inside.Length; i++)
+                if (inside[i]) { sx = i % w; sy = i / w; break; }
+            if (sx < 0) return new List<System.Windows.Point>();
+
+            int cols = w + 1;
+            int CornerId(int x, int y) => y * cols + x;
+
+            // Directed boundary edges, filled cell kept on a consistent side.
+            // (Verified to form a single closed loop for isolated and adjacent cells.)
+            var edges = new Dictionary<int, List<(int ex, int ey)>>();
+            int totalEdges = 0;
+            void AddEdge(int x0, int y0, int x1, int y1)
+            {
+                int k = CornerId(x0, y0);
+                if (!edges.TryGetValue(k, out var lst)) { lst = new List<(int, int)>(1); edges[k] = lst; }
+                lst.Add((x1, y1));
+                totalEdges++;
+            }
+
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    if (!inside[y * w + x]) continue;
+                    if (!Filled(x, y - 1)) AddEdge(x, y, x + 1, y);         // north
+                    if (!Filled(x + 1, y)) AddEdge(x + 1, y, x + 1, y + 1); // east
+                    if (!Filled(x, y + 1)) AddEdge(x + 1, y + 1, x, y + 1); // south
+                    if (!Filled(x - 1, y)) AddEdge(x, y + 1, x, y);         // west
+                }
 
             var boundary = new List<System.Windows.Point>();
-            int[] ndx = { 1, 1, 0, -1, -1, -1, 0, 1 };
-            int[] ndy = { 0, -1, -1, -1, 0, 1, 1, 1 };
-            int cx = startX, cy = startY, dir = 4;
+            int curX = sx, curY = sy;
+            int prevX = sx - 1, prevY = sy;          // incoming heading = +x
+            int guard = totalEdges + 4;
 
-            for (int iterations = 0; iterations < w * h * 2; iterations++)
+            while (guard-- > 0)
             {
-                boundary.Add(new System.Windows.Point(cx, cy));
-                int checkDir = (dir + 6) % 8;
-                bool found = false;
-                for (int i = 0; i < 8; i++)
+                boundary.Add(new System.Windows.Point(curX, curY));
+                int curId = CornerId(curX, curY);
+                if (!edges.TryGetValue(curId, out var outs) || outs.Count == 0) break;
+
+                (int ex, int ey) next;
+                if (outs.Count == 1)
                 {
-                    int d = (checkDir + i) % 8;
-                    int bx = cx + ndx[d], by = cy + ndy[d];
-                    if ((uint)bx >= w || (uint)by >= h) continue;
-                    if (!inside[by * w + bx]) continue;
-                    dir = d; cx = bx; cy = by; found = true; break;
+                    next = outs[0];
                 }
-                if (!found) break;
-                if (cx == startX && cy == startY) break;
+                else
+                {
+                    // Pinch point (diagonal touch): take the most-clockwise turn so the
+                    // polygon touches at the corner without crossing. SmoothBorderTopology
+                    // removes most diagonal touches, so this rarely triggers.
+                    int inDx = curX - prevX, inDy = curY - prevY;
+                    next = outs[0];
+                    double best = double.NegativeInfinity;
+                    foreach (var c in outs)
+                    {
+                        int oDx = c.ex - curX, oDy = c.ey - curY;
+                        double cross = inDx * oDy - inDy * oDx;
+                        double dot = inDx * oDx + inDy * oDy;
+                        double clockwise = -Math.Atan2(cross, dot);
+                        if (clockwise > best) { best = clockwise; next = c; }
+                    }
+                }
+
+                outs.Remove(next);                   // consume so we don't reuse it
+                prevX = curX; prevY = curY;
+                curX = next.ex; curY = next.ey;
+                if (curX == sx && curY == sy) break; // returned to start
             }
+
             return boundary;
         }
 

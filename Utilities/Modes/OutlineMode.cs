@@ -324,9 +324,11 @@ namespace DinoLino.Utilities.Modes
         // Runs the full cleanup pipeline on a full-image-space mask.
         // Returns the cleaned full-image-space mask, or null if it fails.
         private bool[] CleanMaskFullSpace(bool[] rawFull, ImageSnapshot snap,
-     int seedPxX, int seedPxY, CancellationToken token, bool preserveMultipleComponents = false)
+    int seedPxX, int seedPxY, CancellationToken token, bool preserveMultipleComponents = false)
         {
             int sw = snap.Width, sh = snap.Height;
+
+            // Strip the border band so flood bleed at the image edge can't anchor a component
             for (int i = 0; i < rawFull.Length; i++)
             {
                 if (!rawFull[i]) continue;
@@ -338,31 +340,26 @@ namespace DinoLino.Utilities.Modes
             var (cropped, cw, ch) = _processor.CropMask(rawFull, sw, bx0, by0, bx1, by1);
             var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
-            bool[] work = _processor.FillHoles(cropped, croppedSnap);
-            if (!preserveMultipleComponents)
-                work = _processor.ExtractLargestComponent(work, croppedSnap);
-            work = _processor.MorphOpen(work, cw, ch, radius: 2);
-            if (!preserveMultipleComponents)
-                work = _processor.ExtractLargestComponent(work, croppedSnap);
-            work = _processor.MorphClose(work, cw, ch, radius: 1);
-            _processor.EnforceMinimumCorridorWidth(work, croppedSnap, minWidth: 3);
-            _processor.SmoothBorderTopology(work, croppedSnap);
-            _processor.PruneDeadEnds(work, croppedSnap);
-            if (!preserveMultipleComponents)
-                work = _processor.KeepLargestComponent(work, croppedSnap);
-
             bool[] traced;
             if (preserveMultipleComponents)
             {
-                // Keep everything that survived cleanup; don't restrict to one component
+                // Clean every component independently and keep all that survive.
+                // No single-component collapse, no trace-seed dependence.
+                bool[] work = _processor.CleanEachComponent(cropped, croppedSnap, MinAreaPixels);
                 traced = _processor.HasMinimumPixels(work, MinAreaPixels) ? work : cropped;
             }
             else
             {
+                // Single-region path: clean the whole mask as one shape, then
+                // explicitly collapse to the largest component as a separate step.
+                bool[] work = _processor.CleanComponentMorphology(cropped, croppedSnap);
+                work = _processor.KeepLargestComponent(work, croppedSnap);
+
                 int cpx = seedPxX - bx0, cpy = seedPxY - by0;
                 traced = _processor.PrepareMaskForTracing(work, cropped, cpx, cpy, MinAreaPixels, croppedSnap);
             }
 
+            // Paste cropped result back into full-image space
             bool[] full = new bool[sw * sh];
             for (int y = 0; y < ch; y++)
                 for (int x = 0; x < cw; x++)
@@ -381,6 +378,14 @@ namespace DinoLino.Utilities.Modes
 
             var simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
             if (simplified.Count < 3) return null;
+
+            // Crack-traced boundary is simple; DP can occasionally cross a concave bay.
+            // Validate and fall back to the dense boundary if it did.
+            if (PolylineHasSelfIntersection(simplified))
+            {
+                System.Diagnostics.Debug.WriteLine("DP introduced self-intersection; using dense boundary.");
+                simplified = new List<Point>(boundary);
+            }
 
             const int borderMargin = 5;
             for (int i = 0; i < simplified.Count; i++)
@@ -610,108 +615,165 @@ namespace DinoLino.Utilities.Modes
         // Finds all polyline vertices within EraseBrushRadius of the cursor
         // and moves them toward the centroid of the full polyline,
         // shrinking that portion of the outline inward.
+        private bool _eraseInProgress = false;
         public void ProcessEraseDrag(Vector2 mousePos)
         {
             if (_activePolyline == null) return;
+            if (_eraseInProgress) return;
+            if (ScaleX <= 0 || ScaleY <= 0) return;
+            _eraseInProgress = true;
+            try
+            {
+                var srcPoints = _activePolyline.Points;
+                if (srcPoints.Count < 3) return;
 
-            double mx = mousePos.X;
-            double my = mousePos.Y;
-            double r2 = EraseBrushRadius * EraseBrushRadius;
+                // Work in IMAGE space so mask resolution is independent of zoom.
+                var img = new List<Point>(srcPoints.Count);
+                foreach (var cp in srcPoints)
+                    img.Add(new Point((cp.X - OffsetX) / ScaleX, (cp.Y - OffsetY) / ScaleY));
+                if (img.Count >= 2)
+                {
+                    Point f = img[0], l = img[img.Count - 1];
+                    if ((f.X - l.X) * (f.X - l.X) + (f.Y - l.Y) * (f.Y - l.Y) < 1.0)
+                        img.RemoveAt(img.Count - 1);
+                }
+                if (img.Count < 3) return;
 
-            var points = _activePolyline.Points;
-            if (points.Count < 3) return;
+                double rImgX = EraseBrushRadius / ScaleX;
+                double rImgY = EraseBrushRadius / ScaleY;
+                int pad = (int)Math.Ceiling(Math.Max(rImgX, rImgY)) + 2;
 
-            int n = points.Count;
-            bool[] inside = new bool[n];
-            bool anyInside = false;
+                double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+                foreach (var p in img)
+                {
+                    if (p.X < minX) minX = p.X; if (p.X > maxX) maxX = p.X;
+                    if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y;
+                }
 
+                int ox = (int)Math.Floor(minX) - pad;
+                int oy = (int)Math.Floor(minY) - pad;
+                int w = (int)Math.Ceiling(maxX) - ox + pad;
+                int h = (int)Math.Ceiling(maxY) - oy + pad;
+                if (w < 3 || h < 3 || (long)w * h > 16_000_000) return;
+
+                var local = new List<Point>(img.Count);
+                foreach (var p in img) local.Add(new Point(p.X - ox, p.Y - oy));
+
+                // 1) Rasterize the outline to a filled mask (even-odd fill).
+                bool[] mask = RasterizePolygon(local, w, h);
+
+                // 2) Carve the brush disc. Test each pixel's CANVAS distance so the brush
+                //    stays a true on-screen circle even under non-uniform scale. Clearing
+                //    pixels can only ever REMOVE area — no cursor-side dependence.
+                double rCanvas2 = EraseBrushRadius * EraseBrushRadius;
+                double cImgX = (mousePos.X - OffsetX) / ScaleX - ox;
+                double cImgY = (mousePos.Y - OffsetY) / ScaleY - oy;
+                int bx0 = Math.Max(0, (int)Math.Floor(cImgX - rImgX) - 1);
+                int bx1 = Math.Min(w - 1, (int)Math.Ceiling(cImgX + rImgX) + 1);
+                int by0 = Math.Max(0, (int)Math.Floor(cImgY - rImgY) - 1);
+                int by1 = Math.Min(h - 1, (int)Math.Ceiling(cImgY + rImgY) + 1);
+                bool anyCleared = false;
+                for (int y = by0; y <= by1; y++)
+                    for (int x = bx0; x <= bx1; x++)
+                    {
+                        if (!mask[y * w + x]) continue;
+                        double canX = (x + ox + 0.5) * ScaleX + OffsetX;
+                        double canY = (y + oy + 0.5) * ScaleY + OffsetY;
+                        double dx = canX - mousePos.X, dy = canY - mousePos.Y;
+                        if (dx * dx + dy * dy <= rCanvas2) { mask[y * w + x] = false; anyCleared = true; }
+                    }
+                if (!anyCleared) return;
+
+                // 3) Re-fill enclosed holes (so an interior-only stroke does nothing rather
+                //    than punching a hole), then keep the single largest blob.
+                var snap = new ImageSnapshot(null, null, w, h, 0, 0);
+                mask = _processor.FillHoles(mask, snap);
+                mask = _processor.KeepLargestComponent(mask, snap);
+                if (!_processor.HasMinimumPixels(mask, 9)) return;
+
+                // 4) Re-trace as a guaranteed-simple polygon, simplify, convert to canvas.
+                var boundary = _processor.TraceBoundary(mask, snap);
+                if (boundary.Count < 8) return;
+                var simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
+                if (simplified.Count < 3) return;
+
+                srcPoints.Clear();
+                foreach (var p in simplified)
+                    srcPoints.Add(new Point((p.X + ox) * ScaleX + OffsetX, (p.Y + oy) * ScaleY + OffsetY));
+                srcPoints.Add(new Point((simplified[0].X + ox) * ScaleX + OffsetX, (simplified[0].Y + oy) * ScaleY + OffsetY));
+
+                RefreshSmoothSnapshot();
+            }
+            finally { _eraseInProgress = false; }
+        }
+
+        // Even-odd scanline fill. pts are in local mask coordinates, closure dup removed.
+        private static bool[] RasterizePolygon(List<Point> pts, int w, int h)
+        {
+            var mask = new bool[w * h];
+            int n = pts.Count;
+            if (n < 3) return mask;
+            var xs = new List<double>(8);
+            for (int y = 0; y < h; y++)
+            {
+                double scanY = y + 0.5;
+                xs.Clear();
+                for (int i = 0; i < n; i++)
+                {
+                    Point a = pts[i], b = pts[(i + 1) % n];
+                    double ay = a.Y, by = b.Y;
+                    if ((ay <= scanY && by > scanY) || (by <= scanY && ay > scanY))
+                    {
+                        double t = (scanY - ay) / (by - ay);
+                        xs.Add(a.X + t * (b.X - a.X));
+                    }
+                }
+                if (xs.Count < 2) continue;
+                xs.Sort();
+                for (int k = 0; k + 1 < xs.Count; k += 2)
+                {
+                    int xStart = (int)Math.Ceiling(xs[k] - 0.5);
+                    int xEnd = (int)Math.Floor(xs[k + 1] - 0.5);
+                    if (xStart < 0) xStart = 0;
+                    if (xEnd > w - 1) xEnd = w - 1;
+                    int row = y * w;
+                    for (int x = xStart; x <= xEnd; x++) mask[row + x] = true;
+                }
+            }
+            return mask;
+        }
+
+        private static bool PolylineHasSelfIntersection(IList<Point> pts)
+        {
+            int n = pts.Count;
+            if (n < 4) return false;
             for (int i = 0; i < n; i++)
             {
-                double dx = points[i].X - mx;
-                double dy = points[i].Y - my;
-                if (dx * dx + dy * dy <= r2)
+                Point a1 = pts[i], a2 = pts[(i + 1) % n];
+                for (int j = i + 1; j < n; j++)
                 {
-                    inside[i] = true;
-                    anyInside = true;
+                    if (j == i) continue;
+                    if ((i + 1) % n == j || (j + 1) % n == i) continue;
+                    Point b1 = pts[j], b2 = pts[(j + 1) % n];
+                    if (SegmentsIntersect(a1, a2, b1, b2)) return true;
                 }
             }
-
-            if (!anyInside) return;
-
-            // Check whether the erased run wraps around the seam (last->first).
-            // If so, rotate the point list so the seam falls inside a kept region,
-            // preventing the bridging logic from splitting across the wrap point.
-            if (inside[0] || inside[n - 1])
-            {
-                // Find the first index that is NOT inside the brush
-                int rotateStart = -1;
-                for (int i = 0; i < n; i++)
-                {
-                    if (!inside[i]) { rotateStart = i; break; }
-                }
-
-                // If every point is inside the brush, the whole outline would be erased — bail out
-                if (rotateStart < 0) return;
-
-                // Rotate points and inside flags so rotateStart becomes index 0
-                var rotatedPoints = new List<Point>(n);
-                var rotatedInside = new bool[n];
-                for (int i = 0; i < n; i++)
-                {
-                    int src = (rotateStart + i) % n;
-                    rotatedPoints.Add(points[src]);
-                    rotatedInside[i] = inside[src];
-                }
-
-                points.Clear();
-                foreach (var p in rotatedPoints)
-                    points.Add(p);
-
-                inside = rotatedInside;
-                n = points.Count;
-            }
-
-            // Build new point list, replacing each erased run with one midpoint bridge
-            var newPoints = new List<Point>();
-            int i2 = 0;
-            while (i2 < n)
-            {
-                if (!inside[i2])
-                {
-                    newPoints.Add(points[i2]);
-                    i2++;
-                }
-                else
-                {
-                    int runStart = i2;
-                    while (i2 < n && inside[i2]) i2++;
-
-                    Point before = points[(runStart - 1 + n) % n];
-                    Point after = points[i2 % n];
-
-                    newPoints.Add(new Point(
-                        (before.X + after.X) * 0.5,
-                        (before.Y + after.Y) * 0.5));
-                }
-            }
-
-            if (newPoints.Count < 3) return;
-
-            // =====================
-            // CLOSURE FAILSAFE
-            // =====================
-            // Guarantee the polyline is always explicitly closed:
-            // the last point must equal the first point.
-            // If they differ by more than 1 pixel, append a copy of the first point.
-
-            points.Clear();
-            foreach (var p in newPoints)
-                points.Add(p);
-
-            EnforcePolylineClosure();
-
-            RefreshSmoothSnapshot();
+            return false;
         }
+
+        private static bool SegmentsIntersect(Point p1, Point p2, Point p3, Point p4)
+        {
+            double d1 = Cross(p3, p4, p1);
+            double d2 = Cross(p3, p4, p2);
+            double d3 = Cross(p1, p2, p3);
+            double d4 = Cross(p1, p2, p4);
+            return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+                   ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+        }
+
+        private static double Cross(Point a, Point b, Point c)
+            => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
+
         private void EnforcePolylineClosure()
         {
             if (_activePolyline == null) return;
