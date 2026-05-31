@@ -1103,6 +1103,11 @@ namespace DinoLino.Utilities.Modes
         // =====================
         private readonly EllipticFourierAnalysis _efd = new EllipticFourierAnalysis();
 
+        // Session-level accumulator of EFD coefficient tables for multi-specimen CSV export.
+        // Deliberately NOT cleared in Reset(), so the batch survives opening new images and
+        // clearing the workspace within a session.
+        public EfdCsvCollector EfdCsv { get; } = new EfdCsvCollector();
+
         private int efdHarmonics = 10;
         public int EfdHarmonics
         {

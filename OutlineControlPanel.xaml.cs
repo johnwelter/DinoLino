@@ -79,18 +79,65 @@ namespace DinoLino.Utilities.Modes
                 FontFamily = new FontFamily("Consolas")
             };
 
+            // ── Bottom bar: add-to-batch + export-batch ──
+            var addButton = new Button
+            {
+                Content = "Add specimen data to spreadsheet",
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(8, 0, 4, 8)
+            };
+
+            var clearButton = new Button
+            {
+                Content = "Clear spreadsheet",
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(4, 0, 4, 8)
+            };
+
             var exportButton = new Button
             {
-                Content = "Export CSV...",
+                Content = "Export to CSV",
                 Padding = new Thickness(10, 4, 10, 4),
-                Margin = new Thickness(8, 0, 8, 8),
+                Margin = new Thickness(4, 0, 8, 8)
+            };
+
+            var pendingLabel = new TextBlock
+            {
+                Foreground = Brushes.Gray,
+                Margin = new Thickness(8, 0, 8, 4),
+                Text = PendingStatusText()
+            };
+
+            addButton.Click += (s, ev) =>
+            {
+                if (AddCurrentSpecimenToSpreadsheet())
+                    pendingLabel.Text = PendingStatusText();
+            };
+            exportButton.Click += (s, ev) => ExportSpreadsheetCsv();
+
+            clearButton.Click += (s, ev) =>
+            {
+                if (ClearSpreadsheet())
+                    pendingLabel.Text = PendingStatusText();
+            };
+            exportButton.Click += (s, ev) => ExportSpreadsheetCsv();
+
+            var buttonRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right
             };
-            exportButton.Click += (s, ev) => ExportCoefficientsCsv(harmonics);
+            buttonRow.Children.Add(addButton);
+            buttonRow.Children.Add(clearButton);
+            buttonRow.Children.Add(exportButton);
+
+            var bottomBar = new StackPanel();
+            bottomBar.Children.Add(pendingLabel);
+            bottomBar.Children.Add(buttonRow);
 
             var coeffDock = new DockPanel();
-            DockPanel.SetDock(exportButton, Dock.Bottom);
-            coeffDock.Children.Add(exportButton);
+            DockPanel.SetDock(bottomBar, Dock.Bottom);
+            coeffDock.Children.Add(bottomBar);
             coeffDock.Children.Add(coeffTextBox);
 
             var coeffTab = new TabItem { Header = "Coefficients", Content = coeffDock };
@@ -144,6 +191,29 @@ namespace DinoLino.Utilities.Modes
             };
 
             window.Show();
+        }
+
+        // Clears the pending session spreadsheet after confirming with the user.
+        // Returns true if the batch was actually cleared.
+        private bool ClearSpreadsheet()
+        {
+            int n = _mode.EfdCsv.Count;
+            if (n == 0)
+            {
+                MessageBox.Show("The spreadsheet is already empty.",
+                                "Clear Spreadsheet", MessageBoxButton.OK, MessageBoxImage.Information);
+                return false;
+            }
+
+            var result = MessageBox.Show(
+                $"Remove all {n} specimen{(n == 1 ? "" : "s")} from the pending spreadsheet? " +
+                "This cannot be undone.",
+                "Clear Spreadsheet", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+            if (result != MessageBoxResult.Yes) return false;
+
+            _mode.EfdCsv.Clear();
+            return true;
         }
 
         // Reconstructs x(t) and y(t) separately from the raw EFD coefficients,
@@ -347,70 +417,70 @@ namespace DinoLino.Utilities.Modes
         // Exports the current EFD coefficients to a CSV file. The first row holds the
         // specimen name; the second row is the column header; each subsequent row is
         // one harmonic with its four coefficients.
-        private void ExportCoefficientsCsv(int harmonics)
+
+        private string PendingStatusText()
         {
+            int n = _mode.EfdCsv.Count;
+            return n == 0
+                ? "No specimens added to the spreadsheet yet."
+                : $"{n} specimen{(n == 1 ? "" : "s")} pending export.";
+        }
+
+        // Appends the current specimen's coefficients to the session spreadsheet.
+        // Returns true if something was added.
+        private bool AddCurrentSpecimenToSpreadsheet()
+        {
+            // Recompute so we bank the coefficients for the current outline and
+            // harmonic setting, matching what's shown.
+            _mode.GenerateMetadata();
+
             var coeffs = _mode.EFDCoefficientsResult;
             if (coeffs == null || coeffs.Length == 0)
             {
-                MessageBox.Show("No EFD data available to export.",
-                                "Export CSV", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
+                MessageBox.Show("No EFD data available to add. Please draw an outline first.",
+                                "Add Specimen", MessageBoxButton.OK, MessageBoxImage.Information);
+                return false;
             }
 
-            string specimenName = GetSpecimenName();
+            if (!_mode.EfdCsv.AddSpecimen(GetSpecimenName(), coeffs))
+            {
+                MessageBox.Show("Could not add this specimen — no valid coefficients.",
+                                "Add Specimen", MessageBoxButton.OK, MessageBoxImage.Information);
+                return false;
+            }
+            return true;
+        }
+
+        // Saves the accumulated session spreadsheet to a single CSV file.
+        // Does NOT add the current specimen — that's done by "Add specimen data to spreadsheet".
+        private void ExportSpreadsheetCsv()
+        {
+            if (_mode.EfdCsv.Count == 0)
+            {
+                MessageBox.Show("The spreadsheet is empty. Use \"Add specimen data to spreadsheet\" " +
+                                "to add one or more specimens first.",
+                                "Export to CSV", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
 
             var dialog = new SaveFileDialog
             {
                 Title = "Export EFD Coefficients",
                 Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
                 DefaultExt = "csv",
-                FileName = SanitizeFileName(specimenName) + "_EFD.csv"
+                FileName = "EFD_coefficients.csv"
             };
-
             if (dialog.ShowDialog() != true) return;
-
-            var csv = new System.Text.StringBuilder();
-
-            // Row 1: specimen name (escaped, in case it contains a comma or quote)
-            csv.AppendLine(CsvEscape(specimenName));
-
-            // Row 2: column headers
-            csv.AppendLine("harmonic,a,b,c,d");
-
-            // Rows 3+: one row per harmonic
-            int available = coeffs.Length / 4;
-            int count = Math.Min(harmonics, available);
-            for (int h = 0; h < count; h++)
-            {
-                int k = h * 4;
-                csv.AppendLine(string.Join(",",
-                    (h + 1).ToString(CultureInfo.InvariantCulture),
-                    coeffs[k].ToString("R", CultureInfo.InvariantCulture),
-                    coeffs[k + 1].ToString("R", CultureInfo.InvariantCulture),
-                    coeffs[k + 2].ToString("R", CultureInfo.InvariantCulture),
-                    coeffs[k + 3].ToString("R", CultureInfo.InvariantCulture)));
-            }
 
             try
             {
-                File.WriteAllText(dialog.FileName, csv.ToString());
+                File.WriteAllText(dialog.FileName, _mode.EfdCsv.BuildCsv());
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Could not write the file:\n{ex.Message}",
-                                "Export CSV", MessageBoxButton.OK, MessageBoxImage.Error);
+                                "Export to CSV", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-        }
-
-        // Wraps a field in quotes and doubles internal quotes if it contains
-        // a comma, quote, or newline — standard CSV escaping.
-        private static string CsvEscape(string field)
-        {
-            if (field == null) return "";
-            bool needsQuoting = field.Contains(',') || field.Contains('"') ||
-                                field.Contains('\n') || field.Contains('\r');
-            if (!needsQuoting) return field;
-            return "\"" + field.Replace("\"", "\"\"") + "\"";
         }
 
         // Strips characters that are invalid in file names so the suggested
