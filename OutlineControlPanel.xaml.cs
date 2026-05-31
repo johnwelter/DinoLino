@@ -111,7 +111,21 @@ namespace DinoLino.Utilities.Modes
             plotsPanel.Children.Add(xPlot);
             plotsPanel.Children.Add(yPlot);
 
-            var plotsTab = new TabItem { Header = "Projections (x(t), y(t))", Content = plotsPanel };
+            var plotsExportButton = new Button
+            {
+                Content = "Export Plots as PNG...",
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(8, 0, 8, 8),
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            plotsExportButton.Click += (s, ev) => ExportProjectionPlotsPng(harmonics);
+
+            var plotsDock = new DockPanel();
+            DockPanel.SetDock(plotsExportButton, Dock.Bottom);
+            plotsDock.Children.Add(plotsExportButton);
+            plotsDock.Children.Add(plotsPanel);
+
+            var plotsTab = new TabItem { Header = "Projections (x(t), y(t))", Content = plotsDock };
 
             // ── Assemble tabs and window ──
             var tabs = new TabControl();
@@ -406,6 +420,85 @@ namespace DinoLino.Utilities.Modes
             foreach (char c in System.IO.Path.GetInvalidFileNameChars())
                 name = name.Replace(c, '_');
             return name;
+        }
+
+        // Renders both projection plots to a single PNG at a fixed export size.
+        // Builds a fresh, off-screen copy of the plots rather than capturing the
+        // on-screen panel, so export works regardless of the current window size
+        // or whether the tab has been laid out yet.
+        private void ExportProjectionPlotsPng(int harmonics)
+        {
+            var coeffs = _mode.EFDCoefficientsResult;
+            if (coeffs == null || coeffs.Length == 0)
+            {
+                MessageBox.Show("No EFD data available to export.",
+                                "Export Plots", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            string specimenName = GetSpecimenName();
+
+            var dialog = new SaveFileDialog
+            {
+                Title = "Export Projection Plots",
+                Filter = "PNG image (*.png)|*.png|All files (*.*)|*.*",
+                DefaultExt = "png",
+                FileName = SanitizeFileName(specimenName) + "_projections.png"
+            };
+
+            if (dialog.ShowDialog() != true) return;
+
+            // Fixed export dimensions (logical pixels), rendered at 2x for crispness.
+            const double exportWidth = 700;
+            const double exportHeight = 500;
+            const double scale = 2.0;
+
+            int sampleCount = Math.Max(200, harmonics * 20);
+            var (xSeries, ySeries) = SampleXYProjections(harmonics, sampleCount);
+
+            // Build an off-screen panel identical to the on-screen one
+            var panel = new Grid
+            {
+                Width = exportWidth,
+                Height = exportHeight,
+                Background = Brushes.White,
+                Margin = new Thickness(8)
+            };
+            panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            var xPlot = BuildProjectionPlot("X-Coordinates", xSeries, Brushes.SteelBlue);
+            Grid.SetRow(xPlot, 0);
+            var yPlot = BuildProjectionPlot("Y-Coordinates", ySeries, Brushes.IndianRed);
+            Grid.SetRow(yPlot, 1);
+            panel.Children.Add(xPlot);
+            panel.Children.Add(yPlot);
+
+            // Force layout so the canvases get a real size and draw themselves
+            var size = new Size(exportWidth, exportHeight);
+            panel.Measure(size);
+            panel.Arrange(new Rect(size));
+            panel.UpdateLayout();
+
+            try
+            {
+                var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    (int)(exportWidth * scale), (int)(exportHeight * scale),
+                    96 * scale, 96 * scale,
+                    PixelFormats.Pbgra32);
+                rtb.Render(panel);
+
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+
+                using var stream = File.Create(dialog.FileName);
+                encoder.Save(stream);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not write the image:\n{ex.Message}",
+                                "Export Plots", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 }
