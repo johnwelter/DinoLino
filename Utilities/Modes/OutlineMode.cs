@@ -379,21 +379,18 @@ namespace DinoLino.Utilities.Modes
             var simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
             if (simplified.Count < 3) return null;
 
-            // Crack-traced boundary is simple; DP can occasionally cross a concave bay.
-            // Validate and fall back to the dense boundary if it did.
-            if (PolylineHasSelfIntersection(simplified))
-            {
-                System.Diagnostics.Debug.WriteLine("DP introduced self-intersection; using dense boundary.");
+            // The crack-traced boundary is simple, but Douglas-Peucker can occasionally
+            // cross a concave bay. Validate and fall back to the dense boundary if so.
+            bool simAfterDP = !PolylineHasSelfIntersection(simplified);
+            if (!simAfterDP)
                 simplified = new List<Point>(boundary);
-            }
 
-            const int borderMargin = 5;
-            for (int i = 0; i < simplified.Count; i++)
-            {
-                double cx = Math.Max(borderMargin, Math.Min(snap.Width - borderMargin - 1, simplified[i].X + bx0));
-                double cy = Math.Max(borderMargin, Math.Min(snap.Height - borderMargin - 1, simplified[i].Y + by0));
-                simplified[i] = new Point(cx, cy);
-            }
+            // The destructive per-point border clamp that used to live here was REMOVED.
+            // CleanMaskFullSpace already clears everything within 5 px of the edge, so
+            // every traced point is in-bounds. Clamping each point onto a box could
+            // collapse a near-edge concavity onto the box line and self-intersect the
+            // polygon — that was the source of the corrupted metadata, and it only bit
+            // specimens close to the image border (hence the intermittency).
 
             var poly = new Polyline
             {
@@ -403,9 +400,21 @@ namespace DinoLino.Utilities.Modes
             };
             if (dashed) poly.StrokeDashArray = new DoubleCollection { 4, 2 };
 
+            // (p.X + bx0, p.Y + by0) maps cropped coords back to full-image coords — the
+            // clamp loop used to apply this offset, so it must stay now that it's gone.
             foreach (var p in simplified)
-                poly.Points.Add(new Point(p.X * ScaleX + OffsetX, p.Y * ScaleY + OffsetY));
-            poly.Points.Add(new Point(simplified[0].X * ScaleX + OffsetX, simplified[0].Y * ScaleY + OffsetY));
+                poly.Points.Add(new Point((p.X + bx0) * ScaleX + OffsetX, (p.Y + by0) * ScaleY + OffsetY));
+            poly.Points.Add(new Point((simplified[0].X + bx0) * ScaleX + OffsetX, (simplified[0].Y + by0) * ScaleY + OffsetY));
+
+            // Confirmation: with the simple tracer, the DP fallback, and no clamp, the
+            // finished polyline should always be simple. Log only if it somehow isn't.
+            if (PolylineHasSelfIntersection(poly.Points))
+            {
+                bool simRaw = !PolylineHasSelfIntersection(boundary);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[outline build] FINAL self-intersects! simRaw={simRaw} simAfterDP={simAfterDP} pts={boundary.Count}");
+            }
+
             return poly;
         }
 
