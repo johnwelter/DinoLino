@@ -324,9 +324,8 @@ namespace DinoLino.Utilities.Modes
         // Runs the full cleanup pipeline on a full-image-space mask.
         // Returns the cleaned full-image-space mask, or null if it fails.
         private bool[] CleanMaskFullSpace(bool[] rawFull, ImageSnapshot snap,
-            int seedPxX, int seedPxY, CancellationToken token)
+     int seedPxX, int seedPxY, CancellationToken token, bool preserveMultipleComponents = false)
         {
-            // border strip
             int sw = snap.Width, sh = snap.Height;
             for (int i = 0; i < rawFull.Length; i++)
             {
@@ -340,19 +339,30 @@ namespace DinoLino.Utilities.Modes
             var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
             bool[] work = _processor.FillHoles(cropped, croppedSnap);
-            work = _processor.ExtractLargestComponent(work, croppedSnap);
+            if (!preserveMultipleComponents)
+                work = _processor.ExtractLargestComponent(work, croppedSnap);
             work = _processor.MorphOpen(work, cw, ch, radius: 2);
-            work = _processor.ExtractLargestComponent(work, croppedSnap);
+            if (!preserveMultipleComponents)
+                work = _processor.ExtractLargestComponent(work, croppedSnap);
             work = _processor.MorphClose(work, cw, ch, radius: 1);
             _processor.EnforceMinimumCorridorWidth(work, croppedSnap, minWidth: 3);
             _processor.SmoothBorderTopology(work, croppedSnap);
             _processor.PruneDeadEnds(work, croppedSnap);
-            work = _processor.KeepLargestComponent(work, croppedSnap);
+            if (!preserveMultipleComponents)
+                work = _processor.KeepLargestComponent(work, croppedSnap);
 
-            int cpx = seedPxX - bx0, cpy = seedPxY - by0;
-            bool[] traced = _processor.PrepareMaskForTracing(work, cropped, cpx, cpy, MinAreaPixels, croppedSnap);
+            bool[] traced;
+            if (preserveMultipleComponents)
+            {
+                // Keep everything that survived cleanup; don't restrict to one component
+                traced = _processor.HasMinimumPixels(work, MinAreaPixels) ? work : cropped;
+            }
+            else
+            {
+                int cpx = seedPxX - bx0, cpy = seedPxY - by0;
+                traced = _processor.PrepareMaskForTracing(work, cropped, cpx, cpy, MinAreaPixels, croppedSnap);
+            }
 
-            // Paste cropped result back into full-image space
             bool[] full = new bool[sw * sh];
             for (int y = 0; y < ch; y++)
                 for (int x = 0; x < cw; x++)
@@ -497,9 +507,12 @@ namespace DinoLino.Utilities.Modes
                     for (int i = 0; i < accumulated.Length; i++)
                         if (newFlood[i]) accumulated[i] = true;
 
+                    int bridgeRadius = 6; // tune to the largest gap you want to span
+                    accumulated = _processor.MorphClose(accumulated, _cachedWidth, _cachedHeight, bridgeRadius);
+
                     // Re-clean the union. Use the new click as the trace seed so
                     // PrepareMaskForTracing keeps the component the user just added.
-                    bool[] cleaned = CleanMaskFullSpace(accumulated, snap, px, py, token);
+                    bool[] cleaned = CleanMaskFullSpace(accumulated, snap, px, py, token, preserveMultipleComponents: true);
                     if (cleaned == null) return;
                     token.ThrowIfCancellationRequested();
 
