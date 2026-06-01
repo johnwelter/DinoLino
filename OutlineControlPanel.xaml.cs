@@ -120,7 +120,6 @@ namespace DinoLino.Utilities.Modes
                 if (ClearSpreadsheet())
                     pendingLabel.Text = PendingStatusText();
             };
-            exportButton.Click += (s, ev) => ExportSpreadsheetCsv();
 
             var buttonRow = new StackPanel
             {
@@ -468,7 +467,6 @@ namespace DinoLino.Utilities.Modes
                 Title = "Export EFD Coefficients",
                 Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
                 DefaultExt = "csv",
-                FileName = "EFD_coefficients.csv"
             };
             if (dialog.ShowDialog() != true) return;
 
