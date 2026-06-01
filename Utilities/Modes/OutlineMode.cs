@@ -700,16 +700,30 @@ namespace DinoLino.Utilities.Modes
                 mask = _processor.KeepLargestComponent(mask, snap);
                 if (!_processor.HasMinimumPixels(mask, 9)) return;
 
-                // 4) Re-trace as a guaranteed-simple polygon, simplify, convert to canvas.
+                // 4) Re-trace the carved mask as a guaranteed-simple dense boundary.
                 var boundary = _processor.TraceBoundary(mask, snap);
                 if (boundary.Count < 8) return;
-                var simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
-                if (simplified.Count < 3) return;
+
+                // 5) Update ONLY the stretch of outline the brush actually overlapped,
+                //    leaving every other vertex exactly where it was. This removes the
+                //    "ripple": Douglas-Peucker reselects its vertices globally, so
+                //    re-simplifying the WHOLE boundary on every drag shifts vertices in
+                //    regions the brush never reached. Splicing just the affected arc keeps
+                //    untouched vertices pinned (they re-project to the same canvas coords).
+                List<Point> newLocal = SpliceErasedArc(local, boundary, mousePos, ox, oy);
+                if (newLocal == null)
+                {
+                    // Couldn't isolate a single affected arc (e.g. the stroke pinched the
+                    // shape into separate pieces). Fall back to re-simplifying the whole
+                    // boundary — this can ripple, but only in these rare cases.
+                    newLocal = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
+                }
+                if (newLocal == null || newLocal.Count < 3) return;
 
                 srcPoints.Clear();
-                foreach (var p in simplified)
+                foreach (var p in newLocal)
                     srcPoints.Add(new Point((p.X + ox) * ScaleX + OffsetX, (p.Y + oy) * ScaleY + OffsetY));
-                srcPoints.Add(new Point((simplified[0].X + ox) * ScaleX + OffsetX, (simplified[0].Y + oy) * ScaleY + OffsetY));
+                srcPoints.Add(new Point((newLocal[0].X + ox) * ScaleX + OffsetX, (newLocal[0].Y + oy) * ScaleY + OffsetY));
 
                 RefreshSmoothSnapshot();
             }
@@ -750,6 +764,175 @@ namespace DinoLino.Utilities.Modes
                 }
             }
             return mask;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // ERASE: LOCAL SPLICE (anti-ripple)
+        // ─────────────────────────────────────────────────────────────────────────
+        // Replaces ONLY the contiguous arc the brush overlapped. Every other vertex is
+        // reused as-is, so untouched regions re-project to the exact same canvas
+        // coordinate and cannot drift.
+        //
+        //   oldLocal    : current outline vertices, local mask frame, no closure dup
+        //   dense       : freshly traced boundary of the carved mask, same frame
+        //   mouseCanvas : brush centre, canvas space
+        //   ox, oy      : local-frame origin (local = image - (ox, oy))
+        //
+        // Returns the new vertex list (local frame, no closure dup), or null when the
+        // affected region can't be isolated as a single arc (caller falls back).
+        private List<Point> SpliceErasedArc(List<Point> oldLocal, List<Point> dense,
+            Vector2 mouseCanvas, int ox, int oy)
+        {
+            int n = oldLocal.Count;
+            if (n < 3 || dense.Count < 3) return null;
+
+            // Seam slightly outside the brush so the join lands on unmodified geometry.
+            double rTest = EraseBrushRadius + 2.0;
+            double rTest2 = rTest * rTest;
+
+            bool UnderBrush(Point pLocal)
+            {
+                double canX = (pLocal.X + ox) * ScaleX + OffsetX;
+                double canY = (pLocal.Y + oy) * ScaleY + OffsetY;
+                double dx = canX - mouseCanvas.X, dy = canY - mouseCanvas.Y;
+                return dx * dx + dy * dy <= rTest2;
+            }
+
+            // 1) Find the vertices A and B flanking the affected span on oldLocal.
+            var under = new bool[n];
+            int underCount = 0;
+            for (int i = 0; i < n; i++)
+            {
+                under[i] = UnderBrush(oldLocal[i]);
+                if (under[i]) underCount++;
+            }
+            if (underCount == n) return null; // nothing stable left to anchor to
+
+            int aIdx, bIdx;
+            if (underCount > 0)
+            {
+                // Require the under-brush vertices to form exactly ONE contiguous run on
+                // the cyclic outline; more than one means the brush touched the shape in
+                // separate places and a single splice isn't valid.
+                int runs = 0, runStart = -1;
+                for (int i = 0; i < n; i++)
+                    if (under[i] && !under[(i - 1 + n) % n]) { runs++; runStart = i; }
+                if (runs != 1) return null;
+
+                int runEnd = runStart;
+                while (under[(runEnd + 1) % n]) runEnd = (runEnd + 1) % n;
+
+                aIdx = (runStart - 1 + n) % n; // last kept vertex before the run
+                bIdx = (runEnd + 1) % n;       // first kept vertex after the run
+            }
+            else
+            {
+                // Brush bit into an edge without covering a vertex: anchor to the edge
+                // whose segment passes closest to the brush centre.
+                int bestEdge = -1;
+                double bestDist = double.MaxValue;
+                for (int i = 0; i < n; i++)
+                {
+                    double d = PointToSegmentCanvasDist2(oldLocal[i], oldLocal[(i + 1) % n],
+                                                         mouseCanvas, ox, oy);
+                    if (d < bestDist) { bestDist = d; bestEdge = i; }
+                }
+                if (bestEdge < 0) return null;
+                aIdx = bestEdge;
+                bIdx = (bestEdge + 1) % n;
+            }
+
+            Point A = oldLocal[aIdx];
+            Point B = oldLocal[bIdx];
+
+            // 2) Extract the carved arc of the dense boundary from (near A) to (near B)
+            //    and simplify just that arc.
+            int aJ = NearestIndex(dense, A);
+            int bJ = NearestIndex(dense, B);
+            if (aJ < 0 || bJ < 0 || aJ == bJ) return null;
+
+            List<Point> arc = ChooseUnderBrushArc(
+                ExtractArc(dense, aJ, bJ, true),
+                ExtractArc(dense, aJ, bJ, false),
+                UnderBrush);
+            if (arc == null) return null;
+
+            var arcSimpl = GeometryCalculations.DouglasPeucker(arc, _simplifyEpsilon);
+            if (arcSimpl.Count < 2) return null;
+
+            // 3) Kept vertices (walk B → … → A), then the new arc interior (A → B).
+            var result = new List<Point>(n + arcSimpl.Count);
+            for (int i = bIdx; ; i = (i + 1) % n)
+            {
+                result.Add(oldLocal[i]);
+                if (i == aIdx) break;
+            }
+            for (int k = 1; k < arcSimpl.Count - 1; k++)
+                result.Add(arcSimpl[k]);
+
+            if (result.Count < 3) return null;
+            if (PolylineHasSelfIntersection(result)) return null; // never return a tangled outline
+
+            return result;
+        }
+
+        // Squared canvas-space distance from the brush centre to segment p0–p1 (local frame).
+        private double PointToSegmentCanvasDist2(Point p0, Point p1, Vector2 mouseCanvas, int ox, int oy)
+        {
+            double ax = (p0.X + ox) * ScaleX + OffsetX, ay = (p0.Y + oy) * ScaleY + OffsetY;
+            double bx = (p1.X + ox) * ScaleX + OffsetX, by = (p1.Y + oy) * ScaleY + OffsetY;
+            double vx = bx - ax, vy = by - ay;
+            double wx = mouseCanvas.X - ax, wy = mouseCanvas.Y - ay;
+            double len2 = vx * vx + vy * vy;
+            double t = len2 > 1e-9 ? (wx * vx + wy * vy) / len2 : 0.0;
+            if (t < 0.0) t = 0.0; else if (t > 1.0) t = 1.0;
+            double cx = ax + t * vx, cy = ay + t * vy;
+            double dx = mouseCanvas.X - cx, dy = mouseCanvas.Y - cy;
+            return dx * dx + dy * dy;
+        }
+
+        // Index of the point in pts closest to target.
+        private static int NearestIndex(List<Point> pts, Point target)
+        {
+            int best = -1;
+            double bestD = double.MaxValue;
+            for (int i = 0; i < pts.Count; i++)
+            {
+                double dx = pts[i].X - target.X, dy = pts[i].Y - target.Y;
+                double d = dx * dx + dy * dy;
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
+        // Sub-path of the cyclic list from index i to index j (endpoints included).
+        // forward = true walks i → i+1 → … → j; forward = false walks i → i-1 → … → j.
+        private static List<Point> ExtractArc(List<Point> pts, int i, int j, bool forward)
+        {
+            int n = pts.Count;
+            var arc = new List<Point> { pts[i] };
+            int idx = i, guard = n + 1;
+            while (idx != j && guard-- > 0)
+            {
+                idx = forward ? (idx + 1) % n : (idx - 1 + n) % n;
+                arc.Add(pts[idx]);
+            }
+            return arc;
+        }
+
+        // Of the two candidate arcs, returns the one whose interior lies under the brush
+        // (the carved notch), or null if neither does.
+        private static List<Point> ChooseUnderBrushArc(List<Point> a, List<Point> b, Func<Point, bool> underBrush)
+        {
+            double FracUnder(List<Point> arc)
+            {
+                int under = 0, total = 0;
+                for (int k = 1; k < arc.Count - 1; k++) { total++; if (underBrush(arc[k])) under++; }
+                return total == 0 ? 0.0 : (double)under / total;
+            }
+            double fa = FracUnder(a), fb = FracUnder(b);
+            if (Math.Max(fa, fb) <= 0.0) return null;
+            return fa >= fb ? a : b;
         }
 
         private static bool PolylineHasSelfIntersection(IList<Point> pts)
