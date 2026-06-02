@@ -542,19 +542,23 @@ namespace DinoLino.Utilities
         /// corrected to the major arc when PointC (the arc apex) lies inside the
         /// triangle formed by A, B, and center — matching CurvatureMode behavior.
         public static double CentralAngle(
-            Vector2 pointA, Vector2 pointB, Vector2 pointC, Vector2 center)
+    Vector2 pointA, Vector2 pointB, Vector2 pointC, Vector2 center)
         {
-            double angleStart = Math.Atan2(pointA.Y - center.Y, pointA.X - center.X);
-            double angleEnd = Math.Atan2(pointB.Y - center.Y, pointB.X - center.X);
+            // C is the arc midpoint: it lies on the perpendicular bisector of AB and on the
+            // circle, so it sits on the drawn arc and splits it into two halves that are each
+            // <= 180 degrees. The central angle of the arc THROUGH C is therefore the sum of
+            // the two sub-arc angles A->C and C->B. Because each half is <= 180, the unsigned
+            // angle between the radius vectors measures each sub-arc exactly. Summing the two
+            // halves is independent of winding/orientation — unlike a single signed A->B
+            // sweep, which was the source of the 40 vs 320 flip.
+            Vector2 da = pointA - center;
+            Vector2 dc = pointC - center;
+            Vector2 db = pointB - center;
 
-            double diff = (angleEnd - angleStart) * (180.0 / Math.PI);
-            if (diff < 0) diff += 360.0;
+            double half1 = Math.Abs(Vector2.AngleBetween(da, dc));
+            double half2 = Math.Abs(Vector2.AngleBetween(dc, db));
 
-            // If center is inside triangle ABC the arc is reflex (> 180°)
-            if (IsPointInTriangle(center, pointA, pointB, pointC) && diff < 180.0)
-                diff = 360.0 - diff;
-
-            return Math.Round(diff, 2);
+            return Math.Round(half1 + half2, 2);
         }
 
         /// Interior angle at vertex B in the triangle A-B-C, in degrees.
