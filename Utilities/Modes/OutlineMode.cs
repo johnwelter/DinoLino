@@ -324,10 +324,11 @@ namespace DinoLino.Utilities.Modes
         // Runs the full cleanup pipeline on a full-image-space mask.
         // Returns the cleaned full-image-space mask, or null if it fails.
         private bool[] CleanMaskFullSpace(bool[] rawFull, ImageSnapshot snap,
-            int seedPxX, int seedPxY, CancellationToken token)
+    int seedPxX, int seedPxY, CancellationToken token, bool preserveMultipleComponents = false)
         {
-            // border strip
             int sw = snap.Width, sh = snap.Height;
+
+            // Strip the border band so flood bleed at the image edge can't anchor a component
             for (int i = 0; i < rawFull.Length; i++)
             {
                 if (!rawFull[i]) continue;
@@ -339,18 +340,24 @@ namespace DinoLino.Utilities.Modes
             var (cropped, cw, ch) = _processor.CropMask(rawFull, sw, bx0, by0, bx1, by1);
             var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
-            bool[] work = _processor.FillHoles(cropped, croppedSnap);
-            work = _processor.ExtractLargestComponent(work, croppedSnap);
-            work = _processor.MorphOpen(work, cw, ch, radius: 2);
-            work = _processor.ExtractLargestComponent(work, croppedSnap);
-            work = _processor.MorphClose(work, cw, ch, radius: 1);
-            _processor.EnforceMinimumCorridorWidth(work, croppedSnap, minWidth: 3);
-            _processor.SmoothBorderTopology(work, croppedSnap);
-            _processor.PruneDeadEnds(work, croppedSnap);
-            work = _processor.KeepLargestComponent(work, croppedSnap);
+            bool[] traced;
+            if (preserveMultipleComponents)
+            {
+                // Clean every component independently and keep all that survive.
+                // No single-component collapse, no trace-seed dependence.
+                bool[] work = _processor.CleanEachComponent(cropped, croppedSnap, MinAreaPixels);
+                traced = _processor.HasMinimumPixels(work, MinAreaPixels) ? work : cropped;
+            }
+            else
+            {
+                // Single-region path: clean the whole mask as one shape, then
+                // explicitly collapse to the largest component as a separate step.
+                bool[] work = _processor.CleanComponentMorphology(cropped, croppedSnap);
+                work = _processor.KeepLargestComponent(work, croppedSnap);
 
-            int cpx = seedPxX - bx0, cpy = seedPxY - by0;
-            bool[] traced = _processor.PrepareMaskForTracing(work, cropped, cpx, cpy, MinAreaPixels, croppedSnap);
+                int cpx = seedPxX - bx0, cpy = seedPxY - by0;
+                traced = _processor.PrepareMaskForTracing(work, cropped, cpx, cpy, MinAreaPixels, croppedSnap);
+            }
 
             // Paste cropped result back into full-image space
             bool[] full = new bool[sw * sh];
@@ -372,13 +379,18 @@ namespace DinoLino.Utilities.Modes
             var simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
             if (simplified.Count < 3) return null;
 
-            const int borderMargin = 5;
-            for (int i = 0; i < simplified.Count; i++)
-            {
-                double cx = Math.Max(borderMargin, Math.Min(snap.Width - borderMargin - 1, simplified[i].X + bx0));
-                double cy = Math.Max(borderMargin, Math.Min(snap.Height - borderMargin - 1, simplified[i].Y + by0));
-                simplified[i] = new Point(cx, cy);
-            }
+            // The crack-traced boundary is simple, but Douglas-Peucker can occasionally
+            // cross a concave bay. Validate and fall back to the dense boundary if so.
+            bool simAfterDP = !PolylineHasSelfIntersection(simplified);
+            if (!simAfterDP)
+                simplified = new List<Point>(boundary);
+
+            // The destructive per-point border clamp that used to live here was REMOVED.
+            // CleanMaskFullSpace already clears everything within 5 px of the edge, so
+            // every traced point is in-bounds. Clamping each point onto a box could
+            // collapse a near-edge concavity onto the box line and self-intersect the
+            // polygon — that was the source of the corrupted metadata, and it only bit
+            // specimens close to the image border (hence the intermittency).
 
             var poly = new Polyline
             {
@@ -388,9 +400,21 @@ namespace DinoLino.Utilities.Modes
             };
             if (dashed) poly.StrokeDashArray = new DoubleCollection { 4, 2 };
 
+            // (p.X + bx0, p.Y + by0) maps cropped coords back to full-image coords — the
+            // clamp loop used to apply this offset, so it must stay now that it's gone.
             foreach (var p in simplified)
-                poly.Points.Add(new Point(p.X * ScaleX + OffsetX, p.Y * ScaleY + OffsetY));
-            poly.Points.Add(new Point(simplified[0].X * ScaleX + OffsetX, simplified[0].Y * ScaleY + OffsetY));
+                poly.Points.Add(new Point((p.X + bx0) * ScaleX + OffsetX, (p.Y + by0) * ScaleY + OffsetY));
+            poly.Points.Add(new Point((simplified[0].X + bx0) * ScaleX + OffsetX, (simplified[0].Y + by0) * ScaleY + OffsetY));
+
+            // Confirmation: with the simple tracer, the DP fallback, and no clamp, the
+            // finished polyline should always be simple. Log only if it somehow isn't.
+            if (PolylineHasSelfIntersection(poly.Points))
+            {
+                bool simRaw = !PolylineHasSelfIntersection(boundary);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[outline build] FINAL self-intersects! simRaw={simRaw} simAfterDP={simAfterDP} pts={boundary.Count}");
+            }
+
             return poly;
         }
 
@@ -497,9 +521,12 @@ namespace DinoLino.Utilities.Modes
                     for (int i = 0; i < accumulated.Length; i++)
                         if (newFlood[i]) accumulated[i] = true;
 
+                    int bridgeRadius = 6; // tune to the largest gap you want to span
+                    accumulated = _processor.MorphClose(accumulated, _cachedWidth, _cachedHeight, bridgeRadius);
+
                     // Re-clean the union. Use the new click as the trace seed so
                     // PrepareMaskForTracing keeps the component the user just added.
-                    bool[] cleaned = CleanMaskFullSpace(accumulated, snap, px, py, token);
+                    bool[] cleaned = CleanMaskFullSpace(accumulated, snap, px, py, token, preserveMultipleComponents: true);
                     if (cleaned == null) return;
                     token.ThrowIfCancellationRequested();
 
@@ -597,108 +624,348 @@ namespace DinoLino.Utilities.Modes
         // Finds all polyline vertices within EraseBrushRadius of the cursor
         // and moves them toward the centroid of the full polyline,
         // shrinking that portion of the outline inward.
+        private bool _eraseInProgress = false;
         public void ProcessEraseDrag(Vector2 mousePos)
         {
             if (_activePolyline == null) return;
+            if (_eraseInProgress) return;
+            if (ScaleX <= 0 || ScaleY <= 0) return;
+            _eraseInProgress = true;
+            try
+            {
+                var srcPoints = _activePolyline.Points;
+                if (srcPoints.Count < 3) return;
 
-            double mx = mousePos.X;
-            double my = mousePos.Y;
-            double r2 = EraseBrushRadius * EraseBrushRadius;
+                // Work in IMAGE space so mask resolution is independent of zoom.
+                var img = new List<Point>(srcPoints.Count);
+                foreach (var cp in srcPoints)
+                    img.Add(new Point((cp.X - OffsetX) / ScaleX, (cp.Y - OffsetY) / ScaleY));
+                if (img.Count >= 2)
+                {
+                    Point f = img[0], l = img[img.Count - 1];
+                    if ((f.X - l.X) * (f.X - l.X) + (f.Y - l.Y) * (f.Y - l.Y) < 1.0)
+                        img.RemoveAt(img.Count - 1);
+                }
+                if (img.Count < 3) return;
 
-            var points = _activePolyline.Points;
-            if (points.Count < 3) return;
+                double rImgX = EraseBrushRadius / ScaleX;
+                double rImgY = EraseBrushRadius / ScaleY;
+                int pad = (int)Math.Ceiling(Math.Max(rImgX, rImgY)) + 2;
 
-            int n = points.Count;
-            bool[] inside = new bool[n];
-            bool anyInside = false;
+                double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+                foreach (var p in img)
+                {
+                    if (p.X < minX) minX = p.X; if (p.X > maxX) maxX = p.X;
+                    if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y;
+                }
 
+                int ox = (int)Math.Floor(minX) - pad;
+                int oy = (int)Math.Floor(minY) - pad;
+                int w = (int)Math.Ceiling(maxX) - ox + pad;
+                int h = (int)Math.Ceiling(maxY) - oy + pad;
+                if (w < 3 || h < 3 || (long)w * h > 16_000_000) return;
+
+                var local = new List<Point>(img.Count);
+                foreach (var p in img) local.Add(new Point(p.X - ox, p.Y - oy));
+
+                // 1) Rasterize the outline to a filled mask (even-odd fill).
+                bool[] mask = RasterizePolygon(local, w, h);
+
+                // 2) Carve the brush disc. Test each pixel's CANVAS distance so the brush
+                //    stays a true on-screen circle even under non-uniform scale. Clearing
+                //    pixels can only ever REMOVE area — no cursor-side dependence.
+                double rCanvas2 = EraseBrushRadius * EraseBrushRadius;
+                double cImgX = (mousePos.X - OffsetX) / ScaleX - ox;
+                double cImgY = (mousePos.Y - OffsetY) / ScaleY - oy;
+                int bx0 = Math.Max(0, (int)Math.Floor(cImgX - rImgX) - 1);
+                int bx1 = Math.Min(w - 1, (int)Math.Ceiling(cImgX + rImgX) + 1);
+                int by0 = Math.Max(0, (int)Math.Floor(cImgY - rImgY) - 1);
+                int by1 = Math.Min(h - 1, (int)Math.Ceiling(cImgY + rImgY) + 1);
+                bool anyCleared = false;
+                for (int y = by0; y <= by1; y++)
+                    for (int x = bx0; x <= bx1; x++)
+                    {
+                        if (!mask[y * w + x]) continue;
+                        double canX = (x + ox + 0.5) * ScaleX + OffsetX;
+                        double canY = (y + oy + 0.5) * ScaleY + OffsetY;
+                        double dx = canX - mousePos.X, dy = canY - mousePos.Y;
+                        if (dx * dx + dy * dy <= rCanvas2) { mask[y * w + x] = false; anyCleared = true; }
+                    }
+                if (!anyCleared) return;
+
+                // 3) Re-fill enclosed holes (so an interior-only stroke does nothing rather
+                //    than punching a hole), then keep the single largest blob.
+                var snap = new ImageSnapshot(null, null, w, h, 0, 0);
+                mask = _processor.FillHoles(mask, snap);
+                mask = _processor.KeepLargestComponent(mask, snap);
+                if (!_processor.HasMinimumPixels(mask, 9)) return;
+
+                // 4) Re-trace the carved mask as a guaranteed-simple dense boundary.
+                var boundary = _processor.TraceBoundary(mask, snap);
+                if (boundary.Count < 8) return;
+
+                // 5) Update ONLY the stretch of outline the brush actually overlapped,
+                //    leaving every other vertex exactly where it was. This removes the
+                //    "ripple": Douglas-Peucker reselects its vertices globally, so
+                //    re-simplifying the WHOLE boundary on every drag shifts vertices in
+                //    regions the brush never reached. Splicing just the affected arc keeps
+                //    untouched vertices pinned (they re-project to the same canvas coords).
+                List<Point> newLocal = SpliceErasedArc(local, boundary, mousePos, ox, oy);
+                if (newLocal == null)
+                {
+                    // Couldn't isolate a single affected arc (e.g. the stroke pinched the
+                    // shape into separate pieces). Fall back to re-simplifying the whole
+                    // boundary — this can ripple, but only in these rare cases.
+                    newLocal = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
+                }
+                if (newLocal == null || newLocal.Count < 3) return;
+
+                srcPoints.Clear();
+                foreach (var p in newLocal)
+                    srcPoints.Add(new Point((p.X + ox) * ScaleX + OffsetX, (p.Y + oy) * ScaleY + OffsetY));
+                srcPoints.Add(new Point((newLocal[0].X + ox) * ScaleX + OffsetX, (newLocal[0].Y + oy) * ScaleY + OffsetY));
+
+                RefreshSmoothSnapshot();
+            }
+            finally { _eraseInProgress = false; }
+        }
+
+        // Even-odd scanline fill. pts are in local mask coordinates, closure dup removed.
+        private static bool[] RasterizePolygon(List<Point> pts, int w, int h)
+        {
+            var mask = new bool[w * h];
+            int n = pts.Count;
+            if (n < 3) return mask;
+            var xs = new List<double>(8);
+            for (int y = 0; y < h; y++)
+            {
+                double scanY = y + 0.5;
+                xs.Clear();
+                for (int i = 0; i < n; i++)
+                {
+                    Point a = pts[i], b = pts[(i + 1) % n];
+                    double ay = a.Y, by = b.Y;
+                    if ((ay <= scanY && by > scanY) || (by <= scanY && ay > scanY))
+                    {
+                        double t = (scanY - ay) / (by - ay);
+                        xs.Add(a.X + t * (b.X - a.X));
+                    }
+                }
+                if (xs.Count < 2) continue;
+                xs.Sort();
+                for (int k = 0; k + 1 < xs.Count; k += 2)
+                {
+                    int xStart = (int)Math.Ceiling(xs[k] - 0.5);
+                    int xEnd = (int)Math.Floor(xs[k + 1] - 0.5);
+                    if (xStart < 0) xStart = 0;
+                    if (xEnd > w - 1) xEnd = w - 1;
+                    int row = y * w;
+                    for (int x = xStart; x <= xEnd; x++) mask[row + x] = true;
+                }
+            }
+            return mask;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // ERASE: LOCAL SPLICE (anti-ripple)
+        // ─────────────────────────────────────────────────────────────────────────
+        // Replaces ONLY the contiguous arc the brush overlapped. Every other vertex is
+        // reused as-is, so untouched regions re-project to the exact same canvas
+        // coordinate and cannot drift.
+        //
+        //   oldLocal    : current outline vertices, local mask frame, no closure dup
+        //   dense       : freshly traced boundary of the carved mask, same frame
+        //   mouseCanvas : brush centre, canvas space
+        //   ox, oy      : local-frame origin (local = image - (ox, oy))
+        //
+        // Returns the new vertex list (local frame, no closure dup), or null when the
+        // affected region can't be isolated as a single arc (caller falls back).
+        private List<Point> SpliceErasedArc(List<Point> oldLocal, List<Point> dense,
+            Vector2 mouseCanvas, int ox, int oy)
+        {
+            int n = oldLocal.Count;
+            if (n < 3 || dense.Count < 3) return null;
+
+            // Seam slightly outside the brush so the join lands on unmodified geometry.
+            double rTest = EraseBrushRadius + 2.0;
+            double rTest2 = rTest * rTest;
+
+            bool UnderBrush(Point pLocal)
+            {
+                double canX = (pLocal.X + ox) * ScaleX + OffsetX;
+                double canY = (pLocal.Y + oy) * ScaleY + OffsetY;
+                double dx = canX - mouseCanvas.X, dy = canY - mouseCanvas.Y;
+                return dx * dx + dy * dy <= rTest2;
+            }
+
+            // 1) Find the vertices A and B flanking the affected span on oldLocal.
+            var under = new bool[n];
+            int underCount = 0;
             for (int i = 0; i < n; i++)
             {
-                double dx = points[i].X - mx;
-                double dy = points[i].Y - my;
-                if (dx * dx + dy * dy <= r2)
-                {
-                    inside[i] = true;
-                    anyInside = true;
-                }
+                under[i] = UnderBrush(oldLocal[i]);
+                if (under[i]) underCount++;
             }
+            if (underCount == n) return null; // nothing stable left to anchor to
 
-            if (!anyInside) return;
-
-            // Check whether the erased run wraps around the seam (last->first).
-            // If so, rotate the point list so the seam falls inside a kept region,
-            // preventing the bridging logic from splitting across the wrap point.
-            if (inside[0] || inside[n - 1])
+            int aIdx, bIdx;
+            if (underCount > 0)
             {
-                // Find the first index that is NOT inside the brush
-                int rotateStart = -1;
+                // Require the under-brush vertices to form exactly ONE contiguous run on
+                // the cyclic outline; more than one means the brush touched the shape in
+                // separate places and a single splice isn't valid.
+                int runs = 0, runStart = -1;
+                for (int i = 0; i < n; i++)
+                    if (under[i] && !under[(i - 1 + n) % n]) { runs++; runStart = i; }
+                if (runs != 1) return null;
+
+                int runEnd = runStart;
+                while (under[(runEnd + 1) % n]) runEnd = (runEnd + 1) % n;
+
+                aIdx = (runStart - 1 + n) % n; // last kept vertex before the run
+                bIdx = (runEnd + 1) % n;       // first kept vertex after the run
+            }
+            else
+            {
+                // Brush bit into an edge without covering a vertex: anchor to the edge
+                // whose segment passes closest to the brush centre.
+                int bestEdge = -1;
+                double bestDist = double.MaxValue;
                 for (int i = 0; i < n; i++)
                 {
-                    if (!inside[i]) { rotateStart = i; break; }
+                    double d = PointToSegmentCanvasDist2(oldLocal[i], oldLocal[(i + 1) % n],
+                                                         mouseCanvas, ox, oy);
+                    if (d < bestDist) { bestDist = d; bestEdge = i; }
                 }
-
-                // If every point is inside the brush, the whole outline would be erased — bail out
-                if (rotateStart < 0) return;
-
-                // Rotate points and inside flags so rotateStart becomes index 0
-                var rotatedPoints = new List<Point>(n);
-                var rotatedInside = new bool[n];
-                for (int i = 0; i < n; i++)
-                {
-                    int src = (rotateStart + i) % n;
-                    rotatedPoints.Add(points[src]);
-                    rotatedInside[i] = inside[src];
-                }
-
-                points.Clear();
-                foreach (var p in rotatedPoints)
-                    points.Add(p);
-
-                inside = rotatedInside;
-                n = points.Count;
+                if (bestEdge < 0) return null;
+                aIdx = bestEdge;
+                bIdx = (bestEdge + 1) % n;
             }
 
-            // Build new point list, replacing each erased run with one midpoint bridge
-            var newPoints = new List<Point>();
-            int i2 = 0;
-            while (i2 < n)
+            Point A = oldLocal[aIdx];
+            Point B = oldLocal[bIdx];
+
+            // 2) Extract the carved arc of the dense boundary from (near A) to (near B)
+            //    and simplify just that arc.
+            int aJ = NearestIndex(dense, A);
+            int bJ = NearestIndex(dense, B);
+            if (aJ < 0 || bJ < 0 || aJ == bJ) return null;
+
+            List<Point> arc = ChooseUnderBrushArc(
+                ExtractArc(dense, aJ, bJ, true),
+                ExtractArc(dense, aJ, bJ, false),
+                UnderBrush);
+            if (arc == null) return null;
+
+            var arcSimpl = GeometryCalculations.DouglasPeucker(arc, _simplifyEpsilon);
+            if (arcSimpl.Count < 2) return null;
+
+            // 3) Kept vertices (walk B → … → A), then the new arc interior (A → B).
+            var result = new List<Point>(n + arcSimpl.Count);
+            for (int i = bIdx; ; i = (i + 1) % n)
             {
-                if (!inside[i2])
-                {
-                    newPoints.Add(points[i2]);
-                    i2++;
-                }
-                else
-                {
-                    int runStart = i2;
-                    while (i2 < n && inside[i2]) i2++;
-
-                    Point before = points[(runStart - 1 + n) % n];
-                    Point after = points[i2 % n];
-
-                    newPoints.Add(new Point(
-                        (before.X + after.X) * 0.5,
-                        (before.Y + after.Y) * 0.5));
-                }
+                result.Add(oldLocal[i]);
+                if (i == aIdx) break;
             }
+            for (int k = 1; k < arcSimpl.Count - 1; k++)
+                result.Add(arcSimpl[k]);
 
-            if (newPoints.Count < 3) return;
+            if (result.Count < 3) return null;
+            if (PolylineHasSelfIntersection(result)) return null; // never return a tangled outline
 
-            // =====================
-            // CLOSURE FAILSAFE
-            // =====================
-            // Guarantee the polyline is always explicitly closed:
-            // the last point must equal the first point.
-            // If they differ by more than 1 pixel, append a copy of the first point.
-
-            points.Clear();
-            foreach (var p in newPoints)
-                points.Add(p);
-
-            EnforcePolylineClosure();
-
-            RefreshSmoothSnapshot();
+            return result;
         }
+
+        // Squared canvas-space distance from the brush centre to segment p0–p1 (local frame).
+        private double PointToSegmentCanvasDist2(Point p0, Point p1, Vector2 mouseCanvas, int ox, int oy)
+        {
+            double ax = (p0.X + ox) * ScaleX + OffsetX, ay = (p0.Y + oy) * ScaleY + OffsetY;
+            double bx = (p1.X + ox) * ScaleX + OffsetX, by = (p1.Y + oy) * ScaleY + OffsetY;
+            double vx = bx - ax, vy = by - ay;
+            double wx = mouseCanvas.X - ax, wy = mouseCanvas.Y - ay;
+            double len2 = vx * vx + vy * vy;
+            double t = len2 > 1e-9 ? (wx * vx + wy * vy) / len2 : 0.0;
+            if (t < 0.0) t = 0.0; else if (t > 1.0) t = 1.0;
+            double cx = ax + t * vx, cy = ay + t * vy;
+            double dx = mouseCanvas.X - cx, dy = mouseCanvas.Y - cy;
+            return dx * dx + dy * dy;
+        }
+
+        // Index of the point in pts closest to target.
+        private static int NearestIndex(List<Point> pts, Point target)
+        {
+            int best = -1;
+            double bestD = double.MaxValue;
+            for (int i = 0; i < pts.Count; i++)
+            {
+                double dx = pts[i].X - target.X, dy = pts[i].Y - target.Y;
+                double d = dx * dx + dy * dy;
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
+        // Sub-path of the cyclic list from index i to index j (endpoints included).
+        // forward = true walks i → i+1 → … → j; forward = false walks i → i-1 → … → j.
+        private static List<Point> ExtractArc(List<Point> pts, int i, int j, bool forward)
+        {
+            int n = pts.Count;
+            var arc = new List<Point> { pts[i] };
+            int idx = i, guard = n + 1;
+            while (idx != j && guard-- > 0)
+            {
+                idx = forward ? (idx + 1) % n : (idx - 1 + n) % n;
+                arc.Add(pts[idx]);
+            }
+            return arc;
+        }
+
+        // Of the two candidate arcs, returns the one whose interior lies under the brush
+        // (the carved notch), or null if neither does.
+        private static List<Point> ChooseUnderBrushArc(List<Point> a, List<Point> b, Func<Point, bool> underBrush)
+        {
+            double FracUnder(List<Point> arc)
+            {
+                int under = 0, total = 0;
+                for (int k = 1; k < arc.Count - 1; k++) { total++; if (underBrush(arc[k])) under++; }
+                return total == 0 ? 0.0 : (double)under / total;
+            }
+            double fa = FracUnder(a), fb = FracUnder(b);
+            if (Math.Max(fa, fb) <= 0.0) return null;
+            return fa >= fb ? a : b;
+        }
+
+        private static bool PolylineHasSelfIntersection(IList<Point> pts)
+        {
+            int n = pts.Count;
+            if (n < 4) return false;
+            for (int i = 0; i < n; i++)
+            {
+                Point a1 = pts[i], a2 = pts[(i + 1) % n];
+                for (int j = i + 1; j < n; j++)
+                {
+                    if (j == i) continue;
+                    if ((i + 1) % n == j || (j + 1) % n == i) continue;
+                    Point b1 = pts[j], b2 = pts[(j + 1) % n];
+                    if (SegmentsIntersect(a1, a2, b1, b2)) return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool SegmentsIntersect(Point p1, Point p2, Point p3, Point p4)
+        {
+            double d1 = Cross(p3, p4, p1);
+            double d2 = Cross(p3, p4, p2);
+            double d3 = Cross(p1, p2, p3);
+            double d4 = Cross(p1, p2, p4);
+            return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+                   ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+        }
+
+        private static double Cross(Point a, Point b, Point c)
+            => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
+
         private void EnforcePolylineClosure()
         {
             if (_activePolyline == null) return;
@@ -1019,6 +1286,11 @@ namespace DinoLino.Utilities.Modes
         // =====================
         private readonly EllipticFourierAnalysis _efd = new EllipticFourierAnalysis();
 
+        // Session-level accumulator of EFD coefficient tables for multi-specimen CSV export.
+        // Deliberately NOT cleared in Reset(), so the batch survives opening new images and
+        // clearing the workspace within a session.
+        public EfdCsvCollector EfdCsv { get; } = new EfdCsvCollector();
+
         private int efdHarmonics = 10;
         public int EfdHarmonics
         {
@@ -1092,6 +1364,7 @@ namespace DinoLino.Utilities.Modes
                         "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
                         "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.",
                         "💡 Outline mode performs best on unpatterned images with a solid background.",
+                        "💡 The user guide and software information can be found in the Help menu.",
                         "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
                         "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
                         "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
@@ -1106,6 +1379,7 @@ namespace DinoLino.Utilities.Modes
                         "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
                         "💡 Having trouble with the outline? Watershed mode may improve accuracy for complex or textured images.",
                         "💡 Outline mode performs best on unpatterned images with a solid background.",
+                        "💡 The user guide and software information can be found in the Help menu.",
                         "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
                         "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
                         "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
@@ -1118,6 +1392,7 @@ namespace DinoLino.Utilities.Modes
                 { 
                     "💡 Click and drag over the outline to erase. Adjust brush size for precision.",
                     "💡 Outline mode performs best on unpatterned images with a solid background.",
+                    "💡 The user guide and software information can be found in the Help menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
                     "💡 Zoom in or out using the scroll wheel.",
@@ -1128,6 +1403,7 @@ namespace DinoLino.Utilities.Modes
                 { 
                     "💡 Adjust smooth strength for cleaner outlines. Too high may distort sharp features.",
                     "💡 Outline mode performs best on unpatterned images with a solid background.",
+                    "💡 The user guide and software information can be found in the Help menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
                     "💡 Zoom in or out using the scroll wheel.",
@@ -1142,6 +1418,7 @@ namespace DinoLino.Utilities.Modes
                     "💡 Sum of turning angles is the sum of all angular changes between consecutive edges, representing the total amount of turning around the outline.",
                     "💡 Mean of turning angles is the average turning angle per vertex, representing the typical magnitude of directional change around the outline.",
                     "💡 Variance of turning angles indicates how consistent or uneven curvature is around the outline.",
+                    "💡 The user guide and software information can be found in the Help menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
                     "💡 Zoom in or out using the scroll wheel.",
