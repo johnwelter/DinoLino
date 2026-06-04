@@ -27,8 +27,7 @@ namespace DinoLino.Utilities.Modes
             get => _drawOutlineMode;
             set
             {
-                _drawOutlineMode = value;
-                OnPropertyChanged(nameof(DrawOutlineMode));
+                if (!SetField(ref _drawOutlineMode, value)) return;
                 OnTipChanged?.Invoke();
             }
         }
@@ -39,8 +38,7 @@ namespace DinoLino.Utilities.Modes
             get => _eraseOutlineMode;
             set
             {
-                _eraseOutlineMode = value;
-                OnPropertyChanged(nameof(EraseOutlineMode));
+                if (!SetField(ref _eraseOutlineMode, value)) return;
                 OnTipChanged?.Invoke();
             }
         }
@@ -51,8 +49,7 @@ namespace DinoLino.Utilities.Modes
             get => _smoothOutlineMode;
             set
             {
-                _smoothOutlineMode = value;
-                OnPropertyChanged(nameof(SmoothOutlineMode));
+                if (!SetField(ref _smoothOutlineMode, value)) return;
                 OnTipChanged?.Invoke();
             }
         }
@@ -63,16 +60,9 @@ namespace DinoLino.Utilities.Modes
             get => _outlineMetadataMode;
             set
             {
-                if (_outlineMetadataMode == value)
-                    return;
-
-                _outlineMetadataMode = value;
-                OnPropertyChanged(nameof(OutlineMetadataMode));
+                if (!SetField(ref _outlineMetadataMode, value)) return;
                 OnTipChanged?.Invoke();
-
-                // Auto-generate metadata when entering metadata mode
-                if (_outlineMetadataMode)
-                    GenerateMetadata();
+                if (_outlineMetadataMode) GenerateMetadata();
             }
         }
         #endregion
@@ -99,7 +89,7 @@ namespace DinoLino.Utilities.Modes
         public int MinAreaPixels
         {
             get => _minAreaPixels;
-            set { _minAreaPixels = value; OnPropertyChanged(nameof(MinAreaPixels)); }
+            set => SetField(ref _minAreaPixels, value);
         }
 
         private void CacheSourcePixels()
@@ -198,8 +188,7 @@ namespace DinoLino.Utilities.Modes
             get => _useWatershed;
             set
             {
-                _useWatershed = value;
-                OnPropertyChanged(nameof(UseWatershed));
+                if (!SetField(ref _useWatershed, value)) return;
                 OnTipChanged?.Invoke();
             }
         }
@@ -215,23 +204,6 @@ namespace DinoLino.Utilities.Modes
             EFDCoefficientsResult = null;
             MetadataSummary = "";
         }
-
-        protected override void OnOperationUndone(WorkOperation operation)
-        {
-            if (operation is OutlineOperation)
-                ClearMetadata();
-        }
-
-        protected override void OnOperationRedone(WorkOperation operation)
-        {
-            if (operation is OutlineOperation op)
-                op.ApplyMetadataToMode();
-        }
-
-
-
-
-
         #endregion
 
         #region draw outline
@@ -245,7 +217,7 @@ namespace DinoLino.Utilities.Modes
         public bool MultiClickOutline
         {
             get => _multiClickOutline;
-            set { _multiClickOutline = value; OnPropertyChanged(nameof(MultiClickOutline)); OnTipChanged?.Invoke(); }
+            set => SetField(ref _multiClickOutline, value);
         }
 
         // Pending (uncommitted) outline state for multi-click
@@ -262,8 +234,7 @@ namespace DinoLino.Utilities.Modes
             get => _useActiveContour;
             set
             {
-                _useActiveContour = value;
-                OnPropertyChanged(nameof(UseActiveContour));
+                if (!SetField(ref _useActiveContour, value)) return;
                 OnTipChanged?.Invoke();
             }
         }
@@ -280,21 +251,21 @@ namespace DinoLino.Utilities.Modes
         public double FillSensitivity
         {
             get => _fillSensitivity;
-            set { _fillSensitivity = value; OnPropertyChanged(nameof(FillSensitivity)); }
+            set => SetField(ref _fillSensitivity, value);
         }
 
         private double _edgeThreshold = 40;
         public double EdgeThreshold
         {
             get => _edgeThreshold;
-            set { _edgeThreshold = value; OnPropertyChanged(nameof(EdgeThreshold)); }
+            set => SetField(ref _edgeThreshold, value);
         }
 
         private double _simplifyEpsilon = 1.5;
         public double SimplifyEpsilon
         {
             get => _simplifyEpsilon;
-            set { _simplifyEpsilon = value; OnPropertyChanged(nameof(SimplifyEpsilon)); }
+            set => SetField(ref _simplifyEpsilon, value);
         }
 
         public double ScaleX { get; set; } = 1;
@@ -601,12 +572,6 @@ namespace DinoLino.Utilities.Modes
             if (_cachedBpp == 1) return (_cachedPixels[i], _cachedPixels[i], _cachedPixels[i]);
             return (_cachedPixels[i + 2], _cachedPixels[i + 1], _cachedPixels[i]);
         }
-
-        private bool HasMinimumBorderLength(List<Point> boundary, int minBorderLength)
-        {
-            return boundary != null && boundary.Count >= minBorderLength;
-        }
-
         #endregion
 
         #region erase function   
@@ -614,7 +579,7 @@ namespace DinoLino.Utilities.Modes
         public double EraseBrushRadius
         {
             get => _eraseBrushRadius;
-            set { _eraseBrushRadius = value; OnPropertyChanged(nameof(EraseBrushRadius)); }
+            set => SetField(ref _eraseBrushRadius, value);
         }
 
         // =====================
@@ -965,26 +930,6 @@ namespace DinoLino.Utilities.Modes
 
         private static double Cross(Point a, Point b, Point c)
             => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
-
-        private void EnforcePolylineClosure()
-        {
-            if (_activePolyline == null) return;
-            var points = _activePolyline.Points;
-            if (points.Count < 2) return;
-
-            Point first = points[0];
-            Point last = points[points.Count - 1];
-            double dx = first.X - last.X;
-            double dy = first.Y - last.Y;
-
-            if (dx * dx + dy * dy >= 1.0)
-                points.Add(first);
-        }
-
-        public void ClearActivePolyline()
-        {
-            _activePolyline = null;
-        }
         #endregion
 
         #region smooth mode
@@ -994,9 +939,8 @@ namespace DinoLino.Utilities.Modes
             get => _smoothStrength;
             set
             {
-                _smoothStrength = value;
-                OnPropertyChanged(nameof(SmoothStrength));
-                ApplyGlobalSmooth();
+                if (SetField(ref _smoothStrength, value))
+                    ApplyGlobalSmooth();
             }
         }
 
@@ -1146,56 +1090,56 @@ namespace DinoLino.Utilities.Modes
         public double AspectRatioResult
         {
             get => _aspectRatioResult;
-            set { _aspectRatioResult = value; OnPropertyChanged(nameof(AspectRatioResult)); }
+            set => SetField(ref _aspectRatioResult, value);
         }
 
         private double _perimeterAreaRatioResult;
         public double PerimeterAreaRatioResult
         {
             get => _perimeterAreaRatioResult;
-            set { _perimeterAreaRatioResult = value; OnPropertyChanged(nameof(PerimeterAreaRatioResult)); }
+            set => SetField(ref _perimeterAreaRatioResult, value);
         }
 
         private double _circularityResult;
         public double CircularityResult
         {
             get => _circularityResult;
-            set { _circularityResult = value; OnPropertyChanged(nameof(CircularityResult)); }
+            set => SetField(ref _circularityResult, value);
         }
 
         private double[] _efdCoefficientsResult;
         public double[] EFDCoefficientsResult
         {
             get => _efdCoefficientsResult;
-            set { _efdCoefficientsResult = value; OnPropertyChanged(nameof(EFDCoefficientsResult)); }
+            set => SetField(ref _efdCoefficientsResult, value);
         }
 
         private double _solidityResult;
         public double SolidityResult
         {
             get => _solidityResult;
-            set { _solidityResult = value; OnPropertyChanged(nameof(SolidityResult)); }
+            set => SetField(ref _solidityResult, value);
         }
 
         private double _sumTurningAnglesResult;
         public double SumTurningAnglesResult
         {
             get => _sumTurningAnglesResult;
-            set { _sumTurningAnglesResult = value; OnPropertyChanged(nameof(SumTurningAnglesResult)); }
+            set => SetField(ref _sumTurningAnglesResult, value);
         }
 
         private double _meanTurningAngleResult;
         public double MeanTurningAngleResult
         {
             get => _meanTurningAngleResult;
-            set { _meanTurningAngleResult = value; OnPropertyChanged(nameof(MeanTurningAngleResult)); }
+            set => SetField(ref _meanTurningAngleResult, value);
         }
 
         private double _varianceTurningAnglesResult;
         public double VarianceTurningAnglesResult
         {
             get => _varianceTurningAnglesResult;
-            set { _varianceTurningAnglesResult = value; OnPropertyChanged(nameof(VarianceTurningAnglesResult)); }
+            set => SetField(ref _varianceTurningAnglesResult, value);
         }
 
         // Formatted string for display in the control panel
@@ -1203,7 +1147,7 @@ namespace DinoLino.Utilities.Modes
         public string MetadataSummary
         {
             get => _metadataSummary;
-            set { _metadataSummary = value; OnPropertyChanged(nameof(MetadataSummary)); }
+            set => SetField(ref _metadataSummary, value);
         }
 
         // Called when the user clicks Generate Metadata
@@ -1298,10 +1242,8 @@ namespace DinoLino.Utilities.Modes
             set
             {
                 int clamped = Math.Max(1, Math.Min(100, value));
-                if (efdHarmonics == clamped) return;
-                efdHarmonics = clamped;
-                OnPropertyChanged(nameof(EfdHarmonics));
-                UpdateEFDPreview(); // ← add this
+                if (SetField(ref efdHarmonics, clamped))
+                    UpdateEFDPreview();
             }
         }
 

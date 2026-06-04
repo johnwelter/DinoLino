@@ -29,6 +29,7 @@ namespace DinoLino.Utilities
 
             // Optionally notify mode to apply metadata
             operation.ApplyMetadataToMode();
+            operation.SourceMode?.OnHistoryChanged();
         }
 
         public WorkOperation Undo()
@@ -51,6 +52,7 @@ namespace DinoLino.Utilities
                 last.SourceMode?.ClearMetadata();
             }
 
+            last.SourceMode?.OnHistoryChanged();
             OnPropertyChanged(nameof(CanUndo));
             OnPropertyChanged(nameof(CanRedo));
             return last;
@@ -66,6 +68,7 @@ namespace DinoLino.Utilities
 
             // Apply metadata from redone operation
             op.ApplyMetadataToMode();
+            op.SourceMode?.OnHistoryChanged();
 
             OnPropertyChanged(nameof(CanUndo));
             OnPropertyChanged(nameof(CanRedo));

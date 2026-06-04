@@ -10,6 +10,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -32,9 +33,6 @@ namespace DinoLino.Utilities.Modes
         public CancellationToken CancellationToken =>
             _operationCTS?.Token ?? CancellationToken.None;
 
-        public bool IsOperationCancelled =>
-            _operationCTS?.IsCancellationRequested ?? false;
-
         // begins a new, cancellable operation.
         // automatically cancels any previous operation
         public virtual void BeginOperation()
@@ -55,12 +53,6 @@ namespace DinoLino.Utilities.Modes
                 _operationCTS.Dispose();
                 _operationCTS = null;
             }
-        }
-
-        // cancel if Esc pressed by user
-        protected void ThrowIfCancelled()
-        {
-            CancellationToken.ThrowIfCancellationRequested();
         }
 
         // Event for notifying the control panel of tip changes
@@ -85,10 +77,8 @@ namespace DinoLino.Utilities.Modes
                     OnPropertyChanged();
                 }
             }
-
         }
 
-        protected ObservableCollection<UIElement> DrawnElements {get;} = new();
         private readonly ObservableCollection<UIElement> _elementsToRemove = new();
 
         public ReadOnlyObservableCollection<UIElement> ElementsToRemove { get; }
@@ -111,19 +101,25 @@ namespace DinoLino.Utilities.Modes
         // full reset
         public virtual void Reset() 
         {
-            DrawnElements.Clear();
             UpdateUndoRedoState();
         }
-        
-        // moving to WorkMode so this is a global tool usable across modes
-        public virtual WorkOperation Undo()
+
+        protected Line MakeLine(Vector2 a, Vector2 b, double thickness = 2) => new()
         {
-            return UndoRedoManager?.Undo();
-        }
-        // moving to WorkMode so this is a global tool usable across modes
-        public virtual WorkOperation Redo()
+            Stroke = LineColor,
+            StrokeThickness = thickness,
+            X1 = a.X,
+            Y1 = a.Y,
+            X2 = b.X,
+            Y2 = b.Y,
+        };
+
+        protected bool SetField<T>(ref T field, T value, [CallerMemberName] string name = null)
         {
-            return UndoRedoManager?.Redo();
+            if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+            field = value;
+            OnPropertyChanged(name);
+            return true;
         }
 
         // method to queue elements for removal
@@ -181,8 +177,11 @@ namespace DinoLino.Utilities.Modes
             UndoRedoManager?.Commit(operation);
         }
 
-        protected virtual void OnOperationUndone(WorkOperation operation) { }
-        protected virtual void OnOperationRedone(WorkOperation operation) { }
+        // Called by UndoRedoManager after the operation history changes (commit, undo,
+        // or redo), so a mode can re-derive any state it computes from that history.
+        // Default does nothing; DrawMode uses it to reset its reference-line direction.
+        internal virtual void OnHistoryChanged() { }
+
         public virtual void ClearMetadata() { }
 
         protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)

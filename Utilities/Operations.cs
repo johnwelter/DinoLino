@@ -110,7 +110,6 @@ namespace DinoLino.Utilities.Operations
     public class LineOperation : WorkOperation
     {
         public double LineLength { get; set; }
-        public Vector2 LineDirection { get; set; }
         public object LineLengthRatio { get; set; }
         public override void ApplyMetadataToMode()
         {

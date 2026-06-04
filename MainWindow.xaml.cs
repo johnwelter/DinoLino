@@ -328,12 +328,8 @@ namespace DinoLino
             var result = UndoRedoManager.Undo();
 
             if (result == null) return;
-            {
-                foreach (var el in result.Elements)
-                {
-                    UI_WorkCanvas.Children.Remove(el);
-                }
-            }
+            foreach (var el in result.Elements)
+                UI_WorkCanvas.Children.Remove(el);
         }
 
         // Redo function

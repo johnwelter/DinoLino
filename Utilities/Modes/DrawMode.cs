@@ -32,15 +32,14 @@ namespace DinoLino.Utilities.Modes
             Shape,
             Line
         }
-        private DrawMethod _currentMethod { get; set; } = DrawMethod.None;
+        private DrawMethod _currentMethod = DrawMethod.None;
 
         public DrawMethod CurrentMethod
         {
             get => _currentMethod;
             set
             {
-                _currentMethod = value;
-                OnPropertyChanged(nameof(CurrentMethod));
+                if (!SetField(ref _currentMethod, value)) return;
                 OnPropertyChanged(nameof(IsShapeSelected));
                 OnPropertyChanged(nameof(IsLineSelected));
                 OnTipChanged?.Invoke();
@@ -91,18 +90,20 @@ namespace DinoLino.Utilities.Modes
             CurrentStep = 0;
         }
 
-        protected override void OnOperationUndone(WorkOperation operation)
+        internal override void OnHistoryChanged()
         {
-            HandleReferenceLineUndo(operation);
+            // Reset the captured reference direction once no constrained line remains in
+            // history, so the next line drawn establishes a fresh reference. (This is
+            // HandleReferenceLineUndo's logic, finally on a hook that actually runs.)
+            bool anyConstrainedLinesRemain = UndoRedoManager?.History
+                .OfType<LineOperation>()
+                .Any(op => op.LineLength > 0.00001) ?? false;
 
-            RestoreShapeResultsFromHistory();
-            RestoreLineResultsFromHistory();
-        }
-
-        protected override void OnOperationRedone(WorkOperation operation)
-        {
-            RestoreShapeResultsFromHistory();
-            RestoreLineResultsFromHistory();
+            if (!anyConstrainedLinesRemain)
+            {
+                _hasReferenceLineDirection = false;
+                _referenceLineDirection = default;
+            }
         }
 
         public override void ResetDrawingState()
@@ -158,21 +159,13 @@ namespace DinoLino.Utilities.Modes
         public double DrawAspectRatioResult
         {
             get => _drawAspectRatioResult;
-            set
-            {
-                _drawAspectRatioResult = value;
-                OnPropertyChanged(nameof(DrawAspectRatioResult));
-            }
+            set => SetField(ref _drawAspectRatioResult, value);
         }
 
         public object RelativeAreaResult
         {
             get => _relativeAreaResult;
-            set
-            {
-                _relativeAreaResult = value;
-                OnPropertyChanged(nameof(RelativeAreaResult));
-            }
+            set => SetField(ref _relativeAreaResult, value);
         }
 
         // switch to shape operation
@@ -282,24 +275,6 @@ namespace DinoLino.Utilities.Modes
 
             return shape;
         }
-
-        private void RestoreShapeResultsFromHistory()
-        {
-            var prevShape = UndoRedoManager.History
-                .OfType<ShapeOperation>()
-                .LastOrDefault();
-
-            if (prevShape == null)
-            {
-                DrawAspectRatioResult = 0;
-                RelativeAreaResult = "N/A";
-                return;
-            }
-
-            DrawAspectRatioResult = prevShape.DrawAspectRatio;
-            RelativeAreaResult = prevShape.RelativeArea;
-        }
-
         #endregion
 
         #region Line Operations
@@ -327,11 +302,7 @@ namespace DinoLino.Utilities.Modes
         public object LineLengthRatioResult
         {
             get => _lineLengthRatioResult;
-            set
-            {
-                _lineLengthRatioResult = value;
-                OnPropertyChanged(nameof(LineLengthRatioResult));
-            }
+            set => SetField(ref _lineLengthRatioResult, value);
         }
 
         // switch to line operation
@@ -476,17 +447,6 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        private Line MakeLine(Vector2 a, Vector2 b)
-        {
-            Line L = new();
-            L.Stroke = this.LineColor;
-            L.StrokeThickness = 2;
-            L.X1 = a.X;
-            L.Y1 = a.Y;
-            L.X2 = b.X;
-            L.Y2 = b.Y;
-            return L;
-        }
         private Vector2 ConstrainToAngle(Vector2 origin, Vector2 mousePos, double angleDegrees)
         {
             double baseAngleRadians = Math.Atan2(_referenceLineDirection.Y, _referenceLineDirection.X);
@@ -499,38 +459,7 @@ namespace DinoLino.Utilities.Modes
             return new Vector2(origin.X + direction.X * magnitude, origin.Y + direction.Y * magnitude);
         }
 
-        private void HandleReferenceLineUndo(WorkOperation operation)
-        {
-            if (operation is not LineOperation undone || undone.LineLength <= 0.00001)
-                return;
-
-            bool anyConstrainedLinesRemain = UndoRedoManager.History
-                .OfType<LineOperation>()
-                .Any(op => op.LineLength > 0.00001);
-
-            if (!anyConstrainedLinesRemain)
-            {
-                _hasReferenceLineDirection = false;
-                _referenceLineDirection = default;
-            }
-        }
-
-        private void RestoreLineResultsFromHistory()
-        {
-            var prevLine = UndoRedoManager.History
-                .OfType<LineOperation>()
-                .LastOrDefault();
-
-            if (prevLine == null || prevLine.LineLength <= 0.00001)
-            {
-                LineLengthRatioResult = "N/A";
-                return;
-            }
-
-            var prevPrevLine = FindPreviousLine(1);
-
-            LineLengthRatioResult = GeometryCalculations.RelativeLength(prevLine.LineLength, prevPrevLine?.LineLength ?? 0);
-        }
+        
 
         #endregion
 

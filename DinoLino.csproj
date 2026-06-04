@@ -97,6 +97,7 @@
     </Compile>
     <Compile Include="Utilities\OutlineProcessor.cs" />
     <Compile Include="Utilities\SpecimenManager.cs" />
+    <Compile Include="Utilities\SplineFitting.cs" />
     <Compile Include="Utilities\Stats.cs" />
     <Compile Include="About.xaml.cs">
       <DependentUpon>About.xaml</DependentUpon>

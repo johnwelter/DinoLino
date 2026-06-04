@@ -39,30 +39,6 @@ namespace DinoLino.Utilities.Modes
             return label;
         }
 
-        protected override void OnOperationUndone(WorkOperation operation)
-        {
-            if (operation is GetAngleOperation)
-            {
-                AngleAResult = 0;
-                AngleBResult = 0;
-                AngleCResult = 0;
-                TriAspectRatioResult = 0;
-                RelativeAreaResult = "N/A";
-            }
-        }
-
-        protected override void OnOperationRedone(WorkOperation operation)
-        {
-            if (operation is GetAngleOperation op)
-            {
-                AngleAResult = op.AngleA;
-                AngleBResult = op.AngleB;
-                AngleCResult = op.AngleC;
-                TriAspectRatioResult = op.TriAspectRatio;
-                RelativeAreaResult = op.RelativeArea;
-            }
-        }
-
         // Tracking 3-click line groups 
         private List<UIElement> CurrentOperation = new();
 
@@ -87,53 +63,33 @@ namespace DinoLino.Utilities.Modes
         public double AngleAResult
         {
             get => _angleAResult;
-            set
-            {
-                _angleAResult = value;
-                OnPropertyChanged(nameof(AngleAResult));
-            }
+            set => SetField(ref _angleAResult, value);
         }
 
         public double AngleBResult
         {
             get => _angleBResult;
-            set
-            {
-                _angleBResult = value;
-                OnPropertyChanged(nameof(AngleBResult));
-            }
+            set => SetField(ref _angleBResult, value);
         }
 
         public double AngleCResult
         {
             get => _angleCResult;
-            set
-            {
-                _angleCResult = value;
-                OnPropertyChanged(nameof(AngleCResult));
-            }
+            set => SetField(ref _angleCResult, value);
         }
 
         // aspect ratio of the triangle, calculated as longest side / height
         public double TriAspectRatioResult
         {
             get => _TriAspectRatioResult;
-            set
-            {
-                _TriAspectRatioResult = value;
-                OnPropertyChanged(nameof(TriAspectRatioResult));
-            }
+            set => SetField(ref _TriAspectRatioResult, value);
         }
 
         // ratio of triangle areas. Current triangle area divided by area of previous triangle.
         public object RelativeAreaResult
         {
             get => _relativeAreaResult;
-            set
-            {
-                _relativeAreaResult = value;
-                OnPropertyChanged(nameof(RelativeAreaResult));
-            }
+            set => SetField(ref _relativeAreaResult, value);
         }
 
         // ---------- TRIANGLE MODE ---------------- //
@@ -256,18 +212,6 @@ namespace DinoLino.Utilities.Modes
                     break;
             }
             return output;
-        }
-
-        private Line MakeLine(Vector2 a, Vector2 b)
-        {
-            Line L = new();
-            L.Stroke = this.LineColor;
-            L.StrokeThickness = 2;
-            L.X1 = a.X;
-            L.Y1 = a.Y;
-            L.X2 = b.X;
-            L.Y2 = b.Y;
-            return L;
         }
 
         private void CalculateAndUpdateResults()
