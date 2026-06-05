@@ -18,6 +18,9 @@ namespace DinoLino.Utilities
         //----- Backing fields -----//
         private int _count = 1;
         private string _customName = null;   // null means "use auto name"
+        private string _loadedFileName = null;   // null means "no file loaded"
+
+        public string LoadedFileLabel => _loadedFileName == null ? "No file loaded" : $"File: {_loadedFileName}";
 
         //----- Public API -----//
 
@@ -68,8 +71,11 @@ namespace DinoLino.Utilities
         // Called when a new image is opened. Increments the counter and
         // resets to the auto-generated name.
         private bool _hasOpenedImage = false;
-        public void OnImageOpened()
+        public void OnImageOpened(string fileName)
         {
+            _loadedFileName = fileName;
+            OnPropertyChanged(nameof(LoadedFileLabel));
+
             if (_hasOpenedImage)
                 Increment();
             else

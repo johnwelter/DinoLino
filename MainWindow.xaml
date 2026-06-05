@@ -105,6 +105,12 @@
                     </StackPanel>
                 </StackPanel>
 
+                <TextBlock x:Name="UI_LoadedFileText"
+                           Margin="10,0,10,5"
+                           Foreground="#777"
+                           TextTrimming="CharacterEllipsis"
+                           Text="{Binding LoadedFileLabel}"/>
+                
                 <!-- Mode tabs -->
                 <TabControl x:Name="UI_ControlTabs" Margin="0,10,0,10"
                             SelectionChanged="ControlTabs_SelectionChanged">

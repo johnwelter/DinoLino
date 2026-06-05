@@ -91,6 +91,8 @@ namespace DinoLino
             };
             SpecimenManager.BindToTextBox(UI_SpecimenNameBox);
 
+            UI_LoadedFileText.DataContext = SpecimenManager;
+
             // Keyboard shortcuts
             this.PreviewKeyDown += MainWindow_KeyDown;
             UI_WorkCanvas.MouseDown += (s, e) =>
@@ -280,7 +282,7 @@ namespace DinoLino
 
                 WorkingImage = new BitmapImage(new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));
                 UI_WorkImage.Source = WorkingImage;
-                SpecimenManager.OnImageOpened();
+                SpecimenManager.OnImageOpened(openFileDialog.SafeFileName);
                 ResetWorkSpaceZoom();
                 ClearWorkspace();
                 _imageAdjuster.CacheImage(WorkingImage);
