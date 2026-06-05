@@ -32,14 +32,40 @@ namespace DinoLino.Utilities.Modes
     public partial class OutlineControlPanel : UserControl
     {
         private OutlineMode _mode;
+        private readonly System.Windows.Threading.DispatcherTimer _harmonicsDebounce;
         public OutlineControlPanel(OutlineMode mode)
         {
             InitializeComponent();
             _mode = mode;
             DataContext = mode;
+
+            // Update the EFA preview 1 second after the user stops typing harmonics.
+            _harmonicsDebounce = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _harmonicsDebounce.Tick += HarmonicsDebounce_Tick;
+            EfdHarmonicsBox.TextChanged += EfdHarmonicsBox_TextChanged;
         }
 
-        private void ShowEFDDetails_Click(object sender, RoutedEventArgs e)
+        private void EfdHarmonicsBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            // Restart the countdown on every keystroke so it only fires once typing pauses.
+            _harmonicsDebounce.Stop();
+            _harmonicsDebounce.Start();
+        }
+
+    private void HarmonicsDebounce_Tick(object sender, EventArgs e)
+    {
+        _harmonicsDebounce.Stop();
+
+        // Push the typed value into EfdHarmonics, then regenerate so the blue
+        // EFA outline reflects the new harmonic count (same path as the button).
+        EfdHarmonicsBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        _mode.GenerateMetadata();
+    }
+
+    private void ShowEFDDetails_Click(object sender, RoutedEventArgs e)
         {
             EfdHarmonicsBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
 

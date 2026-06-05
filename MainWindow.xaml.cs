@@ -118,6 +118,18 @@ namespace DinoLino
             DrawMode.OnTipChanged = UpdateTip;
             OutlineMode.OnTipChanged = UpdateTip;
 
+            // "Find turning angle": show the section oval (and hide the dot cursor while active).
+            CurvatureMode.OnTurningWindowReady = oval =>
+            {
+                UI_DotCursor.Visibility = Visibility.Collapsed;
+                AddElementToWorkSpace(oval);
+            };
+            CurvatureMode.OnTurningWindowClear = oval =>
+            {
+                if (oval != null) UI_WorkCanvas.Children.Remove(oval);
+                UI_DotCursor.Visibility = Visibility.Visible;
+            };
+
             OutlineMode.OnPendingOutlineReady = (newPending, oldPending) =>
             {
                 if (oldPending != null)
@@ -657,7 +669,6 @@ namespace DinoLino
                     om.ProcessEraseDrag(mousePos);
             }
         }
-
 
         private void WorkSpace_MouseUp(object sender, MouseButtonEventArgs e)
         {

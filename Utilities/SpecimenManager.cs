@@ -20,7 +20,7 @@ namespace DinoLino.Utilities
         private string _customName = null;   // null means "use auto name"
         private string _loadedFileName = null;   // null means "no file loaded"
 
-        public string LoadedFileLabel => _loadedFileName == null ? "No file loaded" : $"File: {_loadedFileName}";
+        public string LoadedFileLabel => _loadedFileName == null ? "No file loaded" : $"Loaded: {_loadedFileName}";
 
         //----- Public API -----//
 

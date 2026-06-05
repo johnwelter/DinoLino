@@ -136,6 +136,26 @@
                 <Label Content="Chord-Arc Ratio:"/>
                 <Label Content="{Binding SChordArcRatioResult}" Width="175"/>
             </StackPanel>
+            <!-- Find turning angle along the most recent spline -->
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+                <RadioButton Content="Find turning angle"
+                         Style="{StaticResource CheckBoxRadioButton}"
+                         IsChecked="{Binding FindTurningAngleMode, Mode=TwoWay}"
+                         VerticalAlignment="Center"/>
+                <Label Content="{Binding FindTurningAngleDisplay}"
+                   VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </StackPanel>
+
+            <!-- Width of the measured section -->
+            <StackPanel Margin="10,2,0,0"
+                    Visibility="{Binding FindTurningAngleMode, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Section width:" Foreground="Gray" Margin="0,4,0,0"/>
+                <Slider Minimum="1" Maximum="50"
+                    Value="{Binding TurningAngleWindow, Mode=TwoWay}"
+                    TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,2,0,2"/>
+                <TextBlock Text="{Binding TurningAngleWindow, StringFormat={}±{0} samples}"
+                       Foreground="Gray"/>
+            </StackPanel>
         </StackPanel>
     </StackPanel>
 </UserControl>
