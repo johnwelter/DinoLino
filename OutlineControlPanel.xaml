@@ -199,7 +199,7 @@
             </Grid>
 
             <!-- EFD detail link -->
-            <Button Content="See EFD Coefficients..."
+            <Button Content="Elliptic Fourier Analysis"
             HorizontalAlignment="Left"
             Background="Transparent"
             BorderThickness="0"

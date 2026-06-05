@@ -45,6 +45,11 @@ namespace DinoLino
         private double _currentBrightness = 0;
         private double _currentSaturation = 0;
 
+        // --- Ctrl+drag panning state ---
+        private bool _isPanning = false;
+        private Point _panStartMouse;                       // mouse position at pan start (UI_WorkSpace frame)
+        private double _panStartImageTx, _panStartImageTy;  // image translate at pan start
+
         // Current working image in the workspace
         public BitmapImage WorkingImage;
 
@@ -100,13 +105,6 @@ namespace DinoLino
                 Keyboard.ClearFocus();
                 UI_WorkCanvas.Focus();
             };
-
-            // TODO: it feels like work modes should control their own 
-            // UI instead of having them predefined and hooked up through here - but that's a later fix. We'll want
-            // to double check making separate work modes is even what we want in the first place.
-            // for instance, if a work mode has specific tools (like draw will), the button callbacks should maybe be defined in the
-            // work mode and not in this main window. 
-            // binding functions is luckily not super hard in c#, relative to binding data.  
 
             // Initiate curvature mode and make appropriate bindings
             CurvatureMode = new();
@@ -568,6 +566,23 @@ namespace DinoLino
 
         private void WorkSpace_Click(object sender, MouseButtonEventArgs e)
         {
+            // Ctrl + left button starts a pan-drag instead of a drawing action.
+            if (e.ChangedButton == MouseButton.Left &&
+                (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                _isPanning = true;
+                _panStartMouse = e.GetPosition(UI_WorkSpace);
+
+                var tt = UI_WorkImage.GetTranslateTransform();
+                _panStartImageTx = tt.X;
+                _panStartImageTy = tt.Y;
+
+                (sender as UIElement)?.CaptureMouse();   // keep receiving move/up if cursor leaves
+                Mouse.OverrideCursor = Cursors.SizeAll;  // visual feedback
+                e.Handled = true;
+                return;
+            }
+
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
 
             if (CurrentWorkMode is OutlineMode)
@@ -621,6 +636,18 @@ namespace DinoLino
 
         private void WorkSpace_MouseMove(object sender, MouseEventArgs e)
         {
+            if (_isPanning)
+            {
+                Point now = e.GetPosition(UI_WorkSpace);
+                var it = UI_WorkImage.GetTranslateTransform();
+                it.X = _panStartImageTx + (now.X - _panStartMouse.X);
+                it.Y = _panStartImageTy + (now.Y - _panStartMouse.Y);
+
+                // Keep the drawing layer (border + canvas + all drawn elements) locked to the image
+                UI_WorkBorder.CopyTransforms(UI_WorkImage);
+                return;   // don't run cursor/erase logic while panning
+            }
+
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
             Vector2 centeredCursorPos = CurrentWorkMode.ProcessMouseMovement(mousePos) - new Vector2(5, 5);
             UI_DotCursor.SetPosition(centeredCursorPos.X, centeredCursorPos.Y);
@@ -629,6 +656,24 @@ namespace DinoLino
                 if (om.EraseOutlineMode)
                     om.ProcessEraseDrag(mousePos);
             }
+        }
+
+
+        private void WorkSpace_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (_isPanning && e.ChangedButton == MouseButton.Left)
+            {
+                _isPanning = false;
+                (sender as UIElement)?.ReleaseMouseCapture();
+                Mouse.OverrideCursor = null;
+                e.Handled = true;
+            }
+        }
+
+        private void WorkSpace_LostCapture(object sender, MouseEventArgs e)
+        {
+            _isPanning = false;
+            Mouse.OverrideCursor = null;
         }
 
         // TODO: encapsulate and make generic someplace else

@@ -131,7 +131,7 @@
                   ResizeBehavior="PreviousAndNext"
                   Cursor="SizeWE"/>
             <Grid x:Name="UI_WorkSpace" Grid.Column="2" ClipToBounds="True">
-                <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseWheel="WorkSpace_ScrollZoom">
+                <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseUp="WorkSpace_MouseUp" MouseWheel="WorkSpace_ScrollZoom">
                     <Border x:Name ="UI_WorkBorder" BorderBrush="White" BorderThickness="3" Panel.ZIndex="10" Width="{Binding ActualWidth, ElementName=UI_WorkImage, Mode=OneWay}" Height="{Binding ActualHeight, ElementName=UI_WorkImage, Mode=OneWay}">
                         <Canvas x:Name="UI_WorkCanvas" Focusable="True"/>
                     </Border>
