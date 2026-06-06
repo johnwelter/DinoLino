@@ -851,7 +851,7 @@ namespace DinoLino.Utilities.Modes
                 _windowOvalRotate = new System.Windows.Media.RotateTransform(0);
                 _windowOval = new Ellipse
                 {
-                    Stroke = Brushes.White,
+                    Stroke = Brushes.LightBlue,
                     StrokeThickness = 2,
                     Fill = null,
                     IsHitTestVisible = false,
