@@ -492,6 +492,7 @@ namespace DinoLino.Utilities.Modes
             "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
             "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
             "💡 Zoom in or out using the scroll wheel.",
+            "💡 Press 'Ctrl' and left click to drag the image.",
             "💡 The user guide and software information can be found in the Help menu.",
             "💡 Toggle tip visibility in the View menu."
         };
@@ -505,6 +506,7 @@ namespace DinoLino.Utilities.Modes
             "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
             "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
             "💡 Zoom in or out using the scroll wheel.",
+            "💡 Press 'Ctrl' and left click to drag the image.",
             "💡 The user guide and software information can be found in the Help menu.",
             "💡 Toggle tip visibility in the View menu."
         };
@@ -514,6 +516,7 @@ namespace DinoLino.Utilities.Modes
                 "💡 The user guide and software information can be found in the Help menu.",
                 "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the File menu.",
                 "💡 Zoom in or out using the scroll wheel.",
+                "💡 Press 'Ctrl' and left click to drag the image.",
                 "💡 Toggle tip visibility in the View menu."
             };
         }

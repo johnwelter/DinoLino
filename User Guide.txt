@@ -18,6 +18,7 @@ Redo: 			Ctrl + Y
 Clear: 			Ctrl + C
 Open image: 		Ctrl + F
 Zoom:			Scroll wheel
+Drag image:		Ctrl + left click and drag
 Add landmark:		TBD
 Commit data to CSV:	TBD
 ------------------------------------------------------------------------------------------------
