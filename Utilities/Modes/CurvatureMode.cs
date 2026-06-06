@@ -77,7 +77,9 @@ namespace DinoLino.Utilities.Modes
         {
             return CurrentMethod switch
             {
-                CurvatureMethod.NPointSpline => ProcessSplineClick(mousePos),
+                CurvatureMethod.NPointSpline => FindTurningAngleMode
+                    ? ProcessFindTurningAngleClick(mousePos)
+                    : ProcessSplineClick(mousePos),
                 CurvatureMethod.CircularArc => ProcessCircArcClick(mousePos),
                 CurvatureMethod.ParabolicArc => ProcessParArcClick(mousePos),
                 _ => new List<UIElement>()
@@ -93,6 +95,19 @@ namespace DinoLino.Utilities.Modes
 
         public override Vector2 ProcessMouseMovement(Vector2 mousePos)
         {
+            // "Find turning angle": lock the cursor circle to the nearest point on
+            // the most recent spline so the user can probe it without clicking.
+            if (FindTurningAngleMode)
+            {
+                if (TryProjectOntoSpline(mousePos, out Vector2 onCurve, out int idx))
+                {
+                    _turningIndex = idx;
+                    UpdateWindowOval(idx);
+                    return onCurve;
+                }
+                return mousePos;
+            }
+
             if (CurrentMethod == CurvatureMethod.None)
                 return mousePos;
 
@@ -151,6 +166,7 @@ namespace DinoLino.Utilities.Modes
             _splinePoints.Clear();
             _splinePreview = null;
             _splineCurrentOperation.Clear();
+            FindTurningAngleMode = false;
         }
 
         public override void Reset()
@@ -158,6 +174,8 @@ namespace DinoLino.Utilities.Modes
             base.Reset();
             ClearMetadata();
             ResetDrawingState();
+            _lastSplineDense = null;
+            FindTurningAngleDisplay = "";
         }
         #endregion
 
@@ -720,9 +738,10 @@ namespace DinoLino.Utilities.Modes
         public override List<UIElement> ProcessDoubleClick(Vector2 mousePos)
         {
             if (CurrentMethod != CurvatureMethod.NPointSpline)
-            {
                 return new List<UIElement>();
-            }
+
+            if (FindTurningAngleMode)
+                return new List<UIElement>();   // double-click is a no-op while probing
 
             if (_splinePoints.Count < 3)
             {
@@ -731,10 +750,11 @@ namespace DinoLino.Utilities.Modes
                 return new List<UIElement>();
             }
 
-            // calculate results
-            List<Vector2> splinePointsDense = _splineAlgorithm == SplineAlgorithm.Bezier
+        // calculate results
+        List<Vector2> splinePointsDense = _splineAlgorithm == SplineAlgorithm.Bezier
                 ? SplineFitting.GetSchneiderBezierPoints(_splinePoints, 50)
                 : SplineFitting.GetCatmullRomPoints(_splinePoints, 50);
+            _lastSplineDense = splinePointsDense;   // keep for the Find-turning-angle tool
             TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 2);
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 2);
             SumTurningAnglesResult = GeometryCalculations.SumTurningAnglesOpen(splinePointsDense);
@@ -764,6 +784,200 @@ namespace DinoLino.Utilities.Modes
             _splineCurrentOperation.Clear();
 
             return output;
+        }
+
+        // ---- Find turning angle (probe the most recent spline) ----
+
+        // Dense samples of the most recently finished spline, retained so the
+        // "Find turning angle" tool can snap to it and measure local bend.
+        private List<Vector2> _lastSplineDense = null;
+
+        // Index on _lastSplineDense the oval is currently centred on.
+        private int _turningIndex = 0;
+
+        // Half-width of the measured section, in dense-polyline samples. The angle is
+        // measured between the curve direction this many samples before and after the
+        // centre, and the oval is drawn to enclose exactly that span.
+        private int _turningAngleWindow = 5;
+        public int TurningAngleWindow
+        {
+            get => _turningAngleWindow;
+            set
+            {
+                int clamped = Math.Max(1, Math.Min(50, value));
+                if (!SetField(ref _turningAngleWindow, clamped)) return;
+                if (FindTurningAngleMode && _lastSplineDense != null && _lastSplineDense.Count >= 3)
+                {
+                    UpdateWindowOval(_turningIndex);
+                    FindTurningAngleDisplay =
+                        $"{LocalTurningAngle(_lastSplineDense, _turningIndex, _turningAngleWindow):F2}\u00B0";
+                }
+            }
+        }
+
+        private string _findTurningAngleDisplay = "";
+        public string FindTurningAngleDisplay
+        {
+            get => _findTurningAngleDisplay;
+            set => SetField(ref _findTurningAngleDisplay, value);
+        }
+
+        private bool _findTurningAngleMode = false;
+        public bool FindTurningAngleMode
+        {
+            get => _findTurningAngleMode;
+            set
+            {
+                if (!SetField(ref _findTurningAngleMode, value)) return;
+                if (value) BeginFindTurningAngle();
+                else OnTurningWindowClear?.Invoke(_windowOval);
+                OnTipChanged?.Invoke();
+            }
+        }
+
+        // MainWindow wires these: Ready adds the oval to the canvas (and hides the dot
+        // cursor); Clear removes it (and restores the cursor).
+        public Action<UIElement> OnTurningWindowReady;
+        public Action<UIElement> OnTurningWindowClear;
+
+        // The oriented oval that wraps the measured section of the spline.
+        private Ellipse _windowOval;
+        private System.Windows.Media.RotateTransform _windowOvalRotate;
+
+        private Ellipse EnsureWindowOval()
+        {
+            if (_windowOval == null)
+            {
+                _windowOvalRotate = new System.Windows.Media.RotateTransform(0);
+                _windowOval = new Ellipse
+                {
+                    Stroke = Brushes.White,
+                    StrokeThickness = 2,
+                    Fill = null,
+                    IsHitTestVisible = false,
+                    RenderTransformOrigin = new Point(0.5, 0.5),
+                    RenderTransform = _windowOvalRotate
+                };
+            }
+            return _windowOval;
+        }
+
+        private void BeginFindTurningAngle()
+        {
+            if (_lastSplineDense == null || _lastSplineDense.Count < 3) return;
+            OnTurningWindowReady?.Invoke(EnsureWindowOval());
+            _turningIndex = 0;
+            UpdateWindowOval(_turningIndex);
+        }
+
+        private List<UIElement> ProcessFindTurningAngleClick(Vector2 mousePos)
+        {
+            ClearElementsToRemove();
+            if (_lastSplineDense == null || _lastSplineDense.Count < 3)
+                return new List<UIElement>();
+
+            if (!TryProjectOntoSpline(mousePos, out _, out int idx))
+                return new List<UIElement>();
+
+            _turningIndex = idx;
+            UpdateWindowOval(idx);
+            FindTurningAngleDisplay =
+                $"{LocalTurningAngle(_lastSplineDense, idx, _turningAngleWindow):F2}\u00B0";
+            return new List<UIElement>();
+        }
+
+        // Projects `mouse` onto the dense spline polyline, returning the closest point on
+        // the curve and the index of the nearest dense vertex (the section centre).
+        private bool TryProjectOntoSpline(Vector2 mouse, out Vector2 onCurve, out int nearestIndex)
+        {
+            onCurve = mouse;
+            nearestIndex = -1;
+            var pts = _lastSplineDense;
+            if (pts == null || pts.Count < 2) return false;
+
+            double bestDist2 = double.MaxValue;
+            for (int i = 0; i < pts.Count - 1; i++)
+            {
+                Vector2 a = pts[i], b = pts[i + 1];
+                Vector2 ab = b - a;
+                double len2 = ab.X * ab.X + ab.Y * ab.Y;
+                double t = len2 > 1e-9 ? ((mouse - a) | ab) / len2 : 0.0;
+                if (t < 0) t = 0; else if (t > 1) t = 1;
+                Vector2 proj = a + ab * t;
+                double dx = mouse.X - proj.X, dy = mouse.Y - proj.Y;
+                double d2 = dx * dx + dy * dy;
+                if (d2 < bestDist2)
+                {
+                    bestDist2 = d2;
+                    onCurve = proj;
+                    nearestIndex = (t < 0.5) ? i : i + 1;
+                }
+            }
+            return nearestIndex >= 0;
+        }
+
+        // The sample span [i0, i1] used for both the angle and the oval, centred on
+        // `index` with a half-width of `window` samples (clamped to the polyline ends).
+        private static (int i0, int i1) TurningWindowBounds(int count, int index, int window)
+        {
+            int i0 = Math.Max(0, index - window);
+            int i1 = Math.Min(count - 1, index + window);
+            if (i0 == index) i0 = Math.Max(0, index - 1);
+            if (i1 == index) i1 = Math.Min(count - 1, index + 1);
+            return (i0, i1);
+        }
+
+        // Local turning angle (degrees): the bend between the curve direction at the
+        // start and end of the measured span. Wider windows give a smoother, coarser reading.
+        private static double LocalTurningAngle(List<Vector2> pts, int index, int window)
+        {
+            int n = pts.Count;
+            if (n < 3) return 0;
+
+            var (i0, i1) = TurningWindowBounds(n, index, window);
+            Vector2 vIn = pts[index] - pts[i0];
+            Vector2 vOut = pts[i1] - pts[index];
+            if (vIn.Magnitude() < 1e-9 || vOut.Magnitude() < 1e-9) return 0;
+
+            return Math.Round(Math.Abs(Vector2.AngleBetween(vIn, vOut)), 2);
+        }
+
+        // Sizes and orients the oval so it encloses the measured span pts[i0..i1]:
+        // major axis along the span's chord, minor axis covering how far the arc bows
+        // off that chord, rotated to match.
+        private void UpdateWindowOval(int index)
+        {
+            if (_windowOval == null || _lastSplineDense == null) return;
+            int n = _lastSplineDense.Count;
+            if (n < 2) return;
+
+            var (i0, i1) = TurningWindowBounds(n, index, _turningAngleWindow);
+            Vector2 a = _lastSplineDense[i0];
+            Vector2 b = _lastSplineDense[i1];
+            Vector2 chord = b - a;
+            double chordLen = chord.Magnitude();
+            if (chordLen < 1e-6) return;
+
+            Vector2 unit = new Vector2(chord.X / chordLen, chord.Y / chordLen);
+            Vector2 normal = new Vector2(-unit.Y, unit.X);
+
+            double bow = 0;
+            for (int i = i0; i <= i1; i++)
+            {
+                double dev = Math.Abs((_lastSplineDense[i] - a) | normal);
+                if (dev > bow) bow = dev;
+            }
+
+            const double pad = 14.0;
+            double major = Math.Max(16.0, chordLen + pad * 2);
+            double minor = Math.Max(16.0, bow * 2 + pad * 2);
+
+            Vector2 center = (a + b) * 0.5;
+            _windowOval.Width = major;
+            _windowOval.Height = minor;
+            Canvas.SetLeft(_windowOval, center.X - major / 2);
+            Canvas.SetTop(_windowOval, center.Y - minor / 2);
+            _windowOvalRotate.Angle = Math.Atan2(chord.Y, chord.X) * 180.0 / Math.PI;
         }
 
         // Builds a WPF Path from the dense Catmull-Rom samples produced by SplineFitting.
@@ -855,41 +1069,40 @@ namespace DinoLino.Utilities.Modes
             "💡 Toggle tip visibility in the View menu."
         };
             if (IsNPointSplineSelected)
-                if (IsNPointSplineSelected)
-                    return IsCatmullRomSelected
-                        ? new[]
-                    {
-                        "💡 Draw a curve of any shape using any number of points. Double click to finish drawing.",
-                        "💡 Catmull-Rom splines use local smoothing and must pass through every clicked point. This operation draws a centripetal Catmull-Rom spline.",
-                        "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
-                        "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
-                        "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
-                        "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
-                        "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
-                        "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
-                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-                        "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                        "💡 Zoom in or out using the scroll wheel.",
-                        "💡 Toggle tip visibility in the View menu."
-                    }
-                : new[]
-                    {
-                        "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
-                        "💡 This operation uses Schneider's Bézier fitting to convert points into one or more smooth cubic Bézier segments.",
-                        "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
-                        "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
-                        "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
-                        "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
-                        "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
-                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-                        "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                        "💡 Zoom in or out using the scroll wheel.",
-                        "💡 Toggle tip visibility in the View menu."
-                    };
+                return IsCatmullRomSelected
+                    ? new[]
+                {
+                    "💡 Draw a curve of any shape using any number of points. Double click to finish drawing.",
+                    "💡 Catmull-Rom splines use local smoothing and must pass through every clicked point. This operation draws a centripetal Catmull-Rom spline.",
+                    "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
+                    "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
+                    "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
+                    "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
+                    "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
+                    "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
+                    "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+                    "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
+                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
+                    "💡 Zoom in or out using the scroll wheel.",
+                    "💡 Toggle tip visibility in the View menu."
+                }
+            : new[]
+                {
+                    "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
+                    "💡 This operation uses Schneider's Bézier fitting to convert points into one or more smooth cubic Bézier segments.",
+                    "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
+                    "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
+                    "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
+                    "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
+                    "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
+                    "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+                    "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
+                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
+                    "💡 Zoom in or out using the scroll wheel.",
+                    "💡 Toggle tip visibility in the View menu."
+                };
                 return new[] 
             { 
                 "💡 Select a curvature method to begin.",

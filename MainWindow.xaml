@@ -6,7 +6,7 @@
     xmlns:local="clr-namespace:DinoLino"
     xmlns:System="clr-namespace:System;assembly=mscorlib" xmlns:core="http://schemas.microsoft.com/winfx/2009/xaml" x:Class="DinoLino.MainWindow"
     mc:Ignorable="d"
-    Title="DinoLino" Height="584.24" Width="1062.441"
+    Title="DinoLino" Height="620" Width="1062.441"
     MinWidth="800" MinHeight="500"
     ResizeMode="CanResize"
     FontFamily="Arial">
