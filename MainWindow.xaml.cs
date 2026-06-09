@@ -50,6 +50,14 @@ namespace DinoLino
         private Point _panStartMouse;                       // mouse position at pan start (UI_WorkSpace frame)
         private double _panStartImageTx, _panStartImageTy;  // image translate at pan start
 
+        // Image scale calibration, shared with all modes
+        public ScaleCalibration ScaleCalibration = new ScaleCalibration();
+
+        // --- Scale Image capture state ---
+        private bool _scaleMode = false;
+        private int _scaleClicks = 0;
+        private Line _scaleLine;
+
         // Current working image in the workspace
         public BitmapImage WorkingImage;
 
@@ -97,6 +105,8 @@ namespace DinoLino
             SpecimenManager.BindToTextBox(UI_SpecimenNameBox);
 
             UI_LoadedFileText.DataContext = SpecimenManager;
+
+            UI_ScaleStatus.DataContext = ScaleCalibration;
 
             // Keyboard shortcuts
             this.PreviewKeyDown += MainWindow_KeyDown;
@@ -167,6 +177,11 @@ namespace DinoLino
             GetAngleMode.UndoRedoManager = UndoRedoManager;
             DrawMode.UndoRedoManager = UndoRedoManager;
             OutlineMode.UndoRedoManager = UndoRedoManager;
+
+            CurvatureMode.Scale = ScaleCalibration;
+            GetAngleMode.Scale = ScaleCalibration;
+            DrawMode.Scale = ScaleCalibration;
+            OutlineMode.Scale = ScaleCalibration;
 
             // Initialize list of all modes
             AllWorkModes = new List<WorkMode> { CurvatureMode, GetAngleMode, DrawMode, OutlineMode };
@@ -274,8 +289,15 @@ namespace DinoLino
             // Esc to cancel operation
             if (e.Key == Key.Escape)
             {
+                if (_scaleMode)
+                {
+                    _scaleMode = false;
+                    _scaleClicks = 0;
+                    if (_scaleLine != null) { UI_WorkCanvas.Children.Remove(_scaleLine); _scaleLine = null; }
+                    e.Handled = true;
+                    return;
+                }
                 CurrentWorkMode?.CancelCurrentOperation();
-
                 e.Handled = true;
                 return;
             }
@@ -295,6 +317,7 @@ namespace DinoLino
                 SpecimenManager.OnImageOpened(openFileDialog.SafeFileName);
                 ResetWorkSpaceZoom();
                 ClearWorkspace();
+                ScaleCalibration.Clear();
                 _imageAdjuster.CacheImage(WorkingImage);
                 OutlineMode.SourceImage = WorkingImage;
                 Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(SyncOutlineImageTransform));
@@ -595,6 +618,12 @@ namespace DinoLino
                 return;
             }
 
+            if (_scaleMode)
+            {
+                HandleScaleClick(new Vector2(Mouse.GetPosition(UI_WorkCanvas)));
+                return;
+            }
+
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
 
             if (CurrentWorkMode is OutlineMode)
@@ -646,6 +675,68 @@ namespace DinoLino
             }
         }
 
+        private void GlobalTools_ScaleImage(object sender, RoutedEventArgs e)
+        {
+            if (WorkingImage == null)
+            {
+                MessageBox.Show("Please open an image first.", "No Image", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (_scaleLine != null) { UI_WorkCanvas.Children.Remove(_scaleLine); _scaleLine = null; }
+            _scaleClicks = 0;
+            _scaleMode = true;   // next two workspace clicks define the calibration line
+        }
+
+        private void HandleScaleClick(Vector2 mousePos)
+        {
+            if (_scaleClicks == 0)
+            {
+                _scaleLine = new Line
+                {
+                    Stroke = Brushes.Yellow,
+                    StrokeThickness = 2,
+                    StrokeDashArray = new DoubleCollection { 4, 2 },
+                    X1 = mousePos.X,
+                    Y1 = mousePos.Y,
+                    X2 = mousePos.X,
+                    Y2 = mousePos.Y
+                };
+                AddElementToWorkSpace(_scaleLine);
+                _scaleClicks = 1;
+                return;
+            }
+
+            _scaleLine.X2 = mousePos.X;
+            _scaleLine.Y2 = mousePos.Y;
+            double dx = _scaleLine.X2 - _scaleLine.X1;
+            double dy = _scaleLine.Y2 - _scaleLine.Y1;
+            FinishScaleCapture(Math.Sqrt(dx * dx + dy * dy));
+        }
+
+        private void FinishScaleCapture(double pixelLength)
+        {
+            _scaleMode = false;
+            _scaleClicks = 0;
+
+            if (pixelLength < 1e-3)
+            {
+                if (_scaleLine != null) { UI_WorkCanvas.Children.Remove(_scaleLine); _scaleLine = null; }
+                return;
+            }
+
+            var dlg = new ScaleWindow
+            {
+                Owner = this,
+                FontSize = _currentFontSize,
+                FontFamily = _currentFont
+            };
+
+            if (dlg.ShowDialog() == true)
+                ScaleCalibration.SetFromLine(pixelLength, dlg.LengthValue, dlg.SelectedUnit);
+
+            if (_scaleLine != null) { UI_WorkCanvas.Children.Remove(_scaleLine); _scaleLine = null; }
+        }
+
         private void WorkSpace_MouseMove(object sender, MouseEventArgs e)
         {
             if (_isPanning)
@@ -658,6 +749,15 @@ namespace DinoLino
                 // Keep the drawing layer (border + canvas + all drawn elements) locked to the image
                 UI_WorkBorder.CopyTransforms(UI_WorkImage);
                 return;   // don't run cursor/erase logic while panning
+            }
+
+            if (_scaleMode && _scaleClicks == 1 && _scaleLine != null)
+            {
+                Vector2 p = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
+                _scaleLine.X2 = p.X;
+                _scaleLine.Y2 = p.Y;
+                UI_DotCursor.SetPosition(p.X - 5, p.Y - 5);
+                return;   // live-preview the calibration line; skip mode logic
             }
 
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));

@@ -1,0 +1,24 @@
+﻿<Window x:Class="DinoLino.ScaleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Set Scale" SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        FontFamily="Arial">
+    <StackPanel Margin="16">
+        <TextBlock Text="Enter the length of the drawn line:" Margin="0,0,0,8"/>
+        <StackPanel Orientation="Horizontal">
+            <TextBox x:Name="UI_LengthBox" Width="100" VerticalAlignment="Center"
+                     PreviewTextInput="LengthBox_PreviewTextInput"/>
+            <ComboBox x:Name="UI_UnitBox" Width="60" Margin="8,0,0,0" SelectedIndex="0">
+                <ComboBoxItem Content="mm"/>
+                <ComboBoxItem Content="cm"/>
+                <ComboBoxItem Content="m"/>
+            </ComboBox>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="OK" Width="72" IsDefault="True" Click="Ok_Click"/>
+            <Button Content="Cancel" Width="72" Margin="8,0,0,0" IsCancel="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>
+    

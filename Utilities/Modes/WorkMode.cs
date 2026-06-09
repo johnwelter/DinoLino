@@ -27,6 +27,9 @@ namespace DinoLino.Utilities.Modes
 
         public UndoRedoManager UndoRedoManager { get; set; }
 
+        // Shared image-scale calibration, injected by MainWindow. Null until set.
+        public ScaleCalibration Scale { get; set; }
+
         // cancellation support
         private CancellationTokenSource _operationCTS;
 

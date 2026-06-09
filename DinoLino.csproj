@@ -76,6 +76,9 @@
     <Compile Include="PictureAdjustmentWindow.xaml.cs">
       <DependentUpon>PictureAdjustmentWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="ScaleWindow.xaml.cs">
+      <DependentUpon>ScaleWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="TriangleControlPanel.xaml.cs">
       <DependentUpon>TriangleControlPanel.xaml</DependentUpon>
     </Compile>
@@ -96,6 +99,7 @@
       <DependentUpon>OutlineControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\OutlineProcessor.cs" />
+    <Compile Include="Utilities\ScaleCalibration.cs" />
     <Compile Include="Utilities\SpecimenManager.cs" />
     <Compile Include="Utilities\SplineFitting.cs" />
     <Compile Include="Utilities\Stats.cs" />
@@ -138,6 +142,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="PictureAdjustmentWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="ScaleWindow.xaml">
+      <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="TriangleControlPanel.xaml">

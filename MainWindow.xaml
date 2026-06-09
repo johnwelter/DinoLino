@@ -120,7 +120,13 @@
                     <TabItem Header="Outline"/>
                 </TabControl>
                 <ContentControl x:Name="UI_ModePanel" Margin="0,0,0,10"/>
-                <Button x:Name="UI_AAClearButton" Content="Clear" Margin="36,10,36,10" MinHeight="36" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
+                <StackPanel Margin="10,-10,10,-10">
+                    <Button x:Name="UI_ScaleButton" Content="Scale Image"
+                            MinHeight="32" Click="GlobalTools_ScaleImage"/>
+                    <TextBlock x:Name="UI_ScaleStatus"
+                               Text="{Binding StatusText}"/>
+                </StackPanel>
+                <Button x:Name="UI_AAClearButton" Content="Clear All" Margin="10,10,10,10" MinHeight="32" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
             </StackPanel>
             <GridSplitter Grid.Column="1"
                   Width="4"
