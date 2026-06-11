@@ -203,6 +203,14 @@ namespace DinoLino.Utilities.Modes
             VarianceTurningAnglesResult = 0;
             EFDCoefficientsResult = null;
             MetadataSummary = "";
+            PerimeterScaledResult = ScaledPlaceholder;
+            AreaScaledResult = ScaledPlaceholder;
+        }
+
+        public override void RefreshScalePlaceholders()
+        {
+            PerimeterScaledResult = ScaledPlaceholder;
+            AreaScaledResult = ScaledPlaceholder;
         }
         #endregion
 
@@ -1150,12 +1158,28 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _metadataSummary, value);
         }
 
+        private string _perimeterScaledResult = "Scale to measure";
+        public string PerimeterScaledResult
+        {
+            get => _perimeterScaledResult;
+            set => SetField(ref _perimeterScaledResult, value);
+        }
+
+        private string _areaScaledResult = "Scale to measure";
+        public string AreaScaledResult
+        {
+            get => _areaScaledResult;
+            set => SetField(ref _areaScaledResult, value);
+        }
+
         // Called when the user clicks Generate Metadata
         public void GenerateMetadata()
         {
             if (_activePolyline == null || _activePolyline.Points.Count < 3)
             {
                 MetadataSummary = "No outline available.";
+                PerimeterScaledResult = ScaledPlaceholder;
+                AreaScaledResult = ScaledPlaceholder;
                 UpdateEFDPreview();
                 return;
             }
@@ -1176,6 +1200,19 @@ namespace DinoLino.Utilities.Modes
 
             double perimeter = GeometryCalculations.Perimeter(imagePts);
             double area = GeometryCalculations.PolygonArea(imagePts);
+
+            // Scaled outputs use canvas-space measurements, matching the canvas-space
+            // calibration captured by the Scale Image tool (imagePts above stays image-space
+            // so the ratio metrics remain zoom-independent).
+            double canvasPerimeter = GeometryCalculations.Perimeter(pts);
+            double canvasArea = GeometryCalculations.PolygonArea(pts);
+            PerimeterScaledResult = Scale != null && Scale.IsCalibrated
+                ? $"{Scale.ToUnits(canvasPerimeter):F2} {Scale.Unit}"
+                : "Scale to measure";
+            AreaScaledResult = Scale != null && Scale.IsCalibrated
+                ? $"{Scale.ToUnitsArea(canvasArea):F2} {Scale.Unit}²"
+                : "Scale to measure";
+
             double[] bbox = GeometryCalculations.BoundingBox(imagePts);
             double bboxW = bbox[2] - bbox[0];
             double bboxH = bbox[3] - bbox[1];

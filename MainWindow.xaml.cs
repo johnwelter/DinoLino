@@ -316,8 +316,9 @@ namespace DinoLino
                 UI_WorkImage.Source = WorkingImage;
                 SpecimenManager.OnImageOpened(openFileDialog.SafeFileName);
                 ResetWorkSpaceZoom();
-                ClearWorkspace();
                 ScaleCalibration.Clear();
+                ClearWorkspace();
+                RefreshAllScalePlaceholders();
                 _imageAdjuster.CacheImage(WorkingImage);
                 OutlineMode.SourceImage = WorkingImage;
                 Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(SyncOutlineImageTransform));
@@ -580,6 +581,13 @@ namespace DinoLino
             ClearWorkspace();
         }
 
+        private void RefreshAllScalePlaceholders()
+        {
+            if (AllWorkModes == null) return;
+            foreach (var mode in AllWorkModes)
+                mode.RefreshScalePlaceholders();
+        }
+
         private void ControlTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (UI_ControlTabs.SelectedItem is not TabItem tab) return;
@@ -732,7 +740,10 @@ namespace DinoLino
             };
 
             if (dlg.ShowDialog() == true)
+            {
                 ScaleCalibration.SetFromLine(pixelLength, dlg.LengthValue, dlg.SelectedUnit);
+                RefreshAllScalePlaceholders();
+            }
 
             if (_scaleLine != null) { UI_WorkCanvas.Children.Remove(_scaleLine); _scaleLine = null; }
         }

@@ -19,6 +19,10 @@
             <Label Content="{Binding TriAspectRatioResult}" Width="175"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal">
+            <Label Content="Area:" FontWeight="Bold"/>
+            <Label Content="{Binding TriAreaScaledResult}" Width="175"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal">
             <Label Content="Relative Size:" FontWeight="Bold"/>
             <Label Content="{Binding RelativeAreaResult}" Width="175"/>
         </StackPanel>

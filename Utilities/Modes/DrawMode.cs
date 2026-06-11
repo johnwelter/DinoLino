@@ -23,6 +23,14 @@ namespace DinoLino.Utilities.Modes
             DrawAspectRatioResult = 0;
             RelativeAreaResult = "N/A";
             LineLengthRatioResult = "N/A";
+            LineLengthScaledResult = ScaledPlaceholder;
+            ShapeAreaScaledResult = ScaledPlaceholder;
+        }
+
+        public override void RefreshScalePlaceholders()
+        {
+            LineLengthScaledResult = ScaledPlaceholder;
+            ShapeAreaScaledResult = ScaledPlaceholder;
         }
 
         // method tracker
@@ -123,6 +131,8 @@ namespace DinoLino.Utilities.Modes
             DrawAspectRatioResult = 0;
             RelativeAreaResult = "N/A";
             LineLengthRatioResult = "N/A";
+            LineLengthScaledResult = ScaledPlaceholder;
+            ShapeAreaScaledResult = ScaledPlaceholder;
             _currentShape = null;
             _currentLine = null;
             _dragStart = default;
@@ -155,6 +165,14 @@ namespace DinoLino.Utilities.Modes
         private double _drawAspectRatioResult;
         private object _relativeAreaResult;
         private double _currentShapeArea = 0;
+
+        private string _shapeAreaScaledResult = "Scale to measure";
+        public string ShapeAreaScaledResult
+        {
+            get => _shapeAreaScaledResult;
+            set => SetField(ref _shapeAreaScaledResult, value);
+        }
+
 
         public double DrawAspectRatioResult
         {
@@ -293,6 +311,12 @@ namespace DinoLino.Utilities.Modes
         private Line _currentLine = null;
         private Vector2 _referenceLineDirection;
         private bool _hasReferenceLineDirection;
+        private string _lineLengthScaledResult = "Scale to measure";
+        public string LineLengthScaledResult
+        {
+            get => _lineLengthScaledResult;
+            set => SetField(ref _lineLengthScaledResult, value);
+        }
         public double LockedAngleDegrees { get; set; } = 0;
 
         // Bindable results of shape calculations
@@ -375,6 +399,10 @@ namespace DinoLino.Utilities.Modes
             double dx = _currentLine.X2 - _currentLine.X1;
             double dy = _currentLine.Y2 - _currentLine.Y1;
             double length = Math.Sqrt(dx * dx + dy * dy);
+
+            LineLengthScaledResult = Scale != null && Scale.IsCalibrated
+                ? $"{Scale.ToUnits(length):F2} {Scale.Unit}"
+                : "Scale to measure";
 
             var prev = FindPreviousLine(0);
             LineLengthRatioResult = GeometryCalculations.RelativeLength(length, prev?.LineLength ?? 0);
@@ -471,6 +499,10 @@ namespace DinoLino.Utilities.Modes
                 : GeometryCalculations.RectangleArea(width, height);
             _currentShapeArea = area;
             DrawAspectRatioResult = height > 1e-5 ? Math.Round(width / height, 2) : 0;
+
+            ShapeAreaScaledResult = Scale != null && Scale.IsCalibrated
+                ? $"{Scale.ToUnitsArea(area):F2} {Scale.Unit}²"
+                : "Scale to measure";
 
             var prev = UndoRedoManager.History
                 .OfType<ShapeOperation>()

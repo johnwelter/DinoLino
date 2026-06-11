@@ -136,6 +136,11 @@
                 <Label Content="Chord-Arc Ratio:"/>
                 <Label Content="{Binding SChordArcRatioResult}" Width="175"/>
             </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+                <Label Content="Spline Length:"/>
+                <Label Content="{Binding SplineLengthScaledResult}" Width="175"/>
+            </StackPanel>
+            
             <!-- Find turning angle along the most recent spline -->
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
                 <RadioButton Content="Find turning angle"

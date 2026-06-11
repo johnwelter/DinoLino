@@ -22,6 +22,12 @@ namespace DinoLino.Utilities.Modes
             AngleCResult = 0;
             TriAspectRatioResult = 0;
             RelativeAreaResult = "N/A";
+            TriAreaScaledResult = ScaledPlaceholder;
+        }
+
+        public override void RefreshScalePlaceholders()
+        {
+            TriAreaScaledResult = ScaledPlaceholder;
         }
 
         private TextBlock MakeLabel(string text, Vector2 pos)
@@ -59,6 +65,12 @@ namespace DinoLino.Utilities.Modes
         private double _TriAspectRatioResult;
         private object _relativeAreaResult;
         private double _currentArea = 0;
+        private string _triAreaScaledResult = "Scale to measure";
+        public string TriAreaScaledResult
+        {
+            get => _triAreaScaledResult;
+            set => SetField(ref _triAreaScaledResult, value);
+        }
 
         public double AngleAResult
         {
@@ -100,6 +112,7 @@ namespace DinoLino.Utilities.Modes
             AngleAResult = AngleBResult = AngleCResult = 0;
             TriAspectRatioResult = 0;
             RelativeAreaResult = "N/A";
+            TriAreaScaledResult = ScaledPlaceholder;
             CurrentStep = 0;
             CurrentUILine = null;
             CurrentOperation.Clear();
@@ -237,6 +250,9 @@ namespace DinoLino.Utilities.Modes
 
             double area = Math.Abs(cross) / 2.0;
             _currentArea = area;
+            TriAreaScaledResult = Scale != null && Scale.IsCalibrated
+                ? $"{Scale.ToUnitsArea(area):F2} {Scale.Unit}²"
+                : "Scale to measure";
             double longestSide = Math.Max(sideAB, Math.Max(sideBC, sideCA));
             TriAspectRatioResult = GeometryCalculations.TriangleAspectRatio(longestSide, area);
 

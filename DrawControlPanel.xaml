@@ -23,6 +23,10 @@
             <Label Content="Output:" FontWeight="Bold"/>
           </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+                <Label Content="Area:"/>
+                <Label Content="{Binding ShapeAreaScaledResult}" Width="175"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
                 <Label Content="Aspect Ratio:"/>
                 <Label Content="{Binding DrawAspectRatioResult}" Width="175"/>
             </StackPanel>
@@ -54,6 +58,10 @@
           <StackPanel Orientation="Horizontal" Margin="10,-4,0,0">
             <Label Content="Output:" FontWeight="Bold"/>
           </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+                <Label Content="Length:"/>
+                <Label Content="{Binding LineLengthScaledResult}" Width="175"/>
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
                 <Label Content="Line Ratio:"/>
                 <Label Content="{Binding LineLengthRatioResult}" Width="175"/>

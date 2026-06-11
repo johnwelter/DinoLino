@@ -130,6 +130,26 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Perimeter:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" Text="{Binding PerimeterScaledResult}"
+                   HorizontalAlignment="Right"/>
+            </Grid>
+
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Area:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" Text="{Binding AreaScaledResult}"
+                   HorizontalAlignment="Right"/>
+            </Grid>
+
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Perimeter / Area:" Foreground="Gray"/>
                 <TextBlock Grid.Column="1" Text="{Binding PerimeterAreaRatioResult, StringFormat={}{0:F4}}"
                    HorizontalAlignment="Right"/>

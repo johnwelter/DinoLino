@@ -185,6 +185,16 @@ namespace DinoLino.Utilities.Modes
         // Default does nothing; DrawMode uses it to reset its reference-line direction.
         internal virtual void OnHistoryChanged() { }
 
+        // Placeholder for scaled-measurement outputs: "Scale to measure" when the image
+        // has no calibration yet, "N/A" once it has been scaled (the user must take a
+        // fresh measurement to get a real value).
+        protected string ScaledPlaceholder =>
+            Scale != null && Scale.IsCalibrated ? "N/A" : "Scale to measure";
+
+        // Resets scaled-measurement displays to ScaledPlaceholder. Modes with scaled
+        // outputs override this; called whenever the calibration is set or cleared.
+        public virtual void RefreshScalePlaceholders() { }
+
         public virtual void ClearMetadata() { }
 
         protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)

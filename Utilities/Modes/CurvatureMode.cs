@@ -156,6 +156,12 @@ namespace DinoLino.Utilities.Modes
             SumTurningAnglesResult = 0;
             MeanTurningAngleResult = 0;
             VarianceTurningAnglesResult = 0;
+            SplineLengthScaledResult = ScaledPlaceholder;
+        }
+
+        public override void RefreshScalePlaceholders()
+        {
+            SplineLengthScaledResult = ScaledPlaceholder;
         }
 
         public override void ResetDrawingState()
@@ -680,6 +686,13 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
+        private string _splineLengthScaledResult = "Scale to measure";
+        public string SplineLengthScaledResult
+        {
+            get => _splineLengthScaledResult;
+            set => SetField(ref _splineLengthScaledResult, value);
+        }
+
         private Ellipse MakeDot(Vector2 pos)
         {
             Ellipse dot = new Ellipse();
@@ -755,6 +768,10 @@ namespace DinoLino.Utilities.Modes
                 ? SplineFitting.GetSchneiderBezierPoints(_splinePoints, 50)
                 : SplineFitting.GetCatmullRomPoints(_splinePoints, 50);
             _lastSplineDense = splinePointsDense;   // keep for the Find-turning-angle tool
+            double splineLength = GeometryCalculations.ArcLength(splinePointsDense);
+            SplineLengthScaledResult = Scale != null && Scale.IsCalibrated
+                ? $"{Scale.ToUnits(splineLength):F2} {Scale.Unit}"
+                : "Scale to measure";
             TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 2);
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 2);
             SumTurningAnglesResult = GeometryCalculations.SumTurningAnglesOpen(splinePointsDense);
