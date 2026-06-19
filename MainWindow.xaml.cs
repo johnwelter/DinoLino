@@ -341,6 +341,61 @@ namespace DinoLino
             OutlineMode.OffsetY = imagePos.Y;
         }
 
+        private void Menu_FlipHorizontal(object sender, RoutedEventArgs e)
+            => ApplyImageTransform(new ScaleTransform(-1, 1));
+
+        private void Menu_FlipVertical(object sender, RoutedEventArgs e)
+            => ApplyImageTransform(new ScaleTransform(1, -1));
+
+        private void Menu_RotateRight(object sender, RoutedEventArgs e)
+            => ApplyImageTransform(new RotateTransform(90));
+
+        private void Menu_RotateLeft(object sender, RoutedEventArgs e)
+            => ApplyImageTransform(new RotateTransform(270));   // 270° clockwise = 90° counter-clockwise
+
+        // Applies a geometric transform (mirror flip or 90° rotation) to the working image.
+        // TransformedBitmap supports negative ScaleTransforms (mirroring) and RotateTransforms
+        // at 0/90/180/270 degrees. The result is re-encoded to a BitmapImage — the same
+        // round-trip the image adjuster uses — so it matches WorkingImage's type and can be
+        // re-cached by OutlineMode.
+        private void ApplyImageTransform(Transform transform)
+        {
+            if (WorkingImage == null)
+            {
+                MessageBox.Show("Please open an image first.", "No Image", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var transformed = new TransformedBitmap(WorkingImage, transform);
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(transformed));
+            using var stream = new System.IO.MemoryStream();
+            encoder.Save(stream);
+            stream.Position = 0;
+            var bmi = new BitmapImage();
+            bmi.BeginInit();
+            bmi.CacheOption = BitmapCacheOption.OnLoad;
+            bmi.StreamSource = stream;
+            bmi.EndInit();
+            bmi.Freeze();
+
+            WorkingImage = bmi;
+            UI_WorkImage.Source = WorkingImage;
+
+            // Flipping or rotating changes the image geometry, so existing overlays would no
+            // longer line up, and a canvas-space scale calibration may no longer be valid
+            // (a 90° rotation of a non-square image changes the on-screen fit). Treat it like
+            // loading a fresh image: reset zoom, clear the scale, clear the workspace.
+            ResetWorkSpaceZoom();
+            ScaleCalibration.Clear();
+            ClearWorkspace();
+            RefreshAllScalePlaceholders();
+
+            OutlineMode.SourceImage = WorkingImage;
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(SyncOutlineImageTransform));
+        }
+
         private void Menu_About(object sender, RoutedEventArgs e)
         {
             AboutWindow about = new AboutWindow();

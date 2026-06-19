@@ -30,6 +30,18 @@
                 <MenuItem Header="_Undo" x:Name="UI_MenuUndo" Click="Menu_Undo"/>
                 <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"/>
             </MenuItem>
+            <MenuItem Header="_Tools" MouseLeave="Menu_MouseLeave">
+                <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"/>
+                <MenuItem Header="_Decimate" Click="Menu_DownSample"/>
+                <MenuItem Header="_Flip">
+                    <MenuItem Header="_Horizontal"  Click="Menu_FlipHorizontal"/>
+                    <MenuItem Header="_Vertical"  Click="Menu_FlipVertical"/>
+                </MenuItem>
+                <MenuItem Header="_Rotate">
+                    <MenuItem Header="_Rotate Right 90°"  Click="Menu_RotateRight"/>
+                    <MenuItem Header="_Rotate Left 90°"  Click="Menu_RotateLeft"/>
+                </MenuItem>
+            </MenuItem>
             <MenuItem Header="_View" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_See Tips" x:Name="UI_SeeTips" IsCheckable="True" IsChecked="True" Click="Menu_SeeTips"/>
                 <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="True" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave">
@@ -45,8 +57,6 @@
                     <RadioButton Content="_Brown" Tag="Brown" GroupName="LineColors" Click="Menu_Color_Click"/>
                 </MenuItem>
                 <MenuItem Header="_Font" Click="Menu_Font"/>
-                <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"/>
-                <MenuItem Header="_Decimate" Click="Menu_DownSample"/>
             </MenuItem>
             <MenuItem Header="_Help" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_About" Click="Menu_About"/>
