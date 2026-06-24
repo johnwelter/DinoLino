@@ -21,6 +21,22 @@ namespace DinoLino.Utilities.Modes
 
         #region setting outline mode
 
+        private bool _handDrawMode = false;
+        public bool HandDrawMode
+        {
+            get => _handDrawMode;
+            set
+            {
+                if (!SetField(ref _handDrawMode, value)) return;
+                OnTipChanged?.Invoke();
+                // Leaving hand-draw with an unfinished stroke: discard it.
+                if (!_handDrawMode) CancelHandDraw();
+            }
+        }
+
+        // Fired when metadata is requested but the hand-drawn stroke isn't closed yet.
+        public Action HandOutlineUnfinished;
+
         private bool _drawOutlineMode = true;
         public bool DrawOutlineMode
         {
@@ -289,6 +305,8 @@ namespace DinoLino.Utilities.Modes
             _pendingPolyline = null;
             _hasPending = false;
             _efd.Clear();
+            CancelHandDraw();         
+            _handOutlineCommitted = false;
             ClearMetadata();
             ClearEFDPreview();
         }
@@ -401,7 +419,7 @@ namespace DinoLino.Utilities.Modes
         {
             BeginOperation();
 
-            if (_eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode)
+            if (_eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode || _handDrawMode)
                 return new List<UIElement>();
             if (_cachedPixels == null) return new List<UIElement>();
 
@@ -580,6 +598,246 @@ namespace DinoLino.Utilities.Modes
             if (_cachedBpp == 1) return (_cachedPixels[i], _cachedPixels[i], _cachedPixels[i]);
             return (_cachedPixels[i + 2], _cachedPixels[i + 1], _cachedPixels[i]);
         }
+        #endregion
+
+        #region hand draw
+
+        // =====================
+        // FREE-HAND OUTLINE
+        // =====================
+        // The user holds the left button and drags to lay down a stroke. Releasing pauses
+        // the stroke (a subsequent press continues appending from the cursor). As soon as
+        // the stroke crosses itself, the loop is closed at the crossing point and any
+        // dangling tails before/after the loop are discarded — so a "p" or a loop with
+        // two tails collapses to just the enclosed object.
+
+        // Raw stroke points in CANVAS space, accumulated across press/drag/release until
+        // the loop closes. Stored densely; simplified only at closure.
+        private readonly List<Point> _handStroke = new List<Point>();
+
+        // The live, in-progress (open) preview polyline shown while drawing.
+        private Polyline _handPreviewPolyline = null;
+
+        // True between the first press and final closure of a hand-drawn outline.
+        private bool _handDrawingActive = false;
+
+        // MainWindow wires these: add/remove the live preview line on the canvas.
+        public Action<Polyline> OnHandPreviewReady;     // show/replace the open preview
+        public Action<Polyline> OnHandPreviewClear;     // remove the given preview line
+
+        // Minimum canvas distance between consecutive accepted stroke points. Keeps the
+        // point list manageable and avoids degenerate zero-length segments that would
+        // confuse the self-intersection test.
+        private const double HandMinPointSpacing = 2.0;
+
+        // True when an outline has been committed in this mode (used by the panel to gate
+        // "Generate Metadata"). Distinct from _handDrawingActive, which means "mid-stroke".
+        private bool _handOutlineCommitted = false;
+        public bool HasFinishedHandOutline => _handOutlineCommitted;
+
+        // Called from MainWindow on left-button DOWN while HandDrawMode is active.
+        public void BeginHandStroke(Vector2 canvasPos)
+        {
+            if (!_handDrawMode) return;
+            if (_cachedPixels == null) return;
+
+            // First press of a brand-new outline: start fresh and clear any prior result.
+            if (!_handDrawingActive)
+            {
+                BeginOperation();
+                _handDrawingActive = true;
+                _handOutlineCommitted = false;
+                _handStroke.Clear();
+                ClearHandPreview();
+                ClearMetadata();
+                ClearEFDPreview();
+            }
+
+            AppendHandPoint(new Point(canvasPos.X, canvasPos.Y));
+        }
+
+        // Called from MainWindow on mouse MOVE while the left button is held in HandDrawMode.
+        public void ProcessHandDrawDrag(Vector2 canvasPos)
+        {
+            if (!_handDrawMode || !_handDrawingActive) return;
+            AppendHandPoint(new Point(canvasPos.X, canvasPos.Y));
+        }
+
+        // Called from MainWindow on left-button UP while HandDrawMode is active.
+        // Releasing simply pauses — the stroke stays open and can be continued.
+        public void EndHandStroke()
+        {
+            // Intentionally does nothing beyond leaving the stroke open: a paused stroke
+            // is resumed by the next BeginHandStroke, which keeps _handDrawingActive true
+            // and so does NOT reset _handStroke.
+        }
+
+        // Discards any in-progress stroke (mode switch, reset, escape).
+        public void CancelHandDraw()
+        {
+            _handDrawingActive = false;
+            _handStroke.Clear();
+            ClearHandPreview();
+        }
+
+        // Adds a point to the stroke (respecting min spacing), refreshes the live preview,
+        // and tests whether the newly added segment closes the loop.
+        private void AppendHandPoint(Point p)
+        {
+            if (_handStroke.Count > 0)
+            {
+                Point last = _handStroke[_handStroke.Count - 1];
+                double dx = p.X - last.X, dy = p.Y - last.Y;
+                if (dx * dx + dy * dy < HandMinPointSpacing * HandMinPointSpacing)
+                    return; // too close to previous point; skip
+            }
+
+            _handStroke.Add(p);
+
+            // Check whether the most recent segment crosses any earlier, non-adjacent segment.
+            if (TryCloseHandLoop()) return;
+
+            RefreshHandPreview();
+        }
+
+        // Builds/updates the open preview polyline from the current stroke.
+        private void RefreshHandPreview()
+        {
+            if (_handStroke.Count < 2) { ClearHandPreview(); return; }
+
+            var line = new Polyline
+            {
+                Stroke = this.LineColor,
+                StrokeThickness = 2,
+                StrokeDashArray = new DoubleCollection { 4, 2 }, // dashed = not yet closed
+                FillRule = FillRule.EvenOdd
+            };
+            foreach (var sp in _handStroke)
+                line.Points.Add(sp);
+
+            var old = _handPreviewPolyline;
+            _handPreviewPolyline = line;
+            OnHandPreviewReady?.Invoke(line);
+            if (old != null) OnHandPreviewClear?.Invoke(old);
+        }
+
+        private void ClearHandPreview()
+        {
+            if (_handPreviewPolyline != null)
+            {
+                OnHandPreviewClear?.Invoke(_handPreviewPolyline);
+                _handPreviewPolyline = null;
+            }
+        }
+
+        // Tests whether the LAST segment of the stroke intersects any earlier non-adjacent
+        // segment. If it does, the closed loop is extracted (the polygon between the two
+        // crossing segments, joined at the intersection point), tails are discarded, and
+        // the outline is committed exactly like an auto-generated one.
+        //
+        // Returns true if the loop was closed (and the stroke consumed), false otherwise.
+        private bool TryCloseHandLoop()
+        {
+            int n = _handStroke.Count;
+            if (n < 4) return false; // need at least a few segments to self-cross
+
+            int lastSeg = n - 2;                     // segment (n-2 -> n-1)
+            Point a1 = _handStroke[lastSeg];
+            Point a2 = _handStroke[lastSeg + 1];
+
+            // Compare against every earlier segment except the one directly adjacent
+            // (which shares endpoint a1 and can't "cross" in a meaningful way).
+            for (int j = 0; j <= lastSeg - 2; j++)
+            {
+                Point b1 = _handStroke[j];
+                Point b2 = _handStroke[j + 1];
+
+                if (TryGetSegmentIntersection(a1, a2, b1, b2, out Point hit))
+                {
+                    // The enclosed loop runs from the intersection point, along the stroke
+                    // through indices j+1 .. lastSeg, and back to the intersection point.
+                    // Everything before segment j (the leading tail) and after the last
+                    // point (the trailing tail) is discarded.
+                    var loop = new List<Point> { hit };
+                    for (int k = j + 1; k <= lastSeg; k++)
+                        loop.Add(_handStroke[k]);
+                    // loop implicitly closes back to 'hit'
+
+                    CommitHandLoop(loop);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Finalizes a closed hand-drawn loop: simplify, validate, convert to a committed
+        // outline, and route it through the SAME commit path as an auto outline so all
+        // metadata / EFD / smooth / erase behavior is shared.
+        private void CommitHandLoop(List<Point> loopCanvas)
+        {
+            // De-dup consecutive coincident points.
+            var cleaned = new List<Point>(loopCanvas.Count);
+            foreach (var p in loopCanvas)
+            {
+                if (cleaned.Count == 0) { cleaned.Add(p); continue; }
+                Point l = cleaned[cleaned.Count - 1];
+                double dx = p.X - l.X, dy = p.Y - l.Y;
+                if (dx * dx + dy * dy >= 0.25) cleaned.Add(p);
+            }
+
+            if (cleaned.Count < 3) { CancelHandDraw(); return; }
+
+            // Light simplification to remove hand-jitter, matching the auto outline feel.
+            var simplified = GeometryCalculations.DouglasPeucker(cleaned, _simplifyEpsilon);
+            if (simplified.Count < 3) simplified = cleaned;
+
+            // Guard: if simplification somehow self-intersected, fall back to the dense loop.
+            if (PolylineHasSelfIntersection(simplified))
+                simplified = cleaned;
+
+            var poly = new Polyline
+            {
+                Stroke = this.LineColor,
+                StrokeThickness = 2,
+                FillRule = FillRule.EvenOdd
+            };
+            foreach (var p in simplified)
+                poly.Points.Add(p);
+            poly.Points.Add(simplified[0]); // explicit closure
+
+            // Tear down the in-progress drawing state and the dashed preview.
+            ClearHandPreview();
+            _handDrawingActive = false;
+            _handStroke.Clear();
+            _handOutlineCommitted = true;
+
+            // Reuse the existing commit path: sets _activePolyline, snapshots for smoothing,
+            // commits an OutlineOperation, and fires OnOutlineReady so MainWindow draws it.
+            CommitFinalOutline(poly);
+        }
+
+        // Segment/segment intersection returning the crossing point. Treats proper crossings
+        // only (no collinear-overlap handling needed for a freehand stroke). Mirrors the sign
+        // logic in SegmentsIntersect but also computes the intersection coordinate.
+        private static bool TryGetSegmentIntersection(Point p1, Point p2, Point p3, Point p4, out Point hit)
+        {
+            hit = default;
+
+            double d1x = p2.X - p1.X, d1y = p2.Y - p1.Y;
+            double d2x = p4.X - p3.X, d2y = p4.Y - p3.Y;
+            double denom = d1x * d2y - d1y * d2x;
+            if (Math.Abs(denom) < 1e-9) return false; // parallel / degenerate
+
+            double t = ((p3.X - p1.X) * d2y - (p3.Y - p1.Y) * d2x) / denom;
+            double u = ((p3.X - p1.X) * d1y - (p3.Y - p1.Y) * d1x) / denom;
+
+            if (t < 0.0 || t > 1.0 || u < 0.0 || u > 1.0) return false;
+
+            hit = new Point(p1.X + t * d1x, p1.Y + t * d1y);
+            return true;
+        }
+
         #endregion
 
         #region erase function   
@@ -1173,8 +1431,16 @@ namespace DinoLino.Utilities.Modes
         }
 
         // Called when the user clicks Generate Metadata
+
         public void GenerateMetadata()
         {
+            // Refuse while a hand-drawn stroke is still open (not yet self-closed).
+            if (_handDrawMode && _handDrawingActive)
+            {
+                HandOutlineUnfinished?.Invoke();
+                return;
+            }
+
             if (_activePolyline == null || _activePolyline.Points.Count < 3)
             {
                 MetadataSummary = "No outline available.";
@@ -1404,6 +1670,18 @@ namespace DinoLino.Utilities.Modes
                     "💡 The user guide and software information can be found in the Help menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
+                    "💡 Zoom in or out using the scroll wheel.",
+                    "💡 Press 'Ctrl' and left click to drag the image.",
+                    "💡 Toggle tip visibility in the View menu."
+                };
+            if (HandDrawMode)
+                return new[]
+                {
+                    "💡 Hold the left mouse button and drag to draw an outline by hand.",
+                    "💡 The outline closes automatically as soon as your line crosses itself. Any leftover tails are removed.",
+                    "💡 Release to pause; press and drag again to continue the same line.",
+                    "💡 Once closed, switch to Generate Metadata to measure the shape.",
+                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Zoom in or out using the scroll wheel.",
                     "💡 Press 'Ctrl' and left click to drag the image.",
                     "💡 Toggle tip visibility in the View menu."

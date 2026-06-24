@@ -153,6 +153,17 @@ namespace DinoLino
                     AddElementToWorkSpace(el);
             };
 
+            OutlineMode.OnHandPreviewReady = previewLine =>
+            {
+                AddElementToWorkSpace(previewLine);
+            };
+
+            OutlineMode.OnHandPreviewClear = previewLine =>
+            {
+                if (previewLine != null)
+                    UI_WorkCanvas.Children.Remove(previewLine);
+            };
+
             OutlineMode.OnEFDPreviewReady = previewLine =>
             {
                 AddElementToWorkSpace(previewLine);
@@ -692,6 +703,19 @@ namespace DinoLino
             if (CurrentWorkMode is OutlineMode)
                 SyncOutlineImageTransform();
 
+            // Hand-draw: a left press begins/continues a freehand stroke.
+            if (CurrentWorkMode is OutlineMode handOm && handOm.HandDrawMode &&
+                e.ChangedButton == MouseButton.Left && e.ClickCount == 1)
+            {
+                if (!handOm.SeePreviousOperations && handOm.IsStartingNewOperation)
+                    ClearWorkspaceVisualsOnly();
+
+                handOm.BeginHandStroke(mousePos);
+                (sender as UIElement)?.CaptureMouse();   // keep getting moves if cursor leaves
+                e.Handled = true;
+                return;
+            }
+
             if (!CurrentWorkMode.SeePreviousOperations && CurrentWorkMode.IsStartingNewOperation)
             {
                 // don't use Children.Clear() because we want to keep the DotCursor
@@ -833,6 +857,8 @@ namespace DinoLino
             {
                 if (om.EraseOutlineMode)
                     om.ProcessEraseDrag(mousePos);
+                else if (om.HandDrawMode)
+                    om.ProcessHandDrawDrag(mousePos);
             }
         }
 
@@ -843,6 +869,15 @@ namespace DinoLino
                 _isPanning = false;
                 (sender as UIElement)?.ReleaseMouseCapture();
                 Mouse.OverrideCursor = null;
+                e.Handled = true;
+                return;
+            }
+
+            // Hand-draw: releasing pauses the stroke (it stays open and resumable).
+            if (e.ChangedButton == MouseButton.Left && CurrentWorkMode is OutlineMode om && om.HandDrawMode)
+            {
+                om.EndHandStroke();
+                (sender as UIElement)?.ReleaseMouseCapture();
                 e.Handled = true;
             }
         }

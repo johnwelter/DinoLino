@@ -39,6 +39,12 @@ namespace DinoLino.Utilities.Modes
             _mode = mode;
             DataContext = mode;
 
+            // Popup when metadata is requested on an unfinished hand-drawn outline.
+            _mode.HandOutlineUnfinished = () =>
+                MessageBox.Show("Please finish drawing outline",
+                                "Outline Incomplete",
+                                MessageBoxButton.OK, MessageBoxImage.Information);
+
             // Update the EFA preview 1 second after the user stops typing harmonics.
             _harmonicsDebounce = new System.Windows.Threading.DispatcherTimer
             {
@@ -46,6 +52,23 @@ namespace DinoLino.Utilities.Modes
             };
             _harmonicsDebounce.Tick += HarmonicsDebounce_Tick;
             EfdHarmonicsBox.TextChanged += EfdHarmonicsBox_TextChanged;
+        }
+
+        // Veto selecting Generate Metadata while a hand-drawn stroke is still open.
+        private void MetadataRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_mode.HandDrawMode && !_mode.HasFinishedHandOutline)
+            {
+                MessageBox.Show("Please finish drawing outline",
+                                "Outline Incomplete",
+                                MessageBoxButton.OK, MessageBoxImage.Information);
+
+                // Bounce selection back to Draw by Hand so the metadata panel doesn't open.
+                _mode.OutlineMetadataMode = false;
+                _mode.HandDrawMode = true;
+                if (sender is RadioButton rb) rb.IsChecked = false;
+                e.Handled = true;
+            }
         }
 
         private void EfdHarmonicsBox_TextChanged(object sender, TextChangedEventArgs e)

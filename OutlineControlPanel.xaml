@@ -67,6 +67,20 @@
         </StackPanel>
       </StackPanel>
 
+        <!-- Draw by Hand tool -->
+        <RadioButton Content="Draw by Hand"
+             GroupName="OutlineTool"
+             IsChecked="{Binding HandDrawMode, Mode=TwoWay}"
+             MinHeight="26"
+             Margin="0,8,0,0"
+             ToolTip="Hold and drag to draw an outline freehand. It closes when the stroke crosses itself."/>
+
+        <StackPanel Visibility="{Binding HandDrawMode, Converter={StaticResource BoolToVis}}">
+            <TextBlock TextWrapping="Wrap" Foreground="Gray"
+               Text="Hold the left button and drag to draw. The outline closes automatically when your stroke crosses itself; leftover tails are removed."
+               Margin="0,6,0,4"/>
+        </StackPanel>
+        
         <!-- Erase Outline tool -->
         <RadioButton Content="Erase Outline"
                      GroupName="OutlineTool"
@@ -106,8 +120,10 @@
 
         <!-- Generate Metadata -->
         <RadioButton Content="Generate Metadata"
+             x:Name="MetadataRadio"
              GroupName="OutlineTool"
              IsChecked="{Binding OutlineMetadataMode, Mode=TwoWay}"
+             Checked="MetadataRadio_Checked"
              MinHeight="26"
              Margin="0,8,0,0"/>
 
