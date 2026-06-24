@@ -11,7 +11,7 @@
     <StackPanel Margin="10,10,10,0">
 
         <!-- Draw Outline tool -->
-        <RadioButton Content="Draw Outline"
+        <RadioButton Content="Automated Outline"
                      GroupName="OutlineTool"
                      IsChecked="{Binding DrawOutlineMode, Mode=TwoWay}"
                      MinHeight="26"/>

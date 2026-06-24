@@ -79,6 +79,7 @@ namespace DinoLino.Utilities.Modes
                 if (!SetField(ref _outlineMetadataMode, value)) return;
                 OnTipChanged?.Invoke();
                 if (_outlineMetadataMode) GenerateMetadata();
+                else ClearEFDPreview();
             }
         }
         #endregion
@@ -1497,6 +1498,10 @@ namespace DinoLino.Utilities.Modes
 
             // Build display string
             var sb = new System.Text.StringBuilder();
+
+            if (_efd.NormalizationStatus != EfdNormalizationStatus.Ok)
+                sb.AppendLine($"  ⚠ Orientation ambiguous (1st-harmonic axis ratio {_efd.FirstHarmonicAxisRatio:F2}); normalized rotation may be unstable.");
+
             sb.AppendLine($"Aspect Ratio:       {AspectRatioResult:F3}");
             sb.AppendLine($"Perim / Area:       {PerimeterAreaRatioResult:F4}");
             sb.AppendLine($"Circularity:        {CircularityResult:F4}");
@@ -1568,13 +1573,10 @@ namespace DinoLino.Utilities.Modes
             int harmonics = Math.Min(EfdHarmonics, _efd.RawCoefficients.Length / 4);
             if (harmonics < 1) return;
 
-            double dcX = 0, dcY = 0;
-            int ptCount = _activePolyline.Points.Count;
-            foreach (var p in _activePolyline.Points) { dcX += p.X; dcY += p.Y; }
-            dcX /= ptCount;
-            dcY /= ptCount;
-
-            var reconstructed = _efd.Reconstruct(harmonics, dcX, dcY);
+            // Reconstruct using the contour's own DC term (arc-length centroid) rather than a
+            // vertex average. Douglas-Peucker leaves vertices unevenly spaced, so the vertex
+            // average drifts toward densely-sampled regions; the arc-length centroid does not.
+            var reconstructed = _efd.ReconstructCanonical(harmonics);
             if (reconstructed == null) return;
 
             var previewLine = new Polyline
@@ -1584,7 +1586,6 @@ namespace DinoLino.Utilities.Modes
                 StrokeDashArray = new DoubleCollection { 4, 2 },
                 FillRule = FillRule.EvenOdd
             };
-
             foreach (var p in reconstructed)
                 previewLine.Points.Add(p);
 
