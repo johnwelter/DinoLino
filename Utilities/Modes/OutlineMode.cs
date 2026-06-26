@@ -1600,6 +1600,40 @@ namespace DinoLino.Utilities.Modes
             _efd.Clear();
         }
 
+        // Number of harmonics computed when analyzing harmonic power. Independent of the display
+        // harmonic count (EfdHarmonics) so the cumulative-power curve has room to converge even
+        // when the user is viewing only a few harmonics.
+        private const int HarmonicPowerAnalysisCeiling = 50;
+
+        // Runs a harmonic-power analysis on the current outline. threshold is a fraction in [0,1]
+        // (e.g. 0.99). Returns null when there is no usable outline. Does NOT change EfdHarmonics,
+        // the cached display coefficients, or the blue overlay.
+        public HarmonicPowerProfile AnalyzeHarmonicPower(double threshold, bool dropFirstHarmonic = true)
+        {
+            if (_activePolyline == null || _activePolyline.Points.Count < 3) return null;
+
+            var pts = new List<Point>(_activePolyline.Points);
+
+            // Drop a closing duplicate vertex if present (same prep as GenerateMetadata).
+            if (pts.Count > 1)
+            {
+                Point f = pts[0], l = pts[pts.Count - 1];
+                if ((f.X - l.X) * (f.X - l.X) + (f.Y - l.Y) * (f.Y - l.Y) < 1.0)
+                    pts.RemoveAt(pts.Count - 1);
+            }
+            if (pts.Count < 3) return null;
+
+            // Never request more harmonics than the vertex count can support (~Nyquist): a coarse,
+            // heavily-simplified outline can't meaningfully express dozens of harmonics, so the
+            // suggested count may be lower than EfdHarmonics' 100 ceiling for such outlines.
+            int ceiling = Math.Min(HarmonicPowerAnalysisCeiling, Math.Max(1, pts.Count / 2));
+            return _efd.AnalyzeHarmonicPower(pts, ceiling, threshold, dropFirstHarmonic);
+        }
+
+        // Applies a chosen harmonic count to the EFD display setting (the setter clamps 1..100
+        // and refreshes the blue preview).
+        public void ApplyHarmonicCount(int harmonics) => EfdHarmonics = harmonics;
+
         public override string[] GetTips()
         {
             if (DrawOutlineMode)

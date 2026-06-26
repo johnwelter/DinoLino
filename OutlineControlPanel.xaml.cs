@@ -31,6 +31,188 @@ namespace DinoLino.Utilities.Modes
 
     public partial class OutlineControlPanel : UserControl
     {
+        // Builds the "Harmonic Power" tab for the EFD detail window. Pass the OutlineMode the panel
+        // is bound to (e.g. your _mode field, or DataContext as OutlineMode).
+        private TabItem BuildHarmonicPowerTab(OutlineMode mode)
+        {
+            var thresholdBox = new TextBox
+            {
+                Text = "99",
+                Width = 52,
+                HorizontalContentAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var dropFirst = new CheckBox
+            {
+                Content = "Exclude fundamental (1st harmonic)",
+                IsChecked = true,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0),
+                ToolTip = "The first harmonic is the overall ellipse and usually dominates the power " +
+                          "total, so including it makes the threshold trivial to reach. Excluding it " +
+                          "measures how many harmonics of shape detail are needed. It is still used " +
+                          "when reconstructing the outline."
+            };
+            var recalc = new Button { Content = "Recalculate", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(12, 0, 0, 0) };
+
+            var topRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 8, 8, 4) };
+            topRow.Children.Add(new TextBlock { Text = "Target power:", VerticalAlignment = VerticalAlignment.Center });
+            topRow.Children.Add(thresholdBox);
+            topRow.Children.Add(new TextBlock { Text = "%", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 0) });
+            topRow.Children.Add(dropFirst);
+            topRow.Children.Add(recalc);
+
+            var resultText = new TextBlock
+            {
+                Margin = new Thickness(8, 2, 8, 6),
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap
+            };
+            var applyButton = new Button
+            {
+                Content = "Apply",
+                Padding = new Thickness(10, 3, 10, 3),
+                Margin = new Thickness(8, 0, 8, 8),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                IsEnabled = false
+            };
+
+            var chartCanvas = new Canvas { ClipToBounds = true, Background = Brushes.Transparent, MinHeight = 190 };
+            var chartBorder = new Border
+            {
+                BorderBrush = Brushes.LightGray,
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(8, 0, 8, 8),
+                Child = chartCanvas
+            };
+
+            HarmonicPowerProfile current = null;
+
+            void Recalculate()
+            {
+                double pct = 99;
+                if (double.TryParse(thresholdBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed))
+                    pct = parsed;
+                pct = Math.Max(1, Math.Min(100, pct));
+                thresholdBox.Text = pct.ToString("0.###", CultureInfo.InvariantCulture);
+
+                current = mode.AnalyzeHarmonicPower(pct / 100.0, dropFirst.IsChecked == true);
+
+                if (current == null || current.HarmonicCount < 1)
+                {
+                    resultText.Text = "No outline available — draw an outline first.";
+                    applyButton.IsEnabled = false;
+                    chartCanvas.Children.Clear();
+                    return;
+                }
+
+                string scope = current.FirstHarmonicDropped ? "shape-detail power (fundamental excluded)" : "total harmonic power";
+                int n = current.SelectedHarmonics;
+                resultText.Text =
+                    $"{n} harmonic{(n == 1 ? "" : "s")} reach {pct:0.###}% of {scope}, " +
+                    $"analyzed over harmonics 1\u2013{current.HarmonicCount}.";
+                applyButton.Content = $"Apply {n} harmonics";
+                applyButton.IsEnabled = true;
+
+                DrawHarmonicPowerChart(chartCanvas, current);
+            }
+
+            recalc.Click += (s, e) => Recalculate();
+            applyButton.Click += (s, e) => { if (current != null) mode.ApplyHarmonicCount(current.SelectedHarmonics); };
+            chartCanvas.SizeChanged += (s, e) => { if (current != null) DrawHarmonicPowerChart(chartCanvas, current); };
+
+            var panel = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(topRow, Dock.Top);
+            DockPanel.SetDock(resultText, Dock.Top);
+            DockPanel.SetDock(applyButton, Dock.Top);
+            panel.Children.Add(topRow);
+            panel.Children.Add(resultText);
+            panel.Children.Add(applyButton);
+            panel.Children.Add(chartBorder);
+            panel.Loaded += (s, e) => Recalculate();
+
+            return new TabItem { Header = "Harmonic Power", Content = panel };
+        }
+
+        // Cumulative harmonic-power scree curve: x = harmonic, y = cumulative % of accounted power,
+        // with the threshold drawn across and the selected harmonic marked.
+        private void DrawHarmonicPowerChart(Canvas canvas, HarmonicPowerProfile profile)
+        {
+            canvas.Children.Clear();
+            if (profile == null || profile.HarmonicCount < 1) return;
+
+            double w = canvas.ActualWidth, h = canvas.ActualHeight;
+            if (w < 60 || h < 60) return;
+
+            const double leftPad = 42, rightPad = 12, topPad = 14, bottomPad = 24;
+            double plotW = w - leftPad - rightPad, plotH = h - topPad - bottomPad;
+            if (plotW <= 0 || plotH <= 0) return;
+
+            int n = profile.HarmonicCount;
+            double MapX(double harmonic) => n <= 1 ? leftPad + plotW / 2 : leftPad + plotW * (harmonic - 1) / (n - 1);
+            double MapY(double frac) => topPad + plotH * (1.0 - frac);
+
+            Brush axis = Brushes.Gray, grid = Brushes.Gainsboro;
+
+            foreach (var (frac, text) in new[] { (0.0, "0"), (0.5, "50"), (1.0, "100") })
+            {
+                double y = MapY(frac);
+                canvas.Children.Add(new Line { X1 = leftPad, Y1 = y, X2 = leftPad + plotW, Y2 = y, Stroke = grid, StrokeThickness = 1 });
+                var lbl = new TextBlock { Text = text, FontSize = 10, Foreground = Brushes.Gray };
+                lbl.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                Canvas.SetLeft(lbl, leftPad - lbl.DesiredSize.Width - 4);
+                Canvas.SetTop(lbl, y - lbl.DesiredSize.Height / 2);
+                canvas.Children.Add(lbl);
+            }
+
+            canvas.Children.Add(new Line { X1 = leftPad, Y1 = topPad, X2 = leftPad, Y2 = topPad + plotH, Stroke = axis, StrokeThickness = 1 });
+            canvas.Children.Add(new Line { X1 = leftPad, Y1 = topPad + plotH, X2 = leftPad + plotW, Y2 = topPad + plotH, Stroke = axis, StrokeThickness = 1 });
+
+            // threshold line
+            double ty = MapY(profile.Threshold);
+            canvas.Children.Add(new Line { X1 = leftPad, Y1 = ty, X2 = leftPad + plotW, Y2 = ty, Stroke = Brushes.IndianRed, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 4, 3 } });
+            var tlbl = new TextBlock { Text = $"{profile.Threshold * 100:0.#}%", FontSize = 10, Foreground = Brushes.IndianRed };
+            tlbl.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(tlbl, leftPad + plotW - tlbl.DesiredSize.Width - 2);
+            Canvas.SetTop(tlbl, Math.Max(topPad, ty - tlbl.DesiredSize.Height - 1));
+            canvas.Children.Add(tlbl);
+
+            // cumulative curve (starts at the first accounted harmonic)
+            int startH = profile.FirstHarmonicDropped && n > 1 ? 2 : 1;
+            var poly = new Polyline { Stroke = Brushes.SteelBlue, StrokeThickness = 2 };
+            for (int harmonic = startH; harmonic <= n; harmonic++)
+                poly.Points.Add(new Point(MapX(harmonic), MapY(profile.CumulativeFraction[harmonic - 1])));
+            canvas.Children.Add(poly);
+
+            // selected-harmonic marker
+            int sel = profile.SelectedHarmonics;
+            if (sel >= 1 && sel <= n)
+            {
+                double sx = MapX(sel), sy = MapY(profile.CumulativeFraction[sel - 1]);
+                canvas.Children.Add(new Line { X1 = sx, Y1 = topPad, X2 = sx, Y2 = topPad + plotH, Stroke = Brushes.SeaGreen, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 3, 3 } });
+                var dot = new System.Windows.Shapes.Ellipse { Width = 8, Height = 8, Fill = Brushes.SeaGreen };
+                Canvas.SetLeft(dot, sx - 4); Canvas.SetTop(dot, sy - 4);
+                canvas.Children.Add(dot);
+                var slbl = new TextBlock { Text = $"n = {sel}", FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Brushes.SeaGreen };
+                slbl.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                Canvas.SetLeft(slbl, Math.Max(leftPad, Math.Min(sx + 5, leftPad + plotW - slbl.DesiredSize.Width)));
+                Canvas.SetTop(slbl, topPad + 1);
+                canvas.Children.Add(slbl);
+            }
+
+            // x tick labels at the first and last harmonic
+            foreach (int harmonic in new[] { startH, n })
+            {
+                double x = MapX(harmonic);
+                canvas.Children.Add(new Line { X1 = x, Y1 = topPad + plotH, X2 = x, Y2 = topPad + plotH + 3, Stroke = axis, StrokeThickness = 1 });
+                var lbl = new TextBlock { Text = harmonic.ToString(), FontSize = 10, Foreground = Brushes.Gray };
+                lbl.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                Canvas.SetLeft(lbl, x - lbl.DesiredSize.Width / 2);
+                Canvas.SetTop(lbl, topPad + plotH + 4);
+                canvas.Children.Add(lbl);
+            }
+        }
+
         private OutlineMode _mode;
         private readonly System.Windows.Threading.DispatcherTimer _harmonicsDebounce;
         public OutlineControlPanel(OutlineMode mode)
@@ -226,6 +408,7 @@ namespace DinoLino.Utilities.Modes
             var tabs = new TabControl();
             tabs.Items.Add(coeffTab);
             tabs.Items.Add(plotsTab);
+            tabs.Items.Add(BuildHarmonicPowerTab(_mode));
 
             var window = new Window
             {

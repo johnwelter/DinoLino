@@ -423,6 +423,19 @@ namespace DinoLino.Utilities
             => _raw == null ? null
                 : EllipticFourierReconstructor.Reconstruct(_raw.Coefficients, harmonics, _raw.A0, _raw.C0, sampleCount);
 
+
+        /// <summary>
+        /// One-shot harmonic-power analysis on a set of outline points, computed at a high harmonic
+        /// count independent of the display setting. Does NOT disturb the cached display coefficients,
+        /// so the live overlay and stored values are untouched.
+        /// </summary>
+        public HarmonicPowerProfile AnalyzeHarmonicPower(
+            IReadOnlyList<Point> pts, int maxHarmonics, double threshold, bool dropFirstHarmonic = true)
+        {
+            var raw = EllipticFourierCalculator.Compute(pts, maxHarmonics);
+            return EllipticFourierPower.Analyze(raw.Coefficients, threshold, dropFirstHarmonic);
+        }
+
         /// <summary>Clears stored coefficients, e.g. on reset.</summary>
         public void Clear()
         {
