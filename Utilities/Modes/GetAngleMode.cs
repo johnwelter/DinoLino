@@ -28,6 +28,7 @@ namespace DinoLino.Utilities.Modes
         public override void RefreshScalePlaceholders()
         {
             TriAreaScaledResult = ScaledPlaceholder;
+            OnPropertyChanged(nameof(AvgTriAreaScaledResult));
         }
 
         private TextBlock MakeLabel(string text, Vector2 pos)
@@ -277,5 +278,51 @@ namespace DinoLino.Utilities.Modes
             "💡 Press 'Ctrl' and left click to drag the image.",
             "💡 Toggle tip visibility in the View menu."
         };
+
+        #region Operation averages
+        // Live averages of each numeric triangle output across all attempts, read from the
+        // undo/redo history so they stay correct through commit/undo/redo/clear. "Relative
+        // Size" is excluded: it's a ratio between consecutive attempts, not an absolute
+        // measurement, and is stored as a mixed value, so a mean of it isn't well-defined.
+
+        private IEnumerable<GetAngleOperation> TriangleOps =>
+            UndoRedoManager?.History.OfType<GetAngleOperation>() ?? Enumerable.Empty<GetAngleOperation>();
+
+        public string AvgAngleAResult => FormatAverage(TriangleOps.Select(o => o.AngleA));
+        public string AvgAngleBResult => FormatAverage(TriangleOps.Select(o => o.AngleB));
+        public string AvgAngleCResult => FormatAverage(TriangleOps.Select(o => o.AngleC));
+        public string AvgTriAspectRatioResult => FormatAverage(TriangleOps.Select(o => o.TriAspectRatio));
+        public string AvgTriAreaScaledResult => FormatScaledAreaAverage(TriangleOps.Select(o => o.TriArea));
+
+        private static string FormatAverage(IEnumerable<double> values)
+        {
+            var list = values.ToList();
+            if (list.Count == 0) return "N/A";
+            return Math.Round(list.Average(), 1).ToString();
+        }
+
+        private string FormatScaledAreaAverage(IEnumerable<double> pixelAreas)
+        {
+            var list = pixelAreas.ToList();
+            if (list.Count == 0) return "N/A";
+            if (Scale == null || !Scale.IsCalibrated) return "N/A";
+            return $"{Scale.ToUnitsArea(list.Average()):F2} {Scale.Unit}²";
+        }
+
+        private void RecomputeAverages()
+        {
+            OnPropertyChanged(nameof(AvgAngleAResult));
+            OnPropertyChanged(nameof(AvgAngleBResult));
+            OnPropertyChanged(nameof(AvgAngleCResult));
+            OnPropertyChanged(nameof(AvgTriAspectRatioResult));
+            OnPropertyChanged(nameof(AvgTriAreaScaledResult));
+        }
+
+        internal override void OnHistoryChanged()
+        {
+            base.OnHistoryChanged();
+            RecomputeAverages();
+        }
+        #endregion
     }
 }

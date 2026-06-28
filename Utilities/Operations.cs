@@ -58,6 +58,7 @@ namespace DinoLino.Utilities.Operations
         public double SumTurningAngles { get; set; }
         public double MeanTurningAngle { get; set; }
         public double VarianceTurningAngles { get; set; }
+        public double SplineLengthPixels { get; set; }
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is CurvatureMode mode)

@@ -14,6 +14,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using DinoLino.Utilities.Operations;
 
 namespace DinoLino
 {
@@ -189,6 +190,10 @@ namespace DinoLino
             DrawMode.UndoRedoManager = UndoRedoManager;
             OutlineMode.UndoRedoManager = UndoRedoManager;
 
+            // Attempt counter: recompute from history whenever it changes (commit/undo/redo/clear).
+            UndoRedoManager.PropertyChanged += (s, e) => UpdateAttemptCounter();
+            UpdateAttemptCounter();
+
             CurvatureMode.Scale = ScaleCalibration;
             GetAngleMode.Scale = ScaleCalibration;
             DrawMode.Scale = ScaleCalibration;
@@ -224,6 +229,64 @@ namespace DinoLino
         #endregion
 
         #region Internal Workspace Functions
+        // ---- Attempt counter (Curvature + Triangle operations) ----
+
+        // Recomputes the four counts directly from the undo/redo history, so the display
+        // can never drift: committing grows history, undo shrinks it, redo regrows it,
+        // Clear All empties it. Draw/Outline operations are intentionally not counted.
+        private void UpdateAttemptCounter()
+        {
+            if (UndoRedoManager == null) return;
+
+            int nCirc = 0, nPara = 0, nSpline = 0, nAngle = 0;
+            foreach (var op in UndoRedoManager.History)
+            {
+                if (op is CircularArcOperation) nCirc++;
+                else if (op is ParabolaOperation) nPara++;
+                else if (op is SplineOperation) nSpline++;
+                else if (op is GetAngleOperation) nAngle++;
+            }
+
+            UI_AttemptCirc.Text = $"n_circ = {nCirc}";
+            UI_AttemptPara.Text = $"n_para = {nPara}";
+            UI_AttemptSpline.Text = $"n_spline = {nSpline}";
+            UI_AttemptAngle.Text = $"n_angle = {nAngle}";
+        }
+
+        private void AttemptCounter_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            _counterDragging = true;
+            _counterDragStart = e.GetPosition(UI_WorkSpace);
+            _counterStartX = UI_AttemptCounterTransform.X;
+            _counterStartY = UI_AttemptCounterTransform.Y;
+            UI_AttemptCounter.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void AttemptCounter_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_counterDragging) return;
+            Point now = e.GetPosition(UI_WorkSpace);
+            UI_AttemptCounterTransform.X = _counterStartX + (now.X - _counterDragStart.X);
+            UI_AttemptCounterTransform.Y = _counterStartY + (now.Y - _counterDragStart.Y);
+        }
+
+        private void AttemptCounter_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_counterDragging) return;
+            _counterDragging = false;
+            UI_AttemptCounter.ReleaseMouseCapture();
+            e.Handled = true;
+        }
+
+        // Full reset: clears the undo/redo history (counter returns to zero, undo/redo
+        // disabled) AND clears the workspace visuals. Used by "Clear All" and Ctrl+C.
+        // NOT used on image-open, so the counter survives loading a new image.
+        private void ClearAllOperations()
+        {
+            UndoRedoManager?.Clear();
+            ClearWorkspace();
+        }
         private void ClearWorkspace()
         {
             // Clear everything in the workspace, put the cursor back in
@@ -276,7 +339,7 @@ namespace DinoLino
             // Ctrl + C to reset workspace
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
             {
-                ClearWorkspace();
+                ClearAllOperations();
             }
             // Ctrl + F to open image
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
@@ -458,6 +521,17 @@ namespace DinoLino
             redoBinding.Source = UndoRedoManager;
             UI_MenuRedo.SetBinding(MenuItem.IsEnabledProperty, redoBinding);
         }
+
+        private void Menu_SeeAttempts(object sender, RoutedEventArgs e)
+        {
+            UI_AttemptCounter.Visibility =
+                UI_SeeAttempts.IsChecked ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // Drag state for the attempt-counter overlay.
+        private bool _counterDragging;
+        private Point _counterDragStart;
+        private double _counterStartX, _counterStartY;
 
         // Tips visibility
         private bool _tipsVisible = true;
@@ -644,7 +718,7 @@ namespace DinoLino
         #region Global Toolbar Functions
         private void GlobalTools_Clear(object sender, RoutedEventArgs e)
         {
-            ClearWorkspace();
+            ClearAllOperations();
         }
 
         private void RefreshAllScalePlaceholders()

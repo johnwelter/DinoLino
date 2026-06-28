@@ -44,8 +44,8 @@
             </MenuItem>
             <MenuItem Header="_View" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_See Tips" x:Name="UI_SeeTips" IsCheckable="True" IsChecked="True" Click="Menu_SeeTips"/>
-                <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="True" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave">
-                </MenuItem>
+                <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="True" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave"/>
+                <MenuItem Header="_See Operation Count" x:Name="UI_SeeAttempts" IsCheckable="True" IsChecked="True" Click="Menu_SeeAttempts"/>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>
                     <RadioButton Content="_Blue" Tag="Blue" GroupName="LineColors" Click="Menu_Color_Click"/>
@@ -154,6 +154,27 @@
                     <Canvas x:Name="UI_WorkBackground" Background="Gray" />
                     <Image x:Name="UI_WorkImage"/>
                 </Grid>
+
+                <!-- Attempt counter overlay (draggable HUD, bottom-right by default) -->
+                <Border x:Name="UI_AttemptCounter"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Margin="0,0,16,16" Panel.ZIndex="50"
+                    Background="#CC1E1E1E" BorderBrush="#666" BorderThickness="1"
+                    CornerRadius="4" Padding="10,8" Cursor="SizeAll"
+                    MouseLeftButtonDown="AttemptCounter_MouseDown"
+                    MouseMove="AttemptCounter_MouseMove"
+                    MouseLeftButtonUp="AttemptCounter_MouseUp">
+                    <Border.RenderTransform>
+                        <TranslateTransform x:Name="UI_AttemptCounterTransform"/>
+                    </Border.RenderTransform>
+                    <StackPanel>
+                        <TextBlock Text="Operation Count" Foreground="#999" FontSize="11" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBlock x:Name="UI_AttemptCirc"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                        <TextBlock x:Name="UI_AttemptPara"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                        <TextBlock x:Name="UI_AttemptSpline" Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                        <TextBlock x:Name="UI_AttemptAngle"  Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                    </StackPanel>
+                </Border>
             </Grid>
         </Grid>
     </DockPanel>

@@ -60,7 +60,7 @@ namespace DinoLino.Utilities
         /// Returns 0 if the chord is effectively zero.
         public static double RiseSpanRatio(double rise, double chordLength)
         {
-            return chordLength > 1e-5 ? Math.Round(rise / chordLength, 3) : 0;
+            return chordLength > 1e-5 ? Math.Round(rise / chordLength, 2) : 0;
         }
 
         /// Triangle aspect ratio: longest side / triangle height.
@@ -205,7 +205,7 @@ namespace DinoLino.Utilities
             var angles = TurningAngles(pts);
             double sum = 0;
             foreach (double a in angles) sum += Math.Abs(a);
-            return Math.Round(sum, 4);
+            return Math.Round(sum, 3);
         }
 
         /// Mean absolute turning angle per vertex (degrees).
@@ -213,7 +213,7 @@ namespace DinoLino.Utilities
         public static double MeanTurningAngle(List<Point> pts)
         {
             if (pts.Count == 0) return 0;
-            return Math.Round(SumTurningAngles(pts) / pts.Count, 4);
+            return Math.Round(SumTurningAngles(pts) / pts.Count, 3);
         }
 
         /// Variance of absolute turning angles across all vertices (degrees²).
@@ -234,7 +234,7 @@ namespace DinoLino.Utilities
                 variance += diff * diff;
             }
 
-            return Math.Round(variance / angles.Count, 4);
+            return Math.Round(variance / angles.Count, 3);
         }
 
         /// Computes the absolute turning angle at each interior vertex of an open polyline.
@@ -261,7 +261,7 @@ namespace DinoLino.Utilities
         {
             double sum = 0;
             foreach (double a in TurningAnglesOpen(pts)) sum += a;
-            return Math.Round(sum, 4);
+            return Math.Round(sum, 3);
         }
 
         /// Mean absolute turning angle per interior vertex of an open polyline (degrees).
@@ -271,7 +271,7 @@ namespace DinoLino.Utilities
             if (angles.Count == 0) return 0;
             double sum = 0;
             foreach (double a in angles) sum += a;
-            return Math.Round(sum / angles.Count, 4);
+            return Math.Round(sum / angles.Count, 3);
         }
 
         /// Variance of absolute turning angles at interior vertices of an open polyline (degrees²).
@@ -284,7 +284,7 @@ namespace DinoLino.Utilities
             mean /= angles.Count;
             double variance = 0;
             foreach (double a in angles) { double d = a - mean; variance += d * d; }
-            return Math.Round(variance / angles.Count, 4);
+            return Math.Round(variance / angles.Count, 3);
         }
 
         // =====================================================================
@@ -558,14 +558,14 @@ namespace DinoLino.Utilities
             double half1 = Math.Abs(Vector2.AngleBetween(da, dc));
             double half2 = Math.Abs(Vector2.AngleBetween(dc, db));
 
-            return Math.Round(half1 + half2, 2);
+            return Math.Round(half1 + half2, 1);
         }
 
         /// Interior angle at vertex B in the triangle A-B-C, in degrees.
         /// Returns the angle between rays BA and BC.
         public static double InteriorAngle(Vector2 a, Vector2 b, Vector2 c)
         {
-            return Math.Round(Math.Abs(Vector2.AngleBetween(a - b, c - b)), 2);
+            return Math.Round(Math.Abs(Vector2.AngleBetween(a - b, c - b)), 1);
         }
 
         /// Cumulative turning angle per unit length along a dense polyline.
@@ -603,7 +603,7 @@ namespace DinoLino.Utilities
         /// 'a' is the leading coefficient of the normalized quadratic y = ax² + bx + c.
         public static double ParabolaVertexCurvature(double parabolaA)
         {
-            return Math.Round(Math.Abs(2 * parabolaA), 5);
+            return Math.Round(Math.Abs(2 * parabolaA), 4);
         }
 
 

@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Linq;
 
 namespace DinoLino.Utilities.Modes
 {
@@ -162,6 +163,7 @@ namespace DinoLino.Utilities.Modes
         public override void RefreshScalePlaceholders()
         {
             SplineLengthScaledResult = ScaledPlaceholder;
+            OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
         }
 
         public override void ResetDrawingState()
@@ -770,10 +772,10 @@ namespace DinoLino.Utilities.Modes
             _lastSplineDense = splinePointsDense;   // keep for the Find-turning-angle tool
             double splineLength = GeometryCalculations.ArcLength(splinePointsDense);
             SplineLengthScaledResult = Scale != null && Scale.IsCalibrated
-                ? $"{Scale.ToUnits(splineLength):F2} {Scale.Unit}"
+                ? $"{Scale.ToUnits(splineLength):F1} {Scale.Unit}"
                 : "Scale to measure";
-            TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 2);
-            SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 2);
+            TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 1);
+            SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 1);
             SumTurningAnglesResult = GeometryCalculations.SumTurningAnglesOpen(splinePointsDense);
             MeanTurningAngleResult = GeometryCalculations.MeanTurningAngleOpen(splinePointsDense);
             VarianceTurningAnglesResult = GeometryCalculations.VarianceTurningAnglesOpen(splinePointsDense);
@@ -790,7 +792,8 @@ namespace DinoLino.Utilities.Modes
                 SChordArcRatio = SChordArcRatioResult,
                 SumTurningAngles = SumTurningAnglesResult,
                 MeanTurningAngle = MeanTurningAngleResult,
-                VarianceTurningAngles = VarianceTurningAnglesResult
+                VarianceTurningAngles = VarianceTurningAnglesResult,
+                SplineLengthPixels = splineLength
             });
 
             var output = new List<UIElement>(_splineCurrentOperation);
@@ -956,7 +959,7 @@ namespace DinoLino.Utilities.Modes
             Vector2 vOut = pts[i1] - pts[index];
             if (vIn.Magnitude() < 1e-9 || vOut.Magnitude() < 1e-9) return 0;
 
-            return Math.Round(Math.Abs(Vector2.AngleBetween(vIn, vOut)), 2);
+            return Math.Round(Math.Abs(Vector2.AngleBetween(vIn, vOut)), 1);
         }
 
         // Sizes and orients the oval so it encloses the measured span pts[i0..i1]:
@@ -1044,6 +1047,78 @@ namespace DinoLino.Utilities.Modes
             var geometry = new PathGeometry();
             geometry.Figures.Add(figure);
             return new Path { Stroke = this.LineColor, StrokeThickness = 2, Data = geometry };
+        }
+        #endregion
+
+        #region Operation averages
+        // Live averages of each numeric output across all attempts of that operation type,
+        // read straight from the undo/redo history so they stay correct as operations are
+        // committed, undone, redone, or cleared. The parabola formula is intentionally
+        // excluded — it isn't a single number to average.
+
+        private IEnumerable<CircularArcOperation> CircularArcOps =>
+            UndoRedoManager?.History.OfType<CircularArcOperation>() ?? Enumerable.Empty<CircularArcOperation>();
+        private IEnumerable<ParabolaOperation> ParabolaOps =>
+            UndoRedoManager?.History.OfType<ParabolaOperation>() ?? Enumerable.Empty<ParabolaOperation>();
+        private IEnumerable<SplineOperation> SplineOps =>
+            UndoRedoManager?.History.OfType<SplineOperation>() ?? Enumerable.Empty<SplineOperation>();
+
+        // Circular arc
+        public string AvgCentralAngleResult => FormatAverage(CircularArcOps.Select(o => o.CentralAngle));
+        public string AvgChordArcRatioResult => FormatAverage(CircularArcOps.Select(o => o.ChordArcRatio));
+        public string AvgAspectRatioResult => FormatAverage(CircularArcOps.Select(o => o.AspectRatio));
+
+        // Parabolic arc (formula excluded)
+        public string AvgPChordArcRatioResult => FormatAverage(ParabolaOps.Select(o => o.PChordArcRatio));
+        public string AvgRiseSpanRatioResult => FormatAverage(ParabolaOps.Select(o => o.RiseSpanRatio));
+        public string AvgVertexCurvatureResult => FormatAverage(ParabolaOps.Select(o => o.VertexCurvature));
+
+        // n-point spline (Catmull-Rom and Bézier combined, matching n_spline)
+        public string AvgTurningAngleArcRatioResult => FormatAverage(SplineOps.Select(o => o.TurningAngleArcRatio));
+        public string AvgSumTurningAnglesResult => FormatAverage(SplineOps.Select(o => o.SumTurningAngles));
+        public string AvgMeanTurningAngleResult => FormatAverage(SplineOps.Select(o => o.MeanTurningAngle));
+        public string AvgVarianceTurningAnglesResult => FormatAverage(SplineOps.Select(o => o.VarianceTurningAngles));
+        public string AvgSChordArcRatioResult => FormatAverage(SplineOps.Select(o => o.SChordArcRatio));
+        public string AvgSplineLengthScaledResult => FormatScaledLengthAverage(SplineOps.Select(o => o.SplineLengthPixels));
+
+        // Mean of a value series to 2 dp, or "N/A" when there are no attempts.
+        private static string FormatAverage(IEnumerable<double> values)
+        {
+            var list = values.ToList();
+            if (list.Count == 0) return "N/A";
+            return Math.Round(list.Average(), 1).ToString();
+        }
+
+        // Mean of a raw pixel-length series in calibrated units, or "N/A" when there are no
+        // attempts or the image hasn't been scaled.
+        private string FormatScaledLengthAverage(IEnumerable<double> pixelValues)
+        {
+            var list = pixelValues.ToList();
+            if (list.Count == 0) return "N/A";
+            if (Scale == null || !Scale.IsCalibrated) return "N/A";
+            return $"{Scale.ToUnits(list.Average()):F2} {Scale.Unit}";
+        }
+
+        private void RecomputeAverages()
+        {
+            OnPropertyChanged(nameof(AvgCentralAngleResult));
+            OnPropertyChanged(nameof(AvgChordArcRatioResult));
+            OnPropertyChanged(nameof(AvgAspectRatioResult));
+            OnPropertyChanged(nameof(AvgPChordArcRatioResult));
+            OnPropertyChanged(nameof(AvgRiseSpanRatioResult));
+            OnPropertyChanged(nameof(AvgVertexCurvatureResult));
+            OnPropertyChanged(nameof(AvgTurningAngleArcRatioResult));
+            OnPropertyChanged(nameof(AvgSumTurningAnglesResult));
+            OnPropertyChanged(nameof(AvgMeanTurningAngleResult));
+            OnPropertyChanged(nameof(AvgVarianceTurningAnglesResult));
+            OnPropertyChanged(nameof(AvgSChordArcRatioResult));
+            OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
+        }
+
+        internal override void OnHistoryChanged()
+        {
+            base.OnHistoryChanged();
+            RecomputeAverages();
         }
         #endregion
 

@@ -75,6 +75,26 @@ namespace DinoLino.Utilities
             return op;
         }
 
+        // Clears all history and redo state — a hard reset used by "Clear All" / Ctrl+C.
+        // Raises CanUndo/CanRedo so bound UI (menu items, attempt counter) refreshes.
+        public void Clear()
+        {
+            var affectedModes = _history.Concat(_redoStack)
+                .Select(o => o.SourceMode)
+                .Where(m => m != null)
+                .Distinct()
+                .ToList();
+
+            _history.Clear();
+            _redoStack.Clear();
+
+            foreach (var mode in affectedModes)
+                mode.OnHistoryChanged();
+
+            OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanRedo));
+        }
+
         private void OnPropertyChanged(string name)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

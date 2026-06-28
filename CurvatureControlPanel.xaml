@@ -44,122 +44,138 @@
             </Setter>
         </Style>
     </UserControl.Resources>
-    
+
     <StackPanel x:Name="UI_CurvatureOutputs">
         <RadioButton Content="Circular Arc" GroupName="Curve" Checked="CircularArc_Checked"
                      MinHeight="25" FontWeight="Bold"/>
         <StackPanel Visibility="{Binding IsCircularArcSelected, Converter={StaticResource BoolToVis}}">
-            <!-- Outputs -->
             <StackPanel Orientation="Horizontal" Margin="10,-4,0,0">
                 <Label Content="Output:" FontWeight="Bold"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Central Angle:"/>
-                <Label Content="{Binding CentralAngleResult}" Width="175"/>
+                <Label Content="{Binding CentralAngleResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgCentralAngleResult}"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Chord-Arc Ratio:"/>
-                <Label Content="{Binding ChordArcRatioResult}" Width="175"/>
+                <Label Content="{Binding ChordArcRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgChordArcRatioResult}"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Rise-Span Ratio:"/>
-                <Label Content="{Binding AspectRatioResult}" Width="175"/>
+                <Label Content="{Binding AspectRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgAspectRatioResult}"/>
             </StackPanel>
         </StackPanel>
 
         <RadioButton Content="Parabolic Arc" GroupName="Curve" Checked="ParabolicArc_Checked"
                      MinHeight="25" FontWeight="Bold" Margin="0,10,0,0"/>
         <StackPanel Visibility="{Binding IsParabolicArcSelected, Converter={StaticResource BoolToVis}}">
-            
-            <!-- Outputs -->
             <StackPanel Orientation="Horizontal" Margin="10,-4,0,0">
                 <Label Content="Output:" FontWeight="Bold"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="{Binding XYFunctionResult}" Width="175"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Chord-Arc Ratio:"/>
-                <Label Content="{Binding PChordArcRatioResult}" Width="175"/>
+                <Label Content="{Binding PChordArcRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgPChordArcRatioResult}"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Rise-Span Ratio:"/>
-                <Label Content="{Binding RiseSpanRatioResult}" Width="175"/>
+                <Label Content="{Binding RiseSpanRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgRiseSpanRatioResult}"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Vertex Curv.:"/>
-                <Label Content="{Binding VertexCurvatureResult}" Width="175"/>
+                <Label Content="{Binding VertexCurvatureResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgVertexCurvatureResult}"/>
             </StackPanel>
         </StackPanel>
 
         <RadioButton Content="n-Point Spline" GroupName="Curve" Checked="NPointSpline_Checked"
                      MinHeight="25" FontWeight="Bold" Margin="0,10,0,0"/>
         <StackPanel Visibility="{Binding IsNPointSplineSelected, Converter={StaticResource BoolToVis}}">
-
-            <!-- Algorithm selection -->
             <StackPanel Orientation="Horizontal" Margin="10,-4,0,4">
                 <Label Content="Choose a Method:" FontWeight="Bold"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="10,-4,0,4">
-                    <RadioButton Content="Catmull-Rom"
+                <RadioButton Content="Catmull-Rom"
                              Style="{StaticResource CheckBoxRadioButton}"
                              GroupName="SplineAlgorithm"
                              IsChecked="{Binding IsCatmullRomSelected, Mode=TwoWay}"
                              Margin="0,0,12,0"/>
-                    <RadioButton Content="Bézier"
-                                 Style="{StaticResource CheckBoxRadioButton}"
-                                 GroupName="SplineAlgorithm"
-                                 IsChecked="{Binding IsBezierSelected, Mode=TwoWay}"/>
-                </StackPanel>
+                <RadioButton Content="Bézier"
+                             Style="{StaticResource CheckBoxRadioButton}"
+                             GroupName="SplineAlgorithm"
+                             IsChecked="{Binding IsBezierSelected, Mode=TwoWay}"/>
+            </StackPanel>
 
-            <!-- Outputs -->
             <StackPanel Orientation="Horizontal" Margin="10,4,0,-4">
                 <Label Content="Output:" FontWeight="Bold"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Turn.Angles/Length:"/>
-                <Label Content="{Binding TurningAngleResult}" Width="175"/>
+                <Label Content="{Binding TurningAngleArcRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgTurningAngleArcRatioResult}"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Sum Turn. Angles:"/>
-                <Label Content="{Binding SumTurningAnglesResult}" Width="175"/>
+                <Label Content="{Binding SumTurningAnglesResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgSumTurningAnglesResult}"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Mean Turn. Angle:"/>
-                <Label Content="{Binding MeanTurningAngleResult}" Width="175"/>
+                <Label Content="{Binding MeanTurningAngleResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgMeanTurningAngleResult}"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Turn. Angle Var.:"/>
-                <Label Content="{Binding VarianceTurningAnglesResult}" Width="175"/>
+                <Label Content="{Binding VarianceTurningAnglesResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgVarianceTurningAnglesResult}"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Chord-Arc Ratio:"/>
-                <Label Content="{Binding SChordArcRatioResult}" Width="175"/>
+                <Label Content="{Binding SChordArcRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgSChordArcRatioResult}"/>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                 <Label Content="Spline Length:"/>
-                <Label Content="{Binding SplineLengthScaledResult}" Width="175"/>
-            </StackPanel>
-            
-            <!-- Find turning angle along the most recent spline -->
-            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
-                <RadioButton Content="Find turning angle"
-                         Style="{StaticResource CheckBoxRadioButton}"
-                         IsChecked="{Binding FindTurningAngleMode, Mode=TwoWay}"
-                         VerticalAlignment="Center"/>
-                <Label Content="{Binding FindTurningAngleDisplay}"
-                   VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <Label Content="{Binding SplineLengthScaledResult}" Width="50" HorizontalContentAlignment="Left"/>
+                <Label Content="Avg" Foreground="Gray"/>
+                <Label Content="{Binding AvgSplineLengthScaledResult}"/>
             </StackPanel>
 
-            <!-- Width of the measured section -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                <RadioButton Content="Find turning angle"
+                             Style="{StaticResource CheckBoxRadioButton}"
+                             IsChecked="{Binding FindTurningAngleMode, Mode=TwoWay}"
+                             VerticalAlignment="Center"/>
+                <Label Content="{Binding FindTurningAngleDisplay}"
+                       VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </StackPanel>
+
             <StackPanel Margin="10,2,0,0"
-                    Visibility="{Binding FindTurningAngleMode, Converter={StaticResource BoolToVis}}">
+                        Visibility="{Binding FindTurningAngleMode, Converter={StaticResource BoolToVis}}">
                 <TextBlock Text="Section width:" Foreground="Gray" Margin="0,4,0,0"/>
                 <Slider Minimum="1" Maximum="50"
-                    Value="{Binding TurningAngleWindow, Mode=TwoWay}"
-                    TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,2,0,2"/>
+                        Value="{Binding TurningAngleWindow, Mode=TwoWay}"
+                        TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,2,0,2"/>
                 <TextBlock Text="{Binding TurningAngleWindow, StringFormat={}±{0} samples}"
-                       Foreground="Gray"/>
+                           Foreground="Gray"/>
             </StackPanel>
         </StackPanel>
     </StackPanel>
