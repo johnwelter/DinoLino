@@ -216,8 +216,6 @@ namespace DinoLino.Utilities.Modes
             CircularityResult = 0;
             SolidityResult = 0;
             SumTurningAnglesResult = 0;
-            MeanTurningAngleResult = 0;
-            VarianceTurningAnglesResult = 0;
             EFDCoefficientsResult = null;
             MetadataSummary = "";
             PerimeterScaledResult = ScaledPlaceholder;
@@ -1395,20 +1393,6 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _sumTurningAnglesResult, value);
         }
 
-        private double _meanTurningAngleResult;
-        public double MeanTurningAngleResult
-        {
-            get => _meanTurningAngleResult;
-            set => SetField(ref _meanTurningAngleResult, value);
-        }
-
-        private double _varianceTurningAnglesResult;
-        public double VarianceTurningAnglesResult
-        {
-            get => _varianceTurningAnglesResult;
-            set => SetField(ref _varianceTurningAnglesResult, value);
-        }
-
         // Formatted string for display in the control panel
         private string _metadataSummary = "";
         public string MetadataSummary
@@ -1490,8 +1474,6 @@ namespace DinoLino.Utilities.Modes
             double convexHullArea = GeometryCalculations.ConvexHullArea(imagePts);
             SolidityResult = GeometryCalculations.Solidity(area, convexHullArea);
             SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(imagePts);
-            MeanTurningAngleResult = GeometryCalculations.MeanTurningAngle(imagePts);
-            VarianceTurningAnglesResult = GeometryCalculations.VarianceTurningAngles(imagePts);
 
             int harmonics = EfdHarmonics;
             EFDCoefficientsResult = _efd.ComputeNormalized(pts, harmonics);
@@ -1507,8 +1489,6 @@ namespace DinoLino.Utilities.Modes
             sb.AppendLine($"Circularity:        {CircularityResult:F4}");
             sb.AppendLine($"Solidity:           {SolidityResult:F4}");
             sb.AppendLine($"Sum Turning Angles: {SumTurningAnglesResult:F4}");
-            sb.AppendLine($"Mean Turning Angle: {MeanTurningAngleResult:F4}");
-            sb.AppendLine($"Variance Turning Angles: {VarianceTurningAnglesResult:F4}");
             sb.AppendLine($"EFD harmonics ({harmonics}):");
             for (int h = 0; h < harmonics; h++)
             {
@@ -1526,8 +1506,6 @@ namespace DinoLino.Utilities.Modes
                 op.EFDCoefficients = EFDCoefficientsResult;
                 op.Solidity = SolidityResult;
                 op.SumTurningAngles = SumTurningAnglesResult;
-                op.MeanTurningAngle = MeanTurningAngleResult;
-                op.VarianceTurningAngles = VarianceTurningAnglesResult;
             }
 
             UpdateEFDPreview();
@@ -1700,8 +1678,6 @@ namespace DinoLino.Utilities.Modes
                     "💡 A perfect circle has a circularity value of 1. Circularity, aka roundness, is calculated as ⁠4π × Area ÷ Perimeter squared⁠.",
                     "💡 Solidity is the ratio of the outlined area divided by the area of its convex hull. The convex hull is the smallest convex polygon enclosing the outline.",
                     "💡 Sum of turning angles is the sum of all angular changes between consecutive edges, representing the total amount of turning around the outline.",
-                    "💡 Mean of turning angles is the average turning angle per vertex, representing the typical magnitude of directional change around the outline.",
-                    "💡 Variance of turning angles indicates how consistent or uneven curvature is around the outline.",
                     "💡 The user guide and software information can be found in the Help menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",

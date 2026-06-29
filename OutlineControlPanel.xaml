@@ -201,25 +201,6 @@
                HorizontalAlignment="Right"/>
             </Grid>
 
-            <Grid Margin="0,2,0,2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Mean Turn. Angle:" Foreground="Gray"/>
-                <TextBlock Grid.Column="1" Text="{Binding MeanTurningAngleResult, StringFormat={}{0:F2}°}"
-               HorizontalAlignment="Right"/>
-            </Grid>
-
-            <Grid Margin="0,2,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Turn. Angle Var.:" Foreground="Gray"/>
-                <TextBlock Grid.Column="1" Text="{Binding VarianceTurningAnglesResult, StringFormat={}{0:F2}}"
-               HorizontalAlignment="Right"/>
-            </Grid>
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>

@@ -205,36 +205,7 @@ namespace DinoLino.Utilities
             var angles = TurningAngles(pts);
             double sum = 0;
             foreach (double a in angles) sum += Math.Abs(a);
-            return Math.Round(sum, 3);
-        }
-
-        /// Mean absolute turning angle per vertex (degrees).
-        /// Returns 0 for empty input.
-        public static double MeanTurningAngle(List<Point> pts)
-        {
-            if (pts.Count == 0) return 0;
-            return Math.Round(SumTurningAngles(pts) / pts.Count, 3);
-        }
-
-        /// Variance of absolute turning angles across all vertices (degrees²).
-        /// Returns 0 for fewer than 2 points.
-        public static double VarianceTurningAngles(List<Point> pts)
-        {
-            if (pts.Count < 2) return 0;
-
-            var angles = TurningAngles(pts);
-            double mean = 0;
-            foreach (double a in angles) mean += Math.Abs(a);
-            mean /= angles.Count;
-
-            double variance = 0;
-            foreach (double a in angles)
-            {
-                double diff = Math.Abs(a) - mean;
-                variance += diff * diff;
-            }
-
-            return Math.Round(variance / angles.Count, 3);
+            return Math.Round(sum, 2);
         }
 
         /// Computes the absolute turning angle at each interior vertex of an open polyline.
@@ -603,7 +574,7 @@ namespace DinoLino.Utilities
         /// 'a' is the leading coefficient of the normalized quadratic y = ax² + bx + c.
         public static double ParabolaVertexCurvature(double parabolaA)
         {
-            return Math.Round(Math.Abs(2 * parabolaA), 4);
+            return Math.Round(Math.Abs(2 * parabolaA), 2);
         }
 
 

@@ -44,67 +44,80 @@
             </Setter>
         </Style>
     </UserControl.Resources>
-
     <StackPanel x:Name="UI_CurvatureOutputs">
         <RadioButton Content="Circular Arc" GroupName="Curve" Checked="CircularArc_Checked"
                      MinHeight="25" FontWeight="Bold"/>
         <StackPanel Visibility="{Binding IsCircularArcSelected, Converter={StaticResource BoolToVis}}">
-            <StackPanel Orientation="Horizontal" Margin="10,-4,0,0">
-                <Label Content="Output:" FontWeight="Bold"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Central Angle:"/>
-                <Label Content="{Binding CentralAngleResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgCentralAngleResult}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Chord-Arc Ratio:"/>
-                <Label Content="{Binding ChordArcRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgChordArcRatioResult}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Rise-Span Ratio:"/>
-                <Label Content="{Binding AspectRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgAspectRatioResult}"/>
-            </StackPanel>
+            <Label Content="Output:" FontWeight="Bold" Margin="0,-4,0,0"/>
+            <Grid Margin="0,0,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="95"/>
+                    <ColumnDefinition Width="55"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Label Grid.Row="0" Grid.Column="0" Content="Central Angle:"/>
+                <Label Grid.Row="0" Grid.Column="1" Content="{Binding CentralAngleResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="0" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="0" Grid.Column="3" Content="{Binding AvgCentralAngleResult}"/>
+
+                <Label Grid.Row="1" Grid.Column="0" Content="Chord-Arc Ratio:"/>
+                <Label Grid.Row="1" Grid.Column="1" Content="{Binding ChordArcRatioResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="1" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="1" Grid.Column="3" Content="{Binding AvgChordArcRatioResult}"/>
+
+                <Label Grid.Row="2" Grid.Column="0" Content="Rise-Span Ratio:"/>
+                <Label Grid.Row="2" Grid.Column="1" Content="{Binding AspectRatioResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="2" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="2" Grid.Column="3" Content="{Binding AvgAspectRatioResult}"/>
+            </Grid>
         </StackPanel>
 
         <RadioButton Content="Parabolic Arc" GroupName="Curve" Checked="ParabolicArc_Checked"
                      MinHeight="25" FontWeight="Bold" Margin="0,10,0,0"/>
         <StackPanel Visibility="{Binding IsParabolicArcSelected, Converter={StaticResource BoolToVis}}">
-            <StackPanel Orientation="Horizontal" Margin="10,-4,0,0">
-                <Label Content="Output:" FontWeight="Bold"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="{Binding XYFunctionResult}" Width="175"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Chord-Arc Ratio:"/>
-                <Label Content="{Binding PChordArcRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgPChordArcRatioResult}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Rise-Span Ratio:"/>
-                <Label Content="{Binding RiseSpanRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgRiseSpanRatioResult}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Vertex Curv.:"/>
-                <Label Content="{Binding VertexCurvatureResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgVertexCurvatureResult}"/>
-            </StackPanel>
+            <Label Content="Output:" FontWeight="Bold" Margin="0,-4,0,0"/>
+            <Label Content="{Binding XYFunctionResult}" Margin="10,0,0,0"/>
+            <Grid Margin="0,0,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="95"/>
+                    <ColumnDefinition Width="55"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Label Grid.Row="0" Grid.Column="0" Content="Chord-Arc Ratio:"/>
+                <Label Grid.Row="0" Grid.Column="1" Content="{Binding PChordArcRatioResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="0" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="0" Grid.Column="3" Content="{Binding AvgPChordArcRatioResult}"/>
+
+                <Label Grid.Row="1" Grid.Column="0" Content="Rise-Span Ratio:"/>
+                <Label Grid.Row="1" Grid.Column="1" Content="{Binding RiseSpanRatioResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="1" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="1" Grid.Column="3" Content="{Binding AvgRiseSpanRatioResult}"/>
+
+                <Label Grid.Row="2" Grid.Column="0" Content="Vertex Curv.:"/>
+                <Label Grid.Row="2" Grid.Column="1" Content="{Binding VertexCurvatureResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="2" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="2" Grid.Column="3" Content="{Binding AvgVertexCurvatureResult}"/>
+            </Grid>
         </StackPanel>
 
         <RadioButton Content="n-Point Spline" GroupName="Curve" Checked="NPointSpline_Checked"
                      MinHeight="25" FontWeight="Bold" Margin="0,10,0,0"/>
         <StackPanel Visibility="{Binding IsNPointSplineSelected, Converter={StaticResource BoolToVis}}">
-            <StackPanel Orientation="Horizontal" Margin="10,-4,0,4">
+            <StackPanel Orientation="Horizontal" Margin="0,-4,0,4">
                 <Label Content="Choose a Method:" FontWeight="Bold"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="10,-4,0,4">
@@ -119,47 +132,45 @@
                              IsChecked="{Binding IsBezierSelected, Mode=TwoWay}"/>
             </StackPanel>
 
-            <StackPanel Orientation="Horizontal" Margin="10,4,0,-4">
-                <Label Content="Output:" FontWeight="Bold"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Turn.Angles/Length:"/>
-                <Label Content="{Binding TurningAngleArcRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgTurningAngleArcRatioResult}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Sum Turn. Angles:"/>
-                <Label Content="{Binding SumTurningAnglesResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgSumTurningAnglesResult}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Mean Turn. Angle:"/>
-                <Label Content="{Binding MeanTurningAngleResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgMeanTurningAngleResult}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Turn. Angle Var.:"/>
-                <Label Content="{Binding VarianceTurningAnglesResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgVarianceTurningAnglesResult}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Chord-Arc Ratio:"/>
-                <Label Content="{Binding SChordArcRatioResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgSChordArcRatioResult}"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                <Label Content="Spline Length:"/>
-                <Label Content="{Binding SplineLengthScaledResult}" Width="50" HorizontalContentAlignment="Left"/>
-                <Label Content="Avg" Foreground="Gray"/>
-                <Label Content="{Binding AvgSplineLengthScaledResult}"/>
-            </StackPanel>
+            <Label Content="Output:" FontWeight="Bold" Margin="0,4,0,-4"/>
+            <Grid Margin="0,0,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="95"/>
+                    <ColumnDefinition Width="55"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                <Label Grid.Row="0" Grid.Column="0" Content="Turn.Angles/Length:"/>
+                <Label Grid.Row="0" Grid.Column="1" Content="{Binding TurningAngleArcRatioResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="0" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="0" Grid.Column="3" Content="{Binding AvgTurningAngleArcRatioResult}"/>
+
+                <Label Grid.Row="1" Grid.Column="0" Content="Sum Turn. Angles:"/>
+                <Label Grid.Row="1" Grid.Column="1" Content="{Binding SumTurningAnglesResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="1" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="1" Grid.Column="3" Content="{Binding AvgSumTurningAnglesResult}"/>
+
+                <Label Grid.Row="4" Grid.Column="0" Content="Chord-Arc Ratio:"/>
+                <Label Grid.Row="4" Grid.Column="1" Content="{Binding SChordArcRatioResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="4" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="4" Grid.Column="3" Content="{Binding AvgSChordArcRatioResult}"/>
+
+                <Label Grid.Row="5" Grid.Column="0" Content="Length:"/>
+                <Label Grid.Row="5" Grid.Column="1" Content="{Binding SplineLengthScaledResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="5" Grid.Column="2" Content="Avg" Foreground="Gray"/>
+                <Label Grid.Row="5" Grid.Column="3" Content="{Binding AvgSplineLengthScaledResult}"/>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
                 <RadioButton Content="Find turning angle"
                              Style="{StaticResource CheckBoxRadioButton}"
                              IsChecked="{Binding FindTurningAngleMode, Mode=TwoWay}"

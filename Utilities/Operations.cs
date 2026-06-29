@@ -66,8 +66,6 @@ namespace DinoLino.Utilities.Operations
                 mode.TurningAngleArcRatioResult = TurningAngleArcRatio;
                 mode.SChordArcRatioResult = SChordArcRatio;
                 mode.SumTurningAnglesResult = SumTurningAngles;
-                mode.MeanTurningAngleResult = MeanTurningAngle;
-                mode.VarianceTurningAnglesResult = VarianceTurningAngles;
             }
         }
     }
@@ -140,8 +138,6 @@ namespace DinoLino.Utilities.Operations
                 mode.CircularityResult = Circularity;
                 mode.SolidityResult = Solidity;
                 mode.SumTurningAnglesResult = SumTurningAngles;
-                mode.MeanTurningAngleResult = MeanTurningAngle;
-                mode.VarianceTurningAnglesResult = VarianceTurningAngles;
                 mode.EFDCoefficientsResult = EFDCoefficients;
             }
         }

@@ -155,8 +155,6 @@ namespace DinoLino.Utilities.Modes
             TurningAngleArcRatioResult = 0;
             SChordArcRatioResult = 0;
             SumTurningAnglesResult = 0;
-            MeanTurningAngleResult = 0;
-            VarianceTurningAnglesResult = 0;
             SplineLengthScaledResult = ScaledPlaceholder;
         }
 
@@ -663,20 +661,6 @@ namespace DinoLino.Utilities.Modes
             set { _sumTurningAnglesResult = value; OnPropertyChanged(nameof(SumTurningAnglesResult)); }
         }
 
-        private double _meanTurningAngleResult;
-        public double MeanTurningAngleResult
-        {
-            get => _meanTurningAngleResult;
-            set { _meanTurningAngleResult = value; OnPropertyChanged(nameof(MeanTurningAngleResult)); }
-        }
-
-        private double _varianceTurningAnglesResult;
-        public double VarianceTurningAnglesResult
-        {
-            get => _varianceTurningAnglesResult;
-            set { _varianceTurningAnglesResult = value; OnPropertyChanged(nameof(VarianceTurningAnglesResult)); }
-        }
-
         private double _sChordArcRatioResult;
         public double SChordArcRatioResult
         {
@@ -750,25 +734,30 @@ namespace DinoLino.Utilities.Modes
             ResetDrawingState();
         }
 
-        public override List<UIElement> ProcessDoubleClick(Vector2 mousePos)
+        // True when there's an in-progress spline ready to finalize with Enter.
+        public bool CanFinalizeSpline =>
+            CurrentMethod == CurvatureMethod.NPointSpline
+            && !FindTurningAngleMode
+            && _splinePoints.Count >= 3;
+
+        // Finalizes the current spline: computes its metadata, commits it to history,
+        // and returns the committed elements. Triggered by the Enter key (wired in
+        // MainWindow). Returns an empty list if not enough points have been placed.
+        public List<UIElement> FinalizeSpline()
         {
             if (CurrentMethod != CurvatureMethod.NPointSpline)
                 return new List<UIElement>();
 
             if (FindTurningAngleMode)
-                return new List<UIElement>();   // double-click is a no-op while probing
+                return new List<UIElement>();   // Enter is a no-op while probing
 
             if (_splinePoints.Count < 3)
-            {
-                // not enough points, reset and try again
-                ResetDrawingState();
-                return new List<UIElement>();
-            }
+                return new List<UIElement>();   // not enough points yet; keep what's there
 
-        // calculate results
-        List<Vector2> splinePointsDense = _splineAlgorithm == SplineAlgorithm.Bezier
-                ? SplineFitting.GetSchneiderBezierPoints(_splinePoints, 50)
-                : SplineFitting.GetCatmullRomPoints(_splinePoints, 50);
+            // calculate results
+            List<Vector2> splinePointsDense = _splineAlgorithm == SplineAlgorithm.Bezier
+                    ? SplineFitting.GetSchneiderBezierPoints(_splinePoints, 50)
+                    : SplineFitting.GetCatmullRomPoints(_splinePoints, 50);
             _lastSplineDense = splinePointsDense;   // keep for the Find-turning-angle tool
             double splineLength = GeometryCalculations.ArcLength(splinePointsDense);
             SplineLengthScaledResult = Scale != null && Scale.IsCalibrated
@@ -777,8 +766,6 @@ namespace DinoLino.Utilities.Modes
             TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 1);
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 1);
             SumTurningAnglesResult = GeometryCalculations.SumTurningAnglesOpen(splinePointsDense);
-            MeanTurningAngleResult = GeometryCalculations.MeanTurningAngleOpen(splinePointsDense);
-            VarianceTurningAnglesResult = GeometryCalculations.VarianceTurningAnglesOpen(splinePointsDense);
 
             // store in history
             CommitOperation(new SplineOperation
@@ -791,8 +778,6 @@ namespace DinoLino.Utilities.Modes
                 TurningAngleArcRatio = TurningAngleArcRatioResult,
                 SChordArcRatio = SChordArcRatioResult,
                 SumTurningAngles = SumTurningAnglesResult,
-                MeanTurningAngle = MeanTurningAngleResult,
-                VarianceTurningAngles = VarianceTurningAnglesResult,
                 SplineLengthPixels = splineLength
             });
 
@@ -1076,8 +1061,6 @@ namespace DinoLino.Utilities.Modes
         // n-point spline (Catmull-Rom and Bézier combined, matching n_spline)
         public string AvgTurningAngleArcRatioResult => FormatAverage(SplineOps.Select(o => o.TurningAngleArcRatio));
         public string AvgSumTurningAnglesResult => FormatAverage(SplineOps.Select(o => o.SumTurningAngles));
-        public string AvgMeanTurningAngleResult => FormatAverage(SplineOps.Select(o => o.MeanTurningAngle));
-        public string AvgVarianceTurningAnglesResult => FormatAverage(SplineOps.Select(o => o.VarianceTurningAngles));
         public string AvgSChordArcRatioResult => FormatAverage(SplineOps.Select(o => o.SChordArcRatio));
         public string AvgSplineLengthScaledResult => FormatScaledLengthAverage(SplineOps.Select(o => o.SplineLengthPixels));
 
@@ -1109,8 +1092,6 @@ namespace DinoLino.Utilities.Modes
             OnPropertyChanged(nameof(AvgVertexCurvatureResult));
             OnPropertyChanged(nameof(AvgTurningAngleArcRatioResult));
             OnPropertyChanged(nameof(AvgSumTurningAnglesResult));
-            OnPropertyChanged(nameof(AvgMeanTurningAngleResult));
-            OnPropertyChanged(nameof(AvgVarianceTurningAnglesResult));
             OnPropertyChanged(nameof(AvgSChordArcRatioResult));
             OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
         }
@@ -1170,8 +1151,6 @@ namespace DinoLino.Utilities.Modes
                     "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
                     "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
                     "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
-                    "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
-                    "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
                     "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
                     "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
@@ -1186,8 +1165,6 @@ namespace DinoLino.Utilities.Modes
                     "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
                     "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
                     "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
-                    "💡 Mean Turn. Angles measures the average degree of directional change along the spline.",
-                    "💡 Turn. Angle Var. (Turning Angle Variance) measures how consistent or uneven curvature of the spline is.",
                     "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
                     "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",

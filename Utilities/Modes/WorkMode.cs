@@ -63,7 +63,7 @@ namespace DinoLino.Utilities.Modes
         public virtual string[] GetTips() => new[] { string.Empty };
 
         // Toggling whether or not previous operations are visible
-        public bool SeePreviousOperations { get; set; } = true;
+        public bool SeePreviousOperations { get; set; } = false;
 
         // set default line color
         private Brush _lineColor = Brushes.OrangeRed;
@@ -95,8 +95,6 @@ namespace DinoLino.Utilities.Modes
 
         public virtual Vector2 ProcessMouseMovement(Vector2 mousePos) { return mousePos; }
         public virtual List<UIElement> ProcessClick(Vector2 mousePos) { return null; }
-        // double-click for finalizing splines (or anything else)
-        public virtual List<UIElement> ProcessDoubleClick(Vector2 mousePos) { return new List<UIElement>(); }
 
         // Resets drawing state only (mid-operation cleanup)
         public virtual void ResetDrawingState() { }

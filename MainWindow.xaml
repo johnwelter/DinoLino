@@ -44,7 +44,7 @@
             </MenuItem>
             <MenuItem Header="_View" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_See Tips" x:Name="UI_SeeTips" IsCheckable="True" IsChecked="True" Click="Menu_SeeTips"/>
-                <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="True" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave"/>
+                <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="False" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave"/>
                 <MenuItem Header="_See Operation Count" x:Name="UI_SeeAttempts" IsCheckable="True" IsChecked="True" Click="Menu_SeeAttempts"/>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>

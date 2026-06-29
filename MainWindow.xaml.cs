@@ -360,6 +360,14 @@ namespace DinoLino
                 Menu_Redo(this, new RoutedEventArgs());
                 e.Handled = true;
             }
+            // Enter finalizes an in-progress n-point spline
+            if (e.Key == Key.Enter && CurrentWorkMode is CurvatureMode cm && cm.CanFinalizeSpline)
+            {
+                foreach (UIElement element in cm.FinalizeSpline())
+                    AddElementToWorkSpace(element);
+                e.Handled = true;
+                return;
+            }
             // Esc to cancel operation
             if (e.Key == Key.Escape)
             {
@@ -794,15 +802,6 @@ namespace DinoLino
             {
                 // don't use Children.Clear() because we want to keep the DotCursor
                 ClearWorkspaceVisualsOnly();
-            }
-
-            if (e.ClickCount == 2)
-            {
-                RemovePendingElements();
-
-                foreach (UIElement element in CurrentWorkMode.ProcessDoubleClick(mousePos))
-                    AddElementToWorkSpace(element);
-                return;
             }
 
             RemovePendingElements();
