@@ -6,7 +6,7 @@
     xmlns:local="clr-namespace:DinoLino"
     xmlns:System="clr-namespace:System;assembly=mscorlib" xmlns:core="http://schemas.microsoft.com/winfx/2009/xaml" x:Class="DinoLino.MainWindow"
     mc:Ignorable="d"
-    Title="DinoLino" Height="640" Width="1150"
+    Title="DinoLino" Height="750" Width="1250"
     MinWidth="800" MinHeight="500"
     ResizeMode="CanResize"
     FontFamily="Arial">
@@ -46,6 +46,7 @@
                 <MenuItem Header="_See Tips" x:Name="UI_SeeTips" IsCheckable="True" IsChecked="True" Click="Menu_SeeTips"/>
                 <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="False" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave"/>
                 <MenuItem Header="_See Operation Count" x:Name="UI_SeeAttempts" IsCheckable="True" IsChecked="True" Click="Menu_SeeAttempts"/>
+                <MenuItem Header="See _History" Click="Menu_SeeHistory"/>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>
                     <RadioButton Content="_Blue" Tag="Blue" GroupName="LineColors" Click="Menu_Color_Click"/>
@@ -93,7 +94,7 @@
         </Border>
         <Grid x:Name="UI_MainWindow">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="0.25*" MinWidth="150" MaxWidth="500"/>
+                <ColumnDefinition Width="0.28*" MinWidth="150" MaxWidth="550"/>
                 <ColumnDefinition Width="4"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
@@ -168,7 +169,7 @@
                         <TranslateTransform x:Name="UI_AttemptCounterTransform"/>
                     </Border.RenderTransform>
                     <StackPanel>
-                        <TextBlock Text="Operation Count" Foreground="#999" FontSize="11" FontWeight="Bold" Margin="0,0,0,4"/>
+                        <TextBlock x:Name="UI_AttemptHeader" Text="Operation Count" Foreground="#999" FontSize="11" FontWeight="Bold" Margin="0,0,0,4"/>
                         <TextBlock x:Name="UI_AttemptCirc"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
                         <TextBlock x:Name="UI_AttemptPara"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
                         <TextBlock x:Name="UI_AttemptSpline" Foreground="#EEE" FontSize="12" Margin="0,1"/>

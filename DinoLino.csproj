@@ -90,6 +90,7 @@
     <Compile Include="Utilities\EllipticFourierAnalysis.cs" />
     <Compile Include="Utilities\Ellipticfourierpower.cs" />
     <Compile Include="Utilities\GeometryCalculations.cs" />
+    <Compile Include="Utilities\HistoryWindow.cs" />
     <Compile Include="Utilities\ImageAdjuster.cs" />
     <Compile Include="Utilities\Modes\DrawMode.cs" />
     <Compile Include="Utilities\Modes\GetAngleMode.cs" />

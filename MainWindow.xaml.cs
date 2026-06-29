@@ -1,10 +1,12 @@
 ﻿using DinoLino.DataTypes;
 using DinoLino.Utilities;
 using DinoLino.Utilities.Modes;
+using DinoLino.Utilities.Operations;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Policy;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -14,7 +16,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using DinoLino.Utilities.Operations;
 
 namespace DinoLino
 {
@@ -536,6 +537,17 @@ namespace DinoLino
                 UI_SeeAttempts.IsChecked ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        private void Menu_SeeHistory(object sender, RoutedEventArgs e)
+        {
+            var window = new HistoryWindow(UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration)
+            {
+                Owner = this,
+                FontSize = _currentFontSize,
+                FontFamily = _currentFont
+            };
+            window.Show();
+        }
+
         // Drag state for the attempt-counter overlay.
         private bool _counterDragging;
         private Point _counterDragStart;
@@ -658,6 +670,13 @@ namespace DinoLino
                 _currentFontSize = size;
                 TextElement.SetFontSize(UI_ControlPanel, size);
                 UI_TipText.FontSize = size;
+
+                UI_AttemptHeader.FontSize = size;
+                UI_AttemptCirc.FontSize = size;
+                UI_AttemptPara.FontSize = size;
+                UI_AttemptSpline.FontSize = size;
+                UI_AttemptAngle.FontSize = size;
+
                 fontWindow.FontSize = size;
             };
 
@@ -665,6 +684,14 @@ namespace DinoLino
             {
                 _currentFont = family;
                 TextElement.SetFontFamily(UI_ControlPanel, family);
+                UI_TipText.FontFamily = family;
+
+                UI_AttemptHeader.FontFamily = family;
+                UI_AttemptCirc.FontFamily = family;
+                UI_AttemptPara.FontFamily = family;
+                UI_AttemptSpline.FontFamily = family;
+                UI_AttemptAngle.FontFamily = family;
+
                 fontWindow.FontFamily = family;
             };
 
