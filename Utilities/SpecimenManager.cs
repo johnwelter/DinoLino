@@ -71,6 +71,11 @@ namespace DinoLino.Utilities
         // Called when a new image is opened. Increments the counter and
         // resets to the auto-generated name.
         private bool _hasOpenedImage = false;
+
+        // True once the first image has been opened. MainWindow uses this to decide whether
+        // an image-open is a specimen transition (archive the outgoing specimen) or just the
+        // initial load (nothing to archive yet).
+        public bool HasOpenedImage => _hasOpenedImage;
         public void OnImageOpened(string fileName)
         {
             _loadedFileName = fileName;

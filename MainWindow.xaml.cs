@@ -342,10 +342,18 @@ namespace DinoLino
             {
                 ClearAllOperations();
             }
+
             // Ctrl + F to open image
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
             {
                 Menu_OpenImage(this, new RoutedEventArgs());
+                e.Handled = true;
+            }
+
+            // Ctrl + H to view history
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.H)
+            {
+                Menu_SeeHistory(this, new RoutedEventArgs());
                 e.Handled = true;
             }
 
@@ -355,12 +363,14 @@ namespace DinoLino
                 Menu_Undo(this, new RoutedEventArgs());
                 e.Handled = true;
             }
+
             // Ctrl + Y to redo
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Y)
             {
                 Menu_Redo(this, new RoutedEventArgs());
                 e.Handled = true;
             }
+
             // Enter finalizes an in-progress n-point spline
             if (e.Key == Key.Enter && CurrentWorkMode is CurvatureMode cm && cm.CanFinalizeSpline)
             {
@@ -369,6 +379,7 @@ namespace DinoLino
                 e.Handled = true;
                 return;
             }
+
             // Esc to cancel operation
             if (e.Key == Key.Escape)
             {
@@ -394,6 +405,8 @@ namespace DinoLino
 
             if (openFileDialog.ShowDialog() == true)
             {
+                if (SpecimenManager.HasOpenedImage)
+                    UndoRedoManager.ArchiveAndReset(SpecimenManager.DisplayName);
 
                 WorkingImage = new BitmapImage(new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));
                 UI_WorkImage.Source = WorkingImage;

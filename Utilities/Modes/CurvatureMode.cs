@@ -1145,7 +1145,7 @@ namespace DinoLino.Utilities.Modes
                 return IsCatmullRomSelected
                     ? new[]
                 {
-                    "💡 Draw a curve of any shape using any number of points. Double click to finish drawing.",
+                    "💡 Draw a curve of any shape using any number of points. Press 'Enter' to finish drawing.",
                     "💡 Catmull-Rom splines use local smoothing and must pass through every clicked point. This operation draws a centripetal Catmull-Rom spline.",
                     "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
                     "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",

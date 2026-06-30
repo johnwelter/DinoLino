@@ -17,6 +17,7 @@ Undo: 			Ctrl + Z
 Redo: 			Ctrl + Y
 Clear: 			Ctrl + C
 Open image: 		Ctrl + F
+View history: 		Ctrl + H
 Zoom:			Scroll wheel
 Drag image:		Ctrl + left click and drag
 Add landmark:		TBD
@@ -48,15 +49,13 @@ Vertex Curvature: The slope (m) of the parabolic arc (y=mx^2...)
 
 ----- n-Point Spline -----
 
-Click any amount of times along the curve, and finalize with a double click. This creates an n-point spline. Clicking again after spline completion begins another operation.
+Click any amount of times along the curve, and finalize by pressing 'Enter'. This creates an n-point spline. Clicking again after spline completion begins another operation.
 
 Catmull-Rom splines: The spline must pass through every point. This operation uses centripetal Catmull-Rom splines, which are well-suited for non-uniform biological shapes. 
 Bezier splines: The spline is pulled towards the clicked points, but does not necessarily pass through them. This operation uses Schneider's Bezier fitting to convert n points into one or more smooth cubic Bezier segments. 
 
-Turn.Angles/Length: A measure of curvature. The sum of the turning angles (change in angle of the tangent lines along the spline) divided by the length of the spline.
+Turn.Angles/Length: A measure of curvature. The sum of the turning angles (change in angle of the tangent lines along the spline) divided by the length of the spline. Approximates the average change in angle of the tangent lines along the spline.
 Sum Turn. Angles: A measure of curvature. The total change in angle of the tangent lines at the start and end points of the spline.
-Mean Turn. Angle: A measure of curvature. The average change in angle of the tangent lines along the spline.
-Turn. Angle Var.: A measure of curvature. The variance of the turning angles along the spline. A higher variance indicates more variability in curvature along the spline, while a lower variance indicates more consistent curvature.
 Chord-Arc Ratio: A measure of curvature. The length of the straight line (chord) connecting the start and end points of the curve divided by the length of the spline.
 ------------------------------------------------------------------------------------------------
 TRIANGLE MODE:
@@ -142,6 +141,9 @@ Toggle on or off to see advice for using the program displayed at the bottom of 
 ----- See Previous Operations ----- 
 Toggle on or off to keep drawn elements of previous operations on the screen.
 
+----- See History ----- 
+View and export CSV tables of all operations performed.
+
 ----- Line Color ----- 
 Adjust color of drawn elements. Multiple options are available to accommodate colorblindness and ensure operation visibility on any image.
 
@@ -149,8 +151,17 @@ Adjust color of drawn elements. Multiple options are available to accommodate co
 Adjust font size or font family. Dyslexia-friendly fonts are available. 
 If needed, you may accommodate very large font sizes by resizing the sidebar or program window with clicking and dragging.
 
------ Picture Adjustment ----- 
+------------------------------------------------------------------------------------------------
+TOOLS:
+
+----- Picture Corrections ----- 
 Adjust brightness, contrast, or saturation of the uploaded image. Zero is the default value for all parameters.
 
 ----- Decimate -----
 Decimate the image by a specified factor to reduce its resolution and computational expense. This may be helpful for large images or when using the watershed method in outline mode.
+
+----- Flip -----
+Flip image horizontally or vertically to produce a mirror image.
+
+----- Rotate -----
+Rotate image by 90 degrees clockwise or counterclockwise.
