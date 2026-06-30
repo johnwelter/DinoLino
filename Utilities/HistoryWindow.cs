@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.IO.Packaging;
 using System.Linq;
 using System.Text;
 using System.Windows;
@@ -20,17 +21,37 @@ namespace DinoLino.Utilities
     // specimen's name and numbers its attempts from 1. Specimens with no operations of a
     // tab's type still appear as a labelled, empty block.
     //
-    // Each tab can be exported to CSV via a button at the bottom. The CSV is a flat table
-    // (one row per operation, with a leading Specimen column) captured at the moment the
-    // window was opened — consistent with the grids, which are likewise a one-time snapshot.
+    // Export options (all operate on a snapshot taken when the window opened):
+    //   • Per tab: "Export to CSV…" writes that tab's flat table (one row per operation,
+    //     leading Specimen column).
+    //   • Per tab: "Add to workbook" toggles that tab's table into a pending workbook.
+    //   • Global footer: "Export workbook…" writes every added table as a separate sheet of
+    //     a single .xlsx file. The workbook is built with System.IO.Packaging (no external
+    //     dependency); numeric-looking cells are written as numbers, unit-bearing cells as text.
     public class HistoryWindow : Window
     {
+        // Pending workbook: the set of tab tables the user has added, in add-order.
+        private readonly List<WorkbookSheet> _workbook = new();
+        private TextBlock _workbookStatus;
+        private Button _exportWorkbookButton;
+
+        private class WorkbookSheet
+        {
+            public string Name;
+            public string[] Headers;
+            public List<string[]> Rows;
+        }
+
         public HistoryWindow(UndoRedoManager undoRedo, string specimenName, ScaleCalibration scale)
         {
             Title = "History of operations";
             Width = 720;
-            Height = 520;
+            Height = 540;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+            // Footer first, so the per-tab "Add to workbook" handlers can update it.
+            var footer = BuildWorkbookFooter();
+            UpdateWorkbookStatus();
 
             var tabs = new TabControl();
             tabs.Items.Add(BuildCircularArcTab(undoRedo, specimenName));
@@ -38,7 +59,11 @@ namespace DinoLino.Utilities
             tabs.Items.Add(BuildSplineTab(undoRedo, specimenName, scale));
             tabs.Items.Add(BuildTriangleTab(undoRedo, specimenName, scale));
 
-            Content = tabs;
+            var root = new DockPanel();
+            DockPanel.SetDock(footer, Dock.Bottom);
+            root.Children.Add(footer);
+            root.Children.Add(tabs);   // fills remaining space
+            Content = root;
         }
 
         // One block per specimen: each archived record in order, then the current live
@@ -53,7 +78,7 @@ namespace DinoLino.Utilities
 
         // ── Tab builders ─────────────────────────────────────────────────────────
 
-        private static TabItem BuildCircularArcTab(UndoRedoManager ur, string currentName)
+        private TabItem BuildCircularArcTab(UndoRedoManager ur, string currentName)
         {
             var panel = new StackPanel();
             var csvRows = new List<string[]>();
@@ -95,7 +120,7 @@ namespace DinoLino.Utilities
             return WrapTab("Circular Arc", panel, headers, csvRows, "circular_arc_history.csv");
         }
 
-        private static TabItem BuildParabolicArcTab(UndoRedoManager ur, string currentName)
+        private TabItem BuildParabolicArcTab(UndoRedoManager ur, string currentName)
         {
             var panel = new StackPanel();
             var csvRows = new List<string[]>();
@@ -137,7 +162,7 @@ namespace DinoLino.Utilities
             return WrapTab("Parabolic Arc", panel, headers, csvRows, "parabolic_arc_history.csv");
         }
 
-        private static TabItem BuildSplineTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        private TabItem BuildSplineTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
             var panel = new StackPanel();
             var csvRows = new List<string[]>();
@@ -182,7 +207,7 @@ namespace DinoLino.Utilities
             return WrapTab("n-Point Spline", panel, headers, csvRows, "spline_history.csv");
         }
 
-        private static TabItem BuildTriangleTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        private TabItem BuildTriangleTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
             var panel = new StackPanel();
             var csvRows = new List<string[]>();
@@ -226,11 +251,11 @@ namespace DinoLino.Utilities
             return WrapTab("Triangle", panel, headers, csvRows, "triangle_history.csv");
         }
 
-        // ── Shared construction helpers ──────────────────────────────────────────
+        // ── Tab chrome: scrollable blocks + per-tab action buttons ────────────────
 
-        // Scrollable stack of per-specimen blocks with an "Export to CSV" button docked
-        // beneath it. The button writes the pre-built rows for THIS tab only.
-        private static TabItem WrapTab(string header, StackPanel panel,
+        // Scrollable stack of per-specimen blocks with a button row docked beneath it:
+        // [Add to workbook] [Export to CSV…]. `header` doubles as the workbook sheet name.
+        private TabItem WrapTab(string header, StackPanel panel,
             string[] csvHeaders, List<string[]> csvRows, string suggestedFileName)
         {
             var scroll = new ScrollViewer
@@ -240,21 +265,51 @@ namespace DinoLino.Utilities
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
             };
 
-            var exportButton = new Button
+            var addButton = new Button
             {
-                Content = "Export to CSV…",
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(8),
+                Content = WorkbookButtonLabel(IsInWorkbook(header)),
+                Margin = new Thickness(0, 0, 8, 0),
                 Padding = new Thickness(12, 4, 12, 4)
             };
-            exportButton.Click += (s, e) => ExportCsv(csvHeaders, csvRows, suggestedFileName);
+            addButton.Click += (s, e) =>
+            {
+                var existing = _workbook.FirstOrDefault(w => w.Name == header);
+                if (existing != null)
+                    _workbook.Remove(existing);
+                else
+                    _workbook.Add(new WorkbookSheet { Name = header, Headers = csvHeaders, Rows = csvRows });
+
+                addButton.Content = WorkbookButtonLabel(existing == null);
+                UpdateWorkbookStatus();
+            };
+
+            var csvButton = new Button
+            {
+                Content = "Export to CSV…",
+                Padding = new Thickness(12, 4, 12, 4)
+            };
+            csvButton.Click += (s, e) => ExportCsv(csvHeaders, csvRows, suggestedFileName);
+
+            var buttonRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(8)
+            };
+            buttonRow.Children.Add(addButton);
+            buttonRow.Children.Add(csvButton);
 
             var dock = new DockPanel { Margin = new Thickness(4) };
-            DockPanel.SetDock(exportButton, Dock.Bottom);
-            dock.Children.Add(exportButton);
+            DockPanel.SetDock(buttonRow, Dock.Bottom);
+            dock.Children.Add(buttonRow);
             dock.Children.Add(scroll);   // fills remaining space
             return new TabItem { Header = header, Content = dock };
         }
+
+        private bool IsInWorkbook(string sheetName) => _workbook.Any(w => w.Name == sheetName);
+
+        private static string WorkbookButtonLabel(bool added) =>
+            added ? "\u2713 Added to workbook" : "Add to workbook";
 
         private static TextBlock SpecimenHeader(string name) => new TextBlock
         {
@@ -295,7 +350,47 @@ namespace DinoLino.Utilities
             });
         }
 
-        // ── CSV export ───────────────────────────────────────────────────────────
+        // ── Workbook footer ───────────────────────────────────────────────────────
+
+        private FrameworkElement BuildWorkbookFooter()
+        {
+            _workbookStatus = new TextBlock
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 0, 0)
+            };
+
+            _exportWorkbookButton = new Button
+            {
+                Content = "Export workbook…",
+                Padding = new Thickness(12, 4, 12, 4)
+            };
+            _exportWorkbookButton.Click += (s, e) => ExportWorkbook();
+
+            var bar = new DockPanel { Margin = new Thickness(8, 6, 8, 6) };
+            DockPanel.SetDock(_exportWorkbookButton, Dock.Right);
+            bar.Children.Add(_exportWorkbookButton);
+            bar.Children.Add(_workbookStatus);
+
+            return new Border
+            {
+                BorderBrush = Brushes.LightGray,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Child = bar
+            };
+        }
+
+        private void UpdateWorkbookStatus()
+        {
+            int n = _workbook.Count;
+            _workbookStatus.Text = n == 0
+                ? "No tables added to workbook"
+                : n == 1 ? "1 table added to workbook"
+                         : $"{n} tables added to workbook";
+            _exportWorkbookButton.IsEnabled = n > 0;
+        }
+
+        // ── CSV export (single tab) ───────────────────────────────────────────────
 
         // Prompts for a path and writes the given header + rows as CSV. Written with a UTF-8
         // BOM so Excel renders the unit symbols (°, ²) correctly on open.
@@ -303,7 +398,7 @@ namespace DinoLino.Utilities
         {
             var dlg = new SaveFileDialog
             {
-                Title = "Export to CSV",
+                Title = "Export Table to CSV",
                 Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
                 DefaultExt = ".csv",
                 FileName = suggestedFileName,
@@ -334,6 +429,300 @@ namespace DinoLino.Utilities
             if (field.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0)
                 return "\"" + field.Replace("\"", "\"\"") + "\"";
             return field;
+        }
+
+        // ── Workbook export (multi-sheet .xlsx) ───────────────────────────────────
+
+        private void ExportWorkbook()
+        {
+            if (_workbook.Count == 0) return;   // button is disabled in this state anyway
+
+            var dlg = new SaveFileDialog
+            {
+                Title = "Export workbook",
+                Filter = "Excel workbook (*.xlsx)|*.xlsx|All files (*.*)|*.*",
+                DefaultExt = ".xlsx",
+                FileName = "history_workbook.xlsx",
+                AddExtension = true
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                WriteXlsx(dlg.FileName, _workbook);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not save the workbook:\n{ex.Message}", "Export failed",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        // ── "Export operation history" (all tabs, windowless) ─────────────────────
+
+        // Public entry point for the File-menu export. Builds every tab's table from the
+        // current history and writes them all as sheets of a single .xlsx — no open window
+        // required. Always includes all four sheets; a specimen with no operations of a
+        // given type still yields a labelled, name-only row, matching the window.
+        public static void ExportAllOperationHistory(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var dlg = new SaveFileDialog
+            {
+                Title = "Export operation history",
+                Filter = "Excel workbook (*.xlsx)|*.xlsx|All files (*.*)|*.*",
+                DefaultExt = ".xlsx",
+                FileName = "operation_history.xlsx",
+                AddExtension = true
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                WriteXlsx(dlg.FileName, BuildAllSheets(ur, currentName, scale));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not save the workbook:\n{ex.Message}", "Export failed",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private static List<WorkbookSheet> BuildAllSheets(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var sheets = new List<WorkbookSheet>();
+
+            var (h1, r1) = BuildCircularArcData(ur, currentName);
+            sheets.Add(new WorkbookSheet { Name = "Circular Arc", Headers = h1, Rows = r1 });
+
+            var (h2, r2) = BuildParabolicArcData(ur, currentName);
+            sheets.Add(new WorkbookSheet { Name = "Parabolic Arc", Headers = h2, Rows = r2 });
+
+            var (h3, r3) = BuildSplineData(ur, currentName, scale);
+            sheets.Add(new WorkbookSheet { Name = "n-Point Spline", Headers = h3, Rows = r3 });
+
+            var (h4, r4) = BuildTriangleData(ur, currentName, scale);
+            sheets.Add(new WorkbookSheet { Name = "Triangle", Headers = h4, Rows = r4 });
+
+            return sheets;
+        }
+
+        // Each builder reproduces the same Specimen-led flat table the per-tab CSV/workbook
+        // produces. (The tab builders derive their CSV rows inline from the grid rows; these
+        // recompute the same values so the export can run with no window open.)
+
+        private static (string[] Headers, List<string[]> Rows) BuildCircularArcData(
+            UndoRedoManager ur, string currentName)
+        {
+            var headers = new[] { "Specimen", "Attempt", "Central angle", "Chord-arc ratio", "Rise-span ratio" };
+            var rows = new List<string[]>();
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                int attempt = 1;
+                bool any = false;
+                foreach (var op in ops.OfType<CircularArcOperation>())
+                {
+                    any = true;
+                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.CentralAngle), Fmt(op.ChordArcRatio), Fmt(op.AspectRatio) });
+                }
+                if (!any) rows.Add(new[] { name, "", "", "", "" });
+            }
+            return (headers, rows);
+        }
+
+        private static (string[] Headers, List<string[]> Rows) BuildParabolicArcData(
+            UndoRedoManager ur, string currentName)
+        {
+            var headers = new[] { "Specimen", "Attempt", "Chord-arc ratio", "Rise-span ratio", "Vertex curvature" };
+            var rows = new List<string[]>();
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                int attempt = 1;
+                bool any = false;
+                foreach (var op in ops.OfType<ParabolaOperation>())
+                {
+                    any = true;
+                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.PChordArcRatio), Fmt(op.RiseSpanRatio), Fmt(op.VertexCurvature) });
+                }
+                if (!any) rows.Add(new[] { name, "", "", "", "" });
+            }
+            return (headers, rows);
+        }
+
+        private static (string[] Headers, List<string[]> Rows) BuildSplineData(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var headers = new[] { "Specimen", "Attempt", "Turn. Angles / Length", "Sum Turn. Angles", "Chord-arc ratio", "Length" };
+            var rows = new List<string[]>();
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                int attempt = 1;
+                bool any = false;
+                foreach (var op in ops.OfType<SplineOperation>())
+                {
+                    any = true;
+                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.TurningAngleArcRatio), Fmt(op.SumTurningAngles), Fmt(op.SChordArcRatio), FmtLength(op.SplineLengthPixels, scale) });
+                }
+                if (!any) rows.Add(new[] { name, "", "", "", "", "" });
+            }
+            return (headers, rows);
+        }
+
+        private static (string[] Headers, List<string[]> Rows) BuildTriangleData(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var headers = new[] { "Specimen", "Attempt", "Angle A", "Angle B", "Angle C", "Area" };
+            var rows = new List<string[]>();
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                int attempt = 1;
+                bool any = false;
+                foreach (var op in ops.OfType<GetAngleOperation>())
+                {
+                    any = true;
+                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.AngleA), Fmt(op.AngleB), Fmt(op.AngleC), FmtArea(op.TriArea, scale) });
+                }
+                if (!any) rows.Add(new[] { name, "", "", "", "", "" });
+            }
+            return (headers, rows);
+        }
+
+        // Writes a minimal but valid .xlsx using System.IO.Packaging (WindowsBase — already
+        // referenced by WPF, so no NuGet dependency). One worksheet per added table; the
+        // package auto-generates [Content_Types].xml and the package relationships.
+        private static void WriteXlsx(string path, List<WorkbookSheet> sheets)
+        {
+            const string nsMain = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            const string ctWorkbook = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
+            const string ctWorksheet = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
+            const string ctStyles = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml";
+            const string relOfficeDoc = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
+            const string relWorksheet = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
+            const string relStyles = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
+
+            using var pkg = Package.Open(path, FileMode.Create);
+
+            // Workbook part + package relationship pointing at it.
+            var wbUri = new Uri("/xl/workbook.xml", UriKind.Relative);
+            var wbPart = pkg.CreatePart(wbUri, ctWorkbook);
+            pkg.CreateRelationship(wbUri, TargetMode.Internal, relOfficeDoc, "rId1");
+
+            // Shared styles part (referenced by the workbook part's relationships).
+            var stylesUri = new Uri("/xl/styles.xml", UriKind.Relative);
+            var stylesPart = pkg.CreatePart(stylesUri, ctStyles);
+            WritePartText(stylesPart, StylesXml());
+            wbPart.CreateRelationship(stylesUri, TargetMode.Internal, relStyles, "rIdStyles");
+
+            // Worksheet parts. Relationship ids rId1..rIdN line up with the <sheet> r:id
+            // references written into workbook.xml below.
+            for (int i = 1; i <= sheets.Count; i++)
+            {
+                var sheetUri = new Uri($"/xl/worksheets/sheet{i}.xml", UriKind.Relative);
+                var sheetPart = pkg.CreatePart(sheetUri, ctWorksheet);
+                WritePartText(sheetPart, BuildSheetXml(sheets[i - 1]));
+                wbPart.CreateRelationship(sheetUri, TargetMode.Internal, relWorksheet, $"rId{i}");
+            }
+
+            var wb = new StringBuilder();
+            wb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+            wb.Append($"<workbook xmlns=\"{nsMain}\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>");
+            for (int i = 1; i <= sheets.Count; i++)
+                wb.Append($"<sheet name=\"{XmlEscape(SafeSheetName(sheets[i - 1].Name, i))}\" sheetId=\"{i}\" r:id=\"rId{i}\"/>");
+            wb.Append("</sheets></workbook>");
+            WritePartText(wbPart, wb.ToString());
+        }
+
+        private static void WritePartText(PackagePart part, string content)
+        {
+            using var stream = part.GetStream(FileMode.Create, FileAccess.Write);
+            using var writer = new StreamWriter(stream, new UTF8Encoding(false));
+            writer.Write(content);
+        }
+
+        private static string StylesXml() =>
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+            "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
+            "<fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts>" +
+            "<fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill></fills>" +
+            "<borders count=\"1\"><border/></borders>" +
+            "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>" +
+            "<cellXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/></cellXfs>" +
+            "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>" +
+            "</styleSheet>";
+
+        private static string BuildSheetXml(WorkbookSheet sheet)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+            sb.Append("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
+
+            // Header row (all text).
+            sb.Append("<row r=\"1\">");
+            for (int c = 0; c < sheet.Headers.Length; c++)
+                sb.Append(InlineStringCell($"{ColumnLetter(c)}1", sheet.Headers[c]));
+            sb.Append("</row>");
+
+            int rowNum = 2;
+            foreach (var row in sheet.Rows)
+            {
+                sb.Append($"<row r=\"{rowNum}\">");
+                for (int c = 0; c < row.Length; c++)
+                    sb.Append(Cell($"{ColumnLetter(c)}{rowNum}", row[c]));
+                sb.Append("</row>");
+                rowNum++;
+            }
+
+            sb.Append("</sheetData></worksheet>");
+            return sb.ToString();
+        }
+
+        // Numeric cell when the value parses as an invariant number ("23.45", "1"); otherwise
+        // an inline-string cell ("12.34 mm", "", "45.6 px²").
+        private static string Cell(string reference, string value)
+        {
+            if (!string.IsNullOrEmpty(value) &&
+                double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out _))
+                return $"<c r=\"{reference}\"><v>{value}</v></c>";
+            return InlineStringCell(reference, value);
+        }
+
+        private static string InlineStringCell(string reference, string value) =>
+            $"<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{XmlEscape(value)}</t></is></c>";
+
+        // 0-based column index → Excel column letters (0→A, 25→Z, 26→AA…).
+        private static string ColumnLetter(int index)
+        {
+            string s = "";
+            index++;
+            while (index > 0)
+            {
+                int rem = (index - 1) % 26;
+                s = (char)('A' + rem) + s;
+                index = (index - 1) / 26;
+            }
+            return s;
+        }
+
+        private static string XmlEscape(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Replace("&", "&amp;")
+                    .Replace("<", "&lt;")
+                    .Replace(">", "&gt;")
+                    .Replace("\"", "&quot;");
+        }
+
+        // Excel sheet names: ≤31 chars, none of : \ / ? * [ ], non-empty.
+        private static string SafeSheetName(string name, int ordinal)
+        {
+            if (string.IsNullOrWhiteSpace(name)) name = $"Sheet{ordinal}";
+            foreach (char bad in new[] { ':', '\\', '/', '?', '*', '[', ']' })
+                name = name.Replace(bad, ' ');
+            name = name.Trim();
+            if (name.Length > 31) name = name.Substring(0, 31);
+            if (name.Length == 0) name = $"Sheet{ordinal}";
+            return name;
         }
 
         // ── Value formatting ─────────────────────────────────────────────────────

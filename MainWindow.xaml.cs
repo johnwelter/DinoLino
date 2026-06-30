@@ -357,6 +357,13 @@ namespace DinoLino
                 e.Handled = true;
             }
 
+            // Ctrl + E to export operation history
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.E)
+            {
+                Menu_ExportHistory(this, new RoutedEventArgs());
+                e.Handled = true;
+            }
+
             // Ctrl + Z to undo
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Z)
             {
@@ -559,6 +566,11 @@ namespace DinoLino
                 FontFamily = _currentFont
             };
             window.Show();
+        }
+
+        private void Menu_ExportHistory(object sender, RoutedEventArgs e)
+        {
+            HistoryWindow.ExportAllOperationHistory(UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
         }
 
         // Drag state for the attempt-counter overlay.

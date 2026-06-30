@@ -856,7 +856,7 @@ namespace DinoLino.Utilities
             return fallback;
         }
 
-        internal bool[]? WatershedSegment(int seedX, int seedY, ImageSnapshot snap,
+        internal bool[] WatershedSegment(int seedX, int seedY, ImageSnapshot snap,
     int seedRadius = 3, int blurLevel = 0)
         {
             int w = snap.Width, h = snap.Height, total = w * h;

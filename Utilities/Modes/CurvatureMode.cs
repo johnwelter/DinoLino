@@ -52,7 +52,7 @@ namespace DinoLino.Utilities.Modes
         // Current UI line to modify during mouse move
         private Line CurrentUILine = null;
 
-        public void SelectCurvature(string? option)
+        public void SelectCurvature(string option)
         {
             if (!Enum.TryParse<CurvatureMethod>(option, ignoreCase: true, out var selection))
                 return;

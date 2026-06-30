@@ -25,10 +25,11 @@
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Open Image" Click="Menu_OpenImage"/>
+                <MenuItem Header="_Export Operation History" Click="Menu_ExportHistory" InputGestureText="Ctrl+E"/>
             </MenuItem>
             <MenuItem Header="_Edit" MouseLeave="Menu_MouseLeave">
-                <MenuItem Header="_Undo" x:Name="UI_MenuUndo" Click="Menu_Undo"/>
-                <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"/>
+                <MenuItem Header="_Undo" x:Name="UI_MenuUndo" Click="Menu_Undo"  InputGestureText="Ctrl+Z"/>
+                <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"  InputGestureText="Ctrl+Y"/>
             </MenuItem>
             <MenuItem Header="_Tools" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"/>
