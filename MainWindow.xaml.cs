@@ -184,6 +184,10 @@ namespace DinoLino
                 }
             };
 
+            // When an outline is measured (Generate Metadata sets HasMetadata), refresh the
+            // on-image counter so n_outline ticks up immediately rather than on the next commit.
+            OutlineMode.OnMetadataGenerated = UpdateAttemptCounter;
+
             // Initialize the global undo redo manager and link to all modes
             UndoRedoManager = new UndoRedoManager();
             CurvatureMode.UndoRedoManager = UndoRedoManager;
@@ -239,19 +243,23 @@ namespace DinoLino
         {
             if (UndoRedoManager == null) return;
 
-            int nCirc = 0, nPara = 0, nSpline = 0, nAngle = 0;
+            int nCirc = 0, nPara = 0, nSpline = 0, nAngle = 0, nLine = 0, nOutline = 0;
             foreach (var op in UndoRedoManager.History)
             {
                 if (op is CircularArcOperation) nCirc++;
                 else if (op is ParabolaOperation) nPara++;
                 else if (op is SplineOperation) nSpline++;
                 else if (op is GetAngleOperation) nAngle++;
+                else if (op is LineOperation) nLine++;
+                else if (op is OutlineOperation o && o.HasMetadata) nOutline++;
             }
 
             UI_AttemptCirc.Text = $"n_circ = {nCirc}";
             UI_AttemptPara.Text = $"n_para = {nPara}";
             UI_AttemptSpline.Text = $"n_spline = {nSpline}";
             UI_AttemptAngle.Text = $"n_angle = {nAngle}";
+            UI_AttemptLine.Text = $"n_line = {nLine}";
+            UI_AttemptOutline.Text = $"n_outline = {nOutline}";
         }
 
         private void AttemptCounter_MouseDown(object sender, MouseButtonEventArgs e)
@@ -701,6 +709,8 @@ namespace DinoLino
                 UI_AttemptPara.FontSize = size;
                 UI_AttemptSpline.FontSize = size;
                 UI_AttemptAngle.FontSize = size;
+                UI_AttemptLine.FontSize = size;
+                UI_AttemptOutline.FontSize = size;
 
                 fontWindow.FontSize = size;
             };
@@ -716,6 +726,8 @@ namespace DinoLino
                 UI_AttemptPara.FontFamily = family;
                 UI_AttemptSpline.FontFamily = family;
                 UI_AttemptAngle.FontFamily = family;
+                UI_AttemptLine.FontFamily = family;
+                UI_AttemptOutline.FontFamily = family;
 
                 fontWindow.FontFamily = family;
             };

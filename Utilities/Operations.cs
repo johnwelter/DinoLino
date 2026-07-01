@@ -56,9 +56,8 @@ namespace DinoLino.Utilities.Operations
         public double TurningAngleArcRatio { get; set; }
         public double SChordArcRatio { get; set; }
         public double SumTurningAngles { get; set; }
-        public double MeanTurningAngle { get; set; }
-        public double VarianceTurningAngles { get; set; }
         public double SplineLengthPixels { get; set; }
+
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is CurvatureMode mode)
@@ -126,9 +125,11 @@ namespace DinoLino.Utilities.Operations
         public double Circularity { get; set; }
         public double Solidity { get; set; }
         public double SumTurningAngles { get; set; }
-        public double MeanTurningAngle { get; set; }
-        public double VarianceTurningAngles { get; set; }
         public double[] EFDCoefficients { get; set; } // flattened: [a1,b1,c1,d1, a2,b2,c2,d2, ...]
+
+
+        public bool HasMetadata { get; set; }
+
         public override void ApplyMetadataToMode() 
         {
             if (SourceMode is OutlineMode mode)

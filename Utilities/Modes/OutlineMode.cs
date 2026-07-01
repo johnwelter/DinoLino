@@ -1,4 +1,5 @@
 ﻿using DinoLino.DataTypes;
+using DinoLino.Properties;
 using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
@@ -1415,8 +1416,14 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _areaScaledResult, value);
         }
 
-        // Called when the user clicks Generate Metadata
+        // Fired after metadata is generated and stamped onto the committed outline.
+        // MainWindow wires this to refresh the on-image operation counter: setting
+        // HasMetadata mutates the operation in place, which does NOT raise a history
+        // change, so the counter would otherwise not update until the next commit.
+        public Action OnMetadataGenerated;
 
+
+        // Called when the user clicks Generate Metadata
         public void GenerateMetadata()
         {
             // Refuse while a hand-drawn stroke is still open (not yet self-closed).
@@ -1506,6 +1513,12 @@ namespace DinoLino.Utilities.Modes
                 op.EFDCoefficients = EFDCoefficientsResult;
                 op.Solidity = SolidityResult;
                 op.SumTurningAngles = SumTurningAnglesResult;
+                op.HasMetadata = true;
+
+                // HasMetadata just flipped on an operation already sitting in history.
+                // Recompute the on-image counter now — mutating the op in place doesn't
+                // raise a history-changed event, so nothing else will trigger the refresh.
+                OnMetadataGenerated?.Invoke();
             }
 
             UpdateEFDPreview();

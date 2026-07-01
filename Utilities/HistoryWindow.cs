@@ -3,6 +3,7 @@ using DinoLino.Utilities.Operations;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.IO.Packaging;
@@ -15,22 +16,8 @@ using System.Windows.Media;
 
 namespace DinoLino.Utilities
 {
-    // Read-only view of the operation history, one tab per operation type. Within each tab,
-    // operations are grouped into per-specimen blocks: every archived (frozen) specimen in
-    // order, then the current live specimen at the bottom. Each block is labelled with its
-    // specimen's name and numbers its attempts from 1. Specimens with no operations of a
-    // tab's type still appear as a labelled, empty block.
-    //
-    // Export options (all operate on a snapshot taken when the window opened):
-    //   • Per tab: "Export to CSV…" writes that tab's flat table (one row per operation,
-    //     leading Specimen column).
-    //   • Per tab: "Add to workbook" toggles that tab's table into a pending workbook.
-    //   • Global footer: "Export workbook…" writes every added table as a separate sheet of
-    //     a single .xlsx file. The workbook is built with System.IO.Packaging (no external
-    //     dependency); numeric-looking cells are written as numbers, unit-bearing cells as text.
     public class HistoryWindow : Window
     {
-        // Pending workbook: the set of tab tables the user has added, in add-order.
         private readonly List<WorkbookSheet> _workbook = new();
         private TextBlock _workbookStatus;
         private Button _exportWorkbookButton;
@@ -42,6 +29,18 @@ namespace DinoLino.Utilities
             public List<string[]> Rows;
         }
 
+        // Backs the editable "Attempt" header for one tab.
+        private class AttemptHeader : INotifyPropertyChanged
+        {
+            private string _text = "Attempt";
+            public string Text
+            {
+                get => _text;
+                set { _text = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Text))); }
+            }
+            public event PropertyChangedEventHandler PropertyChanged;
+        }
+
         public HistoryWindow(UndoRedoManager undoRedo, string specimenName, ScaleCalibration scale)
         {
             Title = "History of operations";
@@ -49,7 +48,6 @@ namespace DinoLino.Utilities
             Height = 540;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-            // Footer first, so the per-tab "Add to workbook" handlers can update it.
             var footer = BuildWorkbookFooter();
             UpdateWorkbookStatus();
 
@@ -62,12 +60,10 @@ namespace DinoLino.Utilities
             var root = new DockPanel();
             DockPanel.SetDock(footer, Dock.Bottom);
             root.Children.Add(footer);
-            root.Children.Add(tabs);   // fills remaining space
+            root.Children.Add(tabs);
             Content = root;
         }
 
-        // One block per specimen: each archived record in order, then the current live
-        // specimen last (labelled with the live name). Tabs filter each block by type.
         private static IEnumerable<(string Name, IReadOnlyList<WorkOperation> Ops)> Blocks(
             UndoRedoManager ur, string currentName)
         {
@@ -76,19 +72,18 @@ namespace DinoLino.Utilities
             yield return (currentName, ur.History);
         }
 
-        // ── Tab builders ─────────────────────────────────────────────────────────
-
         private TabItem BuildCircularArcTab(UndoRedoManager ur, string currentName)
         {
             var panel = new StackPanel();
             var csvRows = new List<string[]>();
+            var attemptHeader = new AttemptHeader();
 
             foreach (var (name, ops) in Blocks(ur, currentName))
             {
                 panel.Children.Add(SpecimenHeader(name));
 
                 var grid = MakeGrid();
-                AddColumn(grid, "Attempt", nameof(CircularArcHistoryRow.Attempt), 70);
+                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(CircularArcHistoryRow.Attempt), 70);
                 AddColumn(grid, "Central angle", nameof(CircularArcHistoryRow.CentralAngle));
                 AddColumn(grid, "Chord-arc ratio", nameof(CircularArcHistoryRow.ChordArcRatio));
                 AddColumn(grid, "Rise-span ratio", nameof(CircularArcHistoryRow.RiseSpanRatio));
@@ -101,13 +96,13 @@ namespace DinoLino.Utilities
                     any = true;
                     var r = new CircularArcHistoryRow
                     {
-                        Attempt = attempt++,
+                        Attempt = (attempt++).ToString(),
                         CentralAngle = Fmt(op.CentralAngle),
                         ChordArcRatio = Fmt(op.ChordArcRatio),
-                        RiseSpanRatio = Fmt(op.AspectRatio)   // panel's "Rise-Span Ratio" binds AspectRatio
+                        RiseSpanRatio = Fmt(op.AspectRatio)
                     };
                     rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt.ToString(), r.CentralAngle, r.ChordArcRatio, r.RiseSpanRatio });
+                    csvRows.Add(new[] { name, r.Attempt, r.CentralAngle, r.ChordArcRatio, r.RiseSpanRatio });
                 }
                 if (!any)
                     csvRows.Add(new[] { name, "", "", "", "" });
@@ -124,13 +119,14 @@ namespace DinoLino.Utilities
         {
             var panel = new StackPanel();
             var csvRows = new List<string[]>();
+            var attemptHeader = new AttemptHeader();
 
             foreach (var (name, ops) in Blocks(ur, currentName))
             {
                 panel.Children.Add(SpecimenHeader(name));
 
                 var grid = MakeGrid();
-                AddColumn(grid, "Attempt", nameof(ParabolicArcHistoryRow.Attempt), 70);
+                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(ParabolicArcHistoryRow.Attempt), 70);
                 AddColumn(grid, "Chord-arc ratio", nameof(ParabolicArcHistoryRow.ChordArcRatio));
                 AddColumn(grid, "Rise-span ratio", nameof(ParabolicArcHistoryRow.RiseSpanRatio));
                 AddColumn(grid, "Vertex curvature", nameof(ParabolicArcHistoryRow.VertexCurvature));
@@ -143,13 +139,13 @@ namespace DinoLino.Utilities
                     any = true;
                     var r = new ParabolicArcHistoryRow
                     {
-                        Attempt = attempt++,
+                        Attempt = (attempt++).ToString(),
                         ChordArcRatio = Fmt(op.PChordArcRatio),
                         RiseSpanRatio = Fmt(op.RiseSpanRatio),
                         VertexCurvature = Fmt(op.VertexCurvature)
                     };
                     rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt.ToString(), r.ChordArcRatio, r.RiseSpanRatio, r.VertexCurvature });
+                    csvRows.Add(new[] { name, r.Attempt, r.ChordArcRatio, r.RiseSpanRatio, r.VertexCurvature });
                 }
                 if (!any)
                     csvRows.Add(new[] { name, "", "", "", "" });
@@ -166,19 +162,19 @@ namespace DinoLino.Utilities
         {
             var panel = new StackPanel();
             var csvRows = new List<string[]>();
+            var attemptHeader = new AttemptHeader();
 
             foreach (var (name, ops) in Blocks(ur, currentName))
             {
                 panel.Children.Add(SpecimenHeader(name));
 
                 var grid = MakeGrid();
-                AddColumn(grid, "Attempt", nameof(SplineHistoryRow.Attempt), 70);
+                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(SplineHistoryRow.Attempt), 70);
                 AddColumn(grid, "Turn. Angles / Length", nameof(SplineHistoryRow.TurnPerLength));
                 AddColumn(grid, "Sum Turn. Angles", nameof(SplineHistoryRow.SumTurning));
                 AddColumn(grid, "Chord-arc ratio", nameof(SplineHistoryRow.ChordArcRatio));
                 AddColumn(grid, "Length", nameof(SplineHistoryRow.Length));
 
-                // Both Catmull-Rom and Bézier are SplineOperation, so they share this tab.
                 var rows = new List<SplineHistoryRow>();
                 int attempt = 1;
                 bool any = false;
@@ -187,14 +183,14 @@ namespace DinoLino.Utilities
                     any = true;
                     var r = new SplineHistoryRow
                     {
-                        Attempt = attempt++,
+                        Attempt = (attempt++).ToString(),
                         TurnPerLength = Fmt(op.TurningAngleArcRatio),
                         SumTurning = Fmt(op.SumTurningAngles),
                         ChordArcRatio = Fmt(op.SChordArcRatio),
                         Length = FmtLength(op.SplineLengthPixels, scale)
                     };
                     rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt.ToString(), r.TurnPerLength, r.SumTurning, r.ChordArcRatio, r.Length });
+                    csvRows.Add(new[] { name, r.Attempt, r.TurnPerLength, r.SumTurning, r.ChordArcRatio, r.Length });
                 }
                 if (!any)
                     csvRows.Add(new[] { name, "", "", "", "", "" });
@@ -211,13 +207,14 @@ namespace DinoLino.Utilities
         {
             var panel = new StackPanel();
             var csvRows = new List<string[]>();
+            var attemptHeader = new AttemptHeader();
 
             foreach (var (name, ops) in Blocks(ur, currentName))
             {
                 panel.Children.Add(SpecimenHeader(name));
 
                 var grid = MakeGrid();
-                AddColumn(grid, "Attempt", nameof(TriangleHistoryRow.Attempt), 70);
+                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(TriangleHistoryRow.Attempt), 70);
                 AddColumn(grid, "Angle A", nameof(TriangleHistoryRow.AngleA));
                 AddColumn(grid, "Angle B", nameof(TriangleHistoryRow.AngleB));
                 AddColumn(grid, "Angle C", nameof(TriangleHistoryRow.AngleC));
@@ -231,14 +228,14 @@ namespace DinoLino.Utilities
                     any = true;
                     var r = new TriangleHistoryRow
                     {
-                        Attempt = attempt++,
+                        Attempt = (attempt++).ToString(),
                         AngleA = Fmt(op.AngleA),
                         AngleB = Fmt(op.AngleB),
                         AngleC = Fmt(op.AngleC),
                         Area = FmtArea(op.TriArea, scale)
                     };
                     rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt.ToString(), r.AngleA, r.AngleB, r.AngleC, r.Area });
+                    csvRows.Add(new[] { name, r.Attempt, r.AngleA, r.AngleB, r.AngleC, r.Area });
                 }
                 if (!any)
                     csvRows.Add(new[] { name, "", "", "", "", "" });
@@ -251,10 +248,6 @@ namespace DinoLino.Utilities
             return WrapTab("Triangle", panel, headers, csvRows, "triangle_history.csv");
         }
 
-        // ── Tab chrome: scrollable blocks + per-tab action buttons ────────────────
-
-        // Scrollable stack of per-specimen blocks with a button row docked beneath it:
-        // [Add to workbook] [Export to CSV…]. `header` doubles as the workbook sheet name.
         private TabItem WrapTab(string header, StackPanel panel,
             string[] csvHeaders, List<string[]> csvRows, string suggestedFileName)
         {
@@ -302,7 +295,7 @@ namespace DinoLino.Utilities
             var dock = new DockPanel { Margin = new Thickness(4) };
             DockPanel.SetDock(buttonRow, Dock.Bottom);
             dock.Children.Add(buttonRow);
-            dock.Children.Add(scroll);   // fills remaining space
+            dock.Children.Add(scroll);
             return new TabItem { Header = header, Content = dock };
         }
 
@@ -323,17 +316,15 @@ namespace DinoLino.Utilities
             var grid = new DataGrid
             {
                 AutoGenerateColumns = false,
-                IsReadOnly = true,
+                IsReadOnly = false,
                 CanUserAddRows = false,
                 CanUserDeleteRows = false,
                 CanUserReorderColumns = false,
-                CanUserSortColumns = false,                       // keep attempts in order
+                CanUserSortColumns = false,
                 HeadersVisibility = DataGridHeadersVisibility.Column,
                 GridLinesVisibility = DataGridGridLinesVisibility.All,
                 Margin = new Thickness(8, 0, 8, 12)
             };
-            // Size each grid to its content and let the outer ScrollViewer scroll the whole
-            // stack, rather than each grid scrolling internally.
             ScrollViewer.SetVerticalScrollBarVisibility(grid, ScrollBarVisibility.Disabled);
             return grid;
         }
@@ -344,13 +335,47 @@ namespace DinoLino.Utilities
             {
                 Header = header,
                 Binding = new Binding(path),
+                IsReadOnly = true,
                 Width = fixedWidth.HasValue
                     ? new DataGridLength(fixedWidth.Value)
                     : new DataGridLength(1, DataGridLengthUnitType.Star)
             });
         }
 
-        // ── Workbook footer ───────────────────────────────────────────────────────
+        private static TextBox MakeAttemptHeaderBox(AttemptHeader model)
+        {
+            var box = new TextBox
+            {
+                MinWidth = 54,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                FontWeight = FontWeights.Bold,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                ToolTip = "Edit this column title (affects this window and its exports only)",
+                DataContext = model
+            };
+            box.SetBinding(TextBox.TextProperty, new Binding(nameof(AttemptHeader.Text))
+            {
+                Mode = BindingMode.TwoWay,
+                UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
+            });
+            return box;
+        }
+
+        private static void AddAttemptColumn(DataGrid grid, TextBox headerBox, string path, double fixedWidth)
+        {
+            grid.Columns.Add(new DataGridTextColumn
+            {
+                Header = headerBox,
+                Binding = new Binding(path)
+                {
+                    Mode = BindingMode.TwoWay,
+                    UpdateSourceTrigger = UpdateSourceTrigger.LostFocus
+                },
+                IsReadOnly = false,
+                Width = new DataGridLength(fixedWidth)
+            });
+        }
 
         private FrameworkElement BuildWorkbookFooter()
         {
@@ -390,10 +415,6 @@ namespace DinoLino.Utilities
             _exportWorkbookButton.IsEnabled = n > 0;
         }
 
-        // ── CSV export (single tab) ───────────────────────────────────────────────
-
-        // Prompts for a path and writes the given header + rows as CSV. Written with a UTF-8
-        // BOM so Excel renders the unit symbols (°, ²) correctly on open.
         private static void ExportCsv(string[] headers, List<string[]> rows, string suggestedFileName)
         {
             var dlg = new SaveFileDialog
@@ -422,7 +443,6 @@ namespace DinoLino.Utilities
             }
         }
 
-        // Quotes a field if it contains a comma, quote, or newline; doubles any inner quotes.
         private static string CsvEscape(string field)
         {
             field ??= "";
@@ -431,11 +451,9 @@ namespace DinoLino.Utilities
             return field;
         }
 
-        // ── Workbook export (multi-sheet .xlsx) ───────────────────────────────────
-
         private void ExportWorkbook()
         {
-            if (_workbook.Count == 0) return;   // button is disabled in this state anyway
+            if (_workbook.Count == 0) return;
 
             var dlg = new SaveFileDialog
             {
@@ -458,12 +476,6 @@ namespace DinoLino.Utilities
             }
         }
 
-        // ── "Export operation history" (all tabs, windowless) ─────────────────────
-
-        // Public entry point for the File-menu export. Builds every tab's table from the
-        // current history and writes them all as sheets of a single .xlsx — no open window
-        // required. Always includes all four sheets; a specimen with no operations of a
-        // given type still yields a labelled, name-only row, matching the window.
         public static void ExportAllOperationHistory(
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
@@ -507,10 +519,6 @@ namespace DinoLino.Utilities
 
             return sheets;
         }
-
-        // Each builder reproduces the same Specimen-led flat table the per-tab CSV/workbook
-        // produces. (The tab builders derive their CSV rows inline from the grid rows; these
-        // recompute the same values so the export can run with no window open.)
 
         private static (string[] Headers, List<string[]> Rows) BuildCircularArcData(
             UndoRedoManager ur, string currentName)
@@ -588,9 +596,6 @@ namespace DinoLino.Utilities
             return (headers, rows);
         }
 
-        // Writes a minimal but valid .xlsx using System.IO.Packaging (WindowsBase — already
-        // referenced by WPF, so no NuGet dependency). One worksheet per added table; the
-        // package auto-generates [Content_Types].xml and the package relationships.
         private static void WriteXlsx(string path, List<WorkbookSheet> sheets)
         {
             const string nsMain = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -603,19 +608,15 @@ namespace DinoLino.Utilities
 
             using var pkg = Package.Open(path, FileMode.Create);
 
-            // Workbook part + package relationship pointing at it.
             var wbUri = new Uri("/xl/workbook.xml", UriKind.Relative);
             var wbPart = pkg.CreatePart(wbUri, ctWorkbook);
             pkg.CreateRelationship(wbUri, TargetMode.Internal, relOfficeDoc, "rId1");
 
-            // Shared styles part (referenced by the workbook part's relationships).
             var stylesUri = new Uri("/xl/styles.xml", UriKind.Relative);
             var stylesPart = pkg.CreatePart(stylesUri, ctStyles);
             WritePartText(stylesPart, StylesXml());
             wbPart.CreateRelationship(stylesUri, TargetMode.Internal, relStyles, "rIdStyles");
 
-            // Worksheet parts. Relationship ids rId1..rIdN line up with the <sheet> r:id
-            // references written into workbook.xml below.
             for (int i = 1; i <= sheets.Count; i++)
             {
                 var sheetUri = new Uri($"/xl/worksheets/sheet{i}.xml", UriKind.Relative);
@@ -657,7 +658,6 @@ namespace DinoLino.Utilities
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
             sb.Append("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>");
 
-            // Header row (all text).
             sb.Append("<row r=\"1\">");
             for (int c = 0; c < sheet.Headers.Length; c++)
                 sb.Append(InlineStringCell($"{ColumnLetter(c)}1", sheet.Headers[c]));
@@ -677,8 +677,6 @@ namespace DinoLino.Utilities
             return sb.ToString();
         }
 
-        // Numeric cell when the value parses as an invariant number ("23.45", "1"); otherwise
-        // an inline-string cell ("12.34 mm", "", "45.6 px²").
         private static string Cell(string reference, string value)
         {
             if (!string.IsNullOrEmpty(value) &&
@@ -690,7 +688,6 @@ namespace DinoLino.Utilities
         private static string InlineStringCell(string reference, string value) =>
             $"<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{XmlEscape(value)}</t></is></c>";
 
-        // 0-based column index → Excel column letters (0→A, 25→Z, 26→AA…).
         private static string ColumnLetter(int index)
         {
             string s = "";
@@ -713,7 +710,6 @@ namespace DinoLino.Utilities
                     .Replace("\"", "&quot;");
         }
 
-        // Excel sheet names: ≤31 chars, none of : \ / ? * [ ], non-empty.
         private static string SafeSheetName(string name, int ordinal)
         {
             if (string.IsNullOrWhiteSpace(name)) name = $"Sheet{ordinal}";
@@ -724,8 +720,6 @@ namespace DinoLino.Utilities
             if (name.Length == 0) name = $"Sheet{ordinal}";
             return name;
         }
-
-        // ── Value formatting ─────────────────────────────────────────────────────
 
         private static string Fmt(double v) =>
             Math.Round(v, 2).ToString(CultureInfo.InvariantCulture);
@@ -741,10 +735,9 @@ namespace DinoLino.Utilities
                 : $"{Math.Round(pixelArea, 1).ToString(CultureInfo.InvariantCulture)} px\u00B2";
     }
 
-    // ── Row view-models (one per operation type) ─────────────────────────────────
     public class CircularArcHistoryRow
     {
-        public int Attempt { get; set; }
+        public string Attempt { get; set; }
         public string CentralAngle { get; set; }
         public string ChordArcRatio { get; set; }
         public string RiseSpanRatio { get; set; }
@@ -752,7 +745,7 @@ namespace DinoLino.Utilities
 
     public class ParabolicArcHistoryRow
     {
-        public int Attempt { get; set; }
+        public string Attempt { get; set; }
         public string ChordArcRatio { get; set; }
         public string RiseSpanRatio { get; set; }
         public string VertexCurvature { get; set; }
@@ -760,7 +753,7 @@ namespace DinoLino.Utilities
 
     public class SplineHistoryRow
     {
-        public int Attempt { get; set; }
+        public string Attempt { get; set; }
         public string TurnPerLength { get; set; }
         public string SumTurning { get; set; }
         public string ChordArcRatio { get; set; }
@@ -769,7 +762,7 @@ namespace DinoLino.Utilities
 
     public class TriangleHistoryRow
     {
-        public int Attempt { get; set; }
+        public string Attempt { get; set; }
         public string AngleA { get; set; }
         public string AngleB { get; set; }
         public string AngleC { get; set; }
