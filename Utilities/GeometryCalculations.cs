@@ -235,27 +235,9 @@ namespace DinoLino.Utilities
             return Math.Round(sum, 3);
         }
 
-        /// Mean absolute turning angle per interior vertex of an open polyline (degrees).
-        public static double MeanTurningAngleOpen(List<Vector2> pts)
+        public static double TurningAnglePerLength(double sumTurningAngles, double perimeter)
         {
-            var angles = TurningAnglesOpen(pts);
-            if (angles.Count == 0) return 0;
-            double sum = 0;
-            foreach (double a in angles) sum += a;
-            return Math.Round(sum / angles.Count, 3);
-        }
-
-        /// Variance of absolute turning angles at interior vertices of an open polyline (degrees²).
-        public static double VarianceTurningAnglesOpen(List<Vector2> pts)
-        {
-            var angles = TurningAnglesOpen(pts);
-            if (angles.Count < 2) return 0;
-            double mean = 0;
-            foreach (double a in angles) mean += a;
-            mean /= angles.Count;
-            double variance = 0;
-            foreach (double a in angles) { double d = a - mean; variance += d * d; }
-            return Math.Round(variance / angles.Count, 3);
+            return perimeter > 1e-5 ? Math.Round(sumTurningAngles / perimeter, 4) : 0;
         }
 
         // =====================================================================

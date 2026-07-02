@@ -56,6 +56,8 @@ namespace DinoLino.Utilities
             tabs.Items.Add(BuildParabolicArcTab(undoRedo, specimenName));
             tabs.Items.Add(BuildSplineTab(undoRedo, specimenName, scale));
             tabs.Items.Add(BuildTriangleTab(undoRedo, specimenName, scale));
+            tabs.Items.Add(BuildLineTab(undoRedo, specimenName, scale));
+            tabs.Items.Add(BuildOutlineTab(undoRedo, specimenName, scale));
 
             var root = new DockPanel();
             DockPanel.SetDock(footer, Dock.Bottom);
@@ -70,6 +72,101 @@ namespace DinoLino.Utilities
             foreach (var rec in ur.Archive)
                 yield return (rec.SpecimenName, rec.Operations);
             yield return (currentName, ur.History);
+        }
+
+        private TabItem BuildLineTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var panel = new StackPanel();
+            var csvRows = new List<string[]>();
+            var attemptHeader = new AttemptHeader();
+
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                panel.Children.Add(SpecimenHeader(name));
+
+                var grid = MakeGrid();
+                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(LineHistoryRow.Attempt), 70);
+                AddColumn(grid, "Length", nameof(LineHistoryRow.Length));
+
+                var rows = new List<LineHistoryRow>();
+                int attempt = 1;
+                bool any = false;
+                foreach (var op in ops.OfType<LineOperation>())
+                {
+                    any = true;
+                    var r = new LineHistoryRow
+                    {
+                        Attempt = (attempt++).ToString(),
+                        Length = FmtLength(op.LineLength, scale)
+                    };
+                    rows.Add(r);
+                    csvRows.Add(new[] { name, r.Attempt, r.Length });
+                }
+                if (!any)
+                    csvRows.Add(new[] { name, "", "", "" });
+                grid.ItemsSource = rows;
+
+                panel.Children.Add(grid);
+            }
+
+            var headers = new[] { "Specimen", "Attempt", "Length" };
+            return WrapTab("Lines", panel, headers, csvRows, "line_history.csv");
+        }
+
+        private TabItem BuildOutlineTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var panel = new StackPanel();
+            var csvRows = new List<string[]>();
+            var attemptHeader = new AttemptHeader();
+
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                panel.Children.Add(SpecimenHeader(name));
+
+                var grid = MakeGrid();
+                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(OutlineHistoryRow.Attempt), 70);
+                AddColumn(grid, "Aspect ratio", nameof(OutlineHistoryRow.AspectRatio));
+                AddColumn(grid, "Perimeter", nameof(OutlineHistoryRow.Perimeter));
+                AddColumn(grid, "Area", nameof(OutlineHistoryRow.Area));
+                AddColumn(grid, "Perim / Area", nameof(OutlineHistoryRow.PerimeterAreaRatio));
+                AddColumn(grid, "Circularity", nameof(OutlineHistoryRow.Circularity));
+                AddColumn(grid, "Solidity", nameof(OutlineHistoryRow.Solidity));
+                AddColumn(grid, "Sum Turn. Angles", nameof(OutlineHistoryRow.SumTurningAngles));
+                AddColumn(grid, "Turn. Angles / Length", nameof(OutlineHistoryRow.TurningAngleLength));
+
+                var rows = new List<OutlineHistoryRow>();
+                int attempt = 1;
+                bool any = false;
+                // Only finalized outlines with generated metadata (HasMetadata) — matching the
+                // n_outline counter. EFD/EFA coefficients are omitted; they export separately
+                // from the EFA detail window.
+                foreach (var op in ops.OfType<OutlineOperation>().Where(o => o.HasMetadata))
+                {
+                    any = true;
+                    var r = new OutlineHistoryRow
+                    {
+                        Attempt = (attempt++).ToString(),
+                        AspectRatio = Fmt4(op.AspectRatio),
+                        Perimeter = FmtLength(op.Perimeter, scale),
+                        Area = FmtArea(op.Area, scale),
+                        PerimeterAreaRatio = Fmt4(op.PerimeterAreaRatio),
+                        Circularity = Fmt4(op.Circularity),
+                        Solidity = Fmt4(op.Solidity),
+                        SumTurningAngles = Fmt4(op.SumTurningAngles),
+                        TurningAngleLength = Fmt4(op.TurningAngleLength)
+                    };
+                    rows.Add(r);
+                    csvRows.Add(new[] { name, r.Attempt, r.AspectRatio, r.Perimeter, r.Area, r.PerimeterAreaRatio, r.Circularity, r.Solidity, r.SumTurningAngles, r.TurningAngleLength });
+                }
+                if (!any)
+                    csvRows.Add(new[] { name, "", "", "", "", "", "", "", "", "" });
+                grid.ItemsSource = rows;
+
+                panel.Children.Add(grid);
+            }
+
+            var headers = new[] { "Specimen", "Attempt", "Aspect ratio", "Perimeter", "Area", "Perim / Area", "Circularity", "Solidity", "Sum Turn. Angles", "Turn. Angles / Length" };
+            return WrapTab("Outline", panel, headers, csvRows, "outline_history.csv");
         }
 
         private TabItem BuildCircularArcTab(UndoRedoManager ur, string currentName)
@@ -255,7 +352,7 @@ namespace DinoLino.Utilities
             {
                 Content = panel,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto
             };
 
             var addButton = new Button
@@ -323,6 +420,7 @@ namespace DinoLino.Utilities
                 CanUserSortColumns = false,
                 HeadersVisibility = DataGridHeadersVisibility.Column,
                 GridLinesVisibility = DataGridGridLinesVisibility.All,
+                ColumnWidth = new DataGridLength(1, DataGridLengthUnitType.Auto),
                 Margin = new Thickness(8, 0, 8, 12)
             };
             ScrollViewer.SetVerticalScrollBarVisibility(grid, ScrollBarVisibility.Disabled);
@@ -338,7 +436,7 @@ namespace DinoLino.Utilities
                 IsReadOnly = true,
                 Width = fixedWidth.HasValue
                     ? new DataGridLength(fixedWidth.Value)
-                    : new DataGridLength(1, DataGridLengthUnitType.Star)
+                    : new DataGridLength(1, DataGridLengthUnitType.Auto)
             });
         }
 
@@ -517,6 +615,12 @@ namespace DinoLino.Utilities
             var (h4, r4) = BuildTriangleData(ur, currentName, scale);
             sheets.Add(new WorkbookSheet { Name = "Triangle", Headers = h4, Rows = r4 });
 
+            var (h5, r5) = BuildLineData(ur, currentName, scale);           
+            sheets.Add(new WorkbookSheet { Name = "Lines", Headers = h5, Rows = r5 });
+
+            var (h6, r6) = BuildOutlineData(ur, currentName, scale);
+            sheets.Add(new WorkbookSheet { Name = "Outline", Headers = h6, Rows = r6 });
+
             return sheets;
         }
 
@@ -592,6 +696,55 @@ namespace DinoLino.Utilities
                     rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.AngleA), Fmt(op.AngleB), Fmt(op.AngleC), FmtArea(op.TriArea, scale) });
                 }
                 if (!any) rows.Add(new[] { name, "", "", "", "", "" });
+            }
+            return (headers, rows);
+        }
+
+        private static (string[] Headers, List<string[]> Rows) BuildLineData(
+    UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var headers = new[] { "Specimen", "Attempt", "Length", "Line ratio" };
+            var rows = new List<string[]>();
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                int attempt = 1;
+                bool any = false;
+                foreach (var op in ops.OfType<LineOperation>())
+                {
+                    any = true;
+                    rows.Add(new[] { name, (attempt++).ToString(), FmtLength(op.LineLength, scale), FmtRatio(op.LineLengthRatio) });
+                }
+                if (!any) rows.Add(new[] { name, "", "", "" });
+            }
+            return (headers, rows);
+        }
+
+        private static (string[] Headers, List<string[]> Rows) BuildOutlineData(
+    UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var headers = new[] { "Specimen", "Attempt", "Aspect ratio", "Perimeter", "Area", "Perim / Area", "Circularity", "Solidity", "Sum Turn. Angles", "Turn. Angles / Length" };
+            var rows = new List<string[]>();
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                int attempt = 1;
+                bool any = false;
+                foreach (var op in ops.OfType<OutlineOperation>().Where(o => o.HasMetadata))
+                {
+                    any = true;
+                    rows.Add(new[]
+                    {
+                name, (attempt++).ToString(),
+                Fmt4(op.AspectRatio),
+                FmtLength(op.Perimeter, scale),
+                FmtArea(op.Area, scale),
+                Fmt4(op.PerimeterAreaRatio),
+                Fmt4(op.Circularity),
+                Fmt4(op.Solidity),
+                Fmt4(op.SumTurningAngles),
+                Fmt4(op.TurningAngleLength)
+            });
+                }
+                if (!any) rows.Add(new[] { name, "", "", "", "", "", "", "", "", "" });
             }
             return (headers, rows);
         }
@@ -724,6 +877,14 @@ namespace DinoLino.Utilities
         private static string Fmt(double v) =>
             Math.Round(v, 2).ToString(CultureInfo.InvariantCulture);
 
+        private static string Fmt4(double v) =>
+    Math.Round(v, 4).ToString(CultureInfo.InvariantCulture);
+
+        // The line-length ratio is boxed as either a rounded double or the string "N/A"
+        // (see GeometryCalculations.RelativeLength), so format each case accordingly.
+        private static string FmtRatio(object ratio) =>
+            ratio is double d ? Fmt(d) : ratio?.ToString() ?? "";
+
         private static string FmtLength(double pixels, ScaleCalibration scale) =>
             scale != null && scale.IsCalibrated
                 ? $"{scale.ToUnits(pixels):F2} {scale.Unit}"
@@ -767,5 +928,24 @@ namespace DinoLino.Utilities
         public string AngleB { get; set; }
         public string AngleC { get; set; }
         public string Area { get; set; }
+    }
+
+    public class LineHistoryRow
+    {
+        public string Attempt { get; set; }
+        public string Length { get; set; }
+    }
+
+    public class OutlineHistoryRow
+    {
+        public string Attempt { get; set; }
+        public string AspectRatio { get; set; }
+        public string Perimeter { get; set; }
+        public string Area { get; set; }
+        public string PerimeterAreaRatio { get; set; }
+        public string Circularity { get; set; }
+        public string Solidity { get; set; }
+        public string SumTurningAngles { get; set; }
+        public string TurningAngleLength { get; set; }
     }
 }

@@ -216,6 +216,7 @@ namespace DinoLino.Utilities.Modes
             PerimeterAreaRatioResult = 0;
             CircularityResult = 0;
             SolidityResult = 0;
+            TurningAngleLengthResult = 0;
             SumTurningAnglesResult = 0;
             EFDCoefficientsResult = null;
             MetadataSummary = "";
@@ -1394,6 +1395,13 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _sumTurningAnglesResult, value);
         }
 
+        private double _turningAngleLengthResult;
+        public double TurningAngleLengthResult
+        {
+            get => _turningAngleLengthResult;
+            set => SetField(ref _turningAngleLengthResult, value);
+        }
+
         // Formatted string for display in the control panel
         private string _metadataSummary = "";
         public string MetadataSummary
@@ -1481,6 +1489,7 @@ namespace DinoLino.Utilities.Modes
             double convexHullArea = GeometryCalculations.ConvexHullArea(imagePts);
             SolidityResult = GeometryCalculations.Solidity(area, convexHullArea);
             SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(imagePts);
+            TurningAngleLengthResult = GeometryCalculations.TurningAnglePerLength(SumTurningAnglesResult, perimeter);
 
             int harmonics = EfdHarmonics;
             EFDCoefficientsResult = _efd.ComputeNormalized(pts, harmonics);
@@ -1496,6 +1505,7 @@ namespace DinoLino.Utilities.Modes
             sb.AppendLine($"Circularity:        {CircularityResult:F4}");
             sb.AppendLine($"Solidity:           {SolidityResult:F4}");
             sb.AppendLine($"Sum Turning Angles: {SumTurningAnglesResult:F4}");
+            sb.AppendLine($"Turn. Angles / Length: {TurningAngleLengthResult:F4}");
             sb.AppendLine($"EFD harmonics ({harmonics}):");
             for (int h = 0; h < harmonics; h++)
             {
@@ -1513,6 +1523,9 @@ namespace DinoLino.Utilities.Modes
                 op.EFDCoefficients = EFDCoefficientsResult;
                 op.Solidity = SolidityResult;
                 op.SumTurningAngles = SumTurningAnglesResult;
+                op.TurningAngleLength = TurningAngleLengthResult;
+                op.Perimeter = canvasPerimeter;
+                op.Area = canvasArea;
                 op.HasMetadata = true;
 
                 // HasMetadata just flipped on an operation already sitting in history.

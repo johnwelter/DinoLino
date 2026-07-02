@@ -372,6 +372,13 @@ namespace DinoLino
                 e.Handled = true;
             }
 
+            // Ctrl + S to take screenshot
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.S)
+            {
+                Menu_Screenshot(this, new RoutedEventArgs());
+                e.Handled = true;
+            }
+
             // Ctrl + Z to undo
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Z)
             {
@@ -507,6 +514,88 @@ namespace DinoLino
             Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(SyncOutlineImageTransform));
         }
 
+        private void Menu_Screenshot(object sender, RoutedEventArgs e)
+        {
+            if (WorkingImage == null)
+            {
+                MessageBox.Show("Please open an image first.", "No Image",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var rtb = RenderWorkspaceToBitmap(2.0); // 2x supersample for a crisp capture
+            if (rtb == null) return;
+
+            var dlg = new SaveFileDialog
+            {
+                Title = "Save Screenshot",
+                FileName = SanitizeFileName(SpecimenManager.DisplayName),
+                Filter = "PNG image (*.png)|*.png|JPEG image (*.jpg)|*.jpg|TIFF image (*.tif)|*.tif",
+                DefaultExt = ".png",
+                AddExtension = true
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            // Choose the encoder from the extension the user actually saved with, so a
+            // hand-typed ".tif" is honored even if the filter dropdown says PNG.
+            BitmapEncoder encoder = System.IO.Path.GetExtension(dlg.FileName).ToLowerInvariant() switch
+            {
+                ".jpg" or ".jpeg" => new JpegBitmapEncoder { QualityLevel = 95 },
+                ".tif" or ".tiff" => new TiffBitmapEncoder(),
+                _ => new PngBitmapEncoder()
+            };
+            encoder.Frames.Add(BitmapFrame.Create(rtb));
+
+            try
+            {
+                using var stream = System.IO.File.Create(dlg.FileName);
+                encoder.Save(stream);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not save the screenshot:\n{ex.Message}",
+                    "Save failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        // Renders the workspace (image + every visible overlay, at the current zoom/pan)
+        // to a bitmap, supersampled by `scale`. UI_WorkSpace has ClipToBounds and the bitmap
+        // is sized to it, so any panned-off part of the image is clipped away. The white
+        // follow-cursor dot is hidden during the capture so it doesn't appear in the file.
+        private RenderTargetBitmap RenderWorkspaceToBitmap(double scale)
+        {
+            double w = UI_WorkSpace.ActualWidth, h = UI_WorkSpace.ActualHeight;
+            if (w <= 0 || h <= 0) return null;
+
+            var cursorVis = UI_DotCursor.Visibility;
+            try
+            {
+                UI_DotCursor.Visibility = Visibility.Collapsed;
+                UI_WorkSpace.UpdateLayout();
+
+                var rtb = new RenderTargetBitmap(
+                    (int)(w * scale), (int)(h * scale),
+                    96 * scale, 96 * scale,
+                    PixelFormats.Pbgra32);
+                rtb.Render(UI_WorkSpace);
+                return rtb;
+            }
+            finally
+            {
+                UI_DotCursor.Visibility = cursorVis;   // always restore, even if Render throws
+                UI_WorkSpace.UpdateLayout();
+            }
+        }
+
+        // Strips characters invalid in file names so the specimen-derived default is always
+        // valid; falls back to "screenshot" if the specimen name is blank.
+        private static string SanitizeFileName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "screenshot";
+            foreach (char c in System.IO.Path.GetInvalidFileNameChars())
+                name = name.Replace(c, '_');
+            return name;
+        }
         private void Menu_About(object sender, RoutedEventArgs e)
         {
             AboutWindow about = new AboutWindow();

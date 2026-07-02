@@ -125,8 +125,10 @@ namespace DinoLino.Utilities.Operations
         public double Circularity { get; set; }
         public double Solidity { get; set; }
         public double SumTurningAngles { get; set; }
+        public double TurningAngleLength { get; set; }
         public double[] EFDCoefficients { get; set; } // flattened: [a1,b1,c1,d1, a2,b2,c2,d2, ...]
-
+        public double Perimeter { get; set; }
+        public double Area { get; set; }
 
         public bool HasMetadata { get; set; }
 
@@ -139,6 +141,7 @@ namespace DinoLino.Utilities.Operations
                 mode.CircularityResult = Circularity;
                 mode.SolidityResult = Solidity;
                 mode.SumTurningAnglesResult = SumTurningAngles;
+                mode.TurningAngleLengthResult = TurningAngleLength;
                 mode.EFDCoefficientsResult = EFDCoefficients;
             }
         }
