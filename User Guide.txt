@@ -138,7 +138,8 @@ FILE:
 Open a 2D image file to analyze. Supported formats include .jpg, .png, .tif, and .bmp.
 
 ----- Open 3D Model (.ply) ----- 
-Open a 3D ply file to analyze. Position the model by pressing the scroll wheel and dragging, or by pressing the arrow keys. 
+Open a 3D file to analyze. PLY, OBJ, and STL files are supported. 
+Position the model by pressing the scroll wheel and dragging, or by pressing the arrow keys. 
 Click 'Capture View' to finish positioning the object. This will save the view as a 2D image, which the user can begin measuring.
 
 Note: DinoLino is currently limited to 2D morphometrics. Measurements may only be taken on 2D projections of the 3D model.

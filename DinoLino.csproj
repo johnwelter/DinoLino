@@ -72,7 +72,10 @@
     <Compile Include="FontWindow.xaml.cs">
       <DependentUpon>FontWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MeshLoader.cs" />
+    <Compile Include="MeshSimplifier.cs" />
     <Compile Include="MultivariateStatistics.cs" />
+    <Compile Include="ObjLoader.cs" />
     <Compile Include="PictureAdjustmentWindow.xaml.cs">
       <DependentUpon>PictureAdjustmentWindow.xaml</DependentUpon>
     </Compile>
@@ -80,6 +83,7 @@
     <Compile Include="ScaleWindow.xaml.cs">
       <DependentUpon>ScaleWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="StlLoader.cs" />
     <Compile Include="TriangleControlPanel.xaml.cs">
       <DependentUpon>TriangleControlPanel.xaml</DependentUpon>
     </Compile>

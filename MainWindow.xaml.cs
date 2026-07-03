@@ -436,15 +436,26 @@ namespace DinoLino
             BitmapImage bmp = new BitmapImage(
                 new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));
 
-            LoadWorkspaceImage(bmp, openFileDialog.SafeFileName);
+            SetWorkspaceImage(bmp, openFileDialog.SafeFileName, registerAsNewSpecimen: true);
+
+            // A 2D image can't be re-posed: disable reposition and drop any retained mesh.
+            _workingImageIsModelCapture = false;
+            _activeMesh = null;
+            _activeModelName = null;
+            UI_MenuReposition3D.IsEnabled = false;
         }
 
-        private void LoadWorkspaceImage(BitmapSource bmp, string specimenName)
+        // Swaps the working image and refreshes everything derived from it. When
+        // registerAsNewSpecimen is true this counts as opening a new specimen (advances the
+        // specimen counter and updates the loaded-file label); repositioning a 3D model passes
+        // false, because a new capture of the same object is still the same specimen.
+        private void SetWorkspaceImage(BitmapSource bmp, string specimenName, bool registerAsNewSpecimen)
         {
             WorkingImage = bmp;
             UI_WorkImage.Source = WorkingImage;
 
-            SpecimenManager.OnImageOpened(specimenName);
+            if (registerAsNewSpecimen)
+                SpecimenManager.OnImageOpened(specimenName);
 
             ResetWorkSpaceZoom();
             ScaleCalibration.Clear();
@@ -1146,31 +1157,89 @@ namespace DinoLino
         private Point _lastPosePoint;
         private bool _rotatingModel;
 
-        private void Menu_Open3DModel(object sender, RoutedEventArgs e)
+        // Mesh + orientation retained after a capture so the same model can be re-posed later
+        // via "Reposition 3D Object". Committed only on a successful capture, so cancelling a
+        // freshly opened model doesn't overwrite the model behind the current captured view.
+        private MeshGeometry3D _activeMesh;
+        private string _activeModelName;
+        private Quaternion _lastModelQuaternion = Quaternion.Identity;
+
+        // True when the current working image is a captured view of a 3D model (so it can be
+        // re-posed); false for ordinary 2D images, which have nothing to rotate.
+        private bool _workingImageIsModelCapture;
+
+        // True while the pose overlay is open as a reposition (vs. a fresh open). A reposition
+        // re-captures the SAME specimen from a new angle, so it must not advance the specimen.
+        private bool _isRepositioning;
+
+        private async void Menu_Open3DModel(object sender, RoutedEventArgs e)
         {
-            var dlg = new OpenFileDialog { Title = "Open 3D Model", Filter = "PLY mesh (*.ply)|*.ply" };
+            var dlg = new OpenFileDialog
+            {
+                Title = "Open 3D Model",
+                Filter = "3D models (*.ply;*.stl;*.obj)|*.ply;*.stl;*.obj|" +
+                         "PLY mesh (*.ply)|*.ply|" +
+                         "STL mesh (*.stl)|*.stl|" +
+                         "OBJ mesh (*.obj)|*.obj"
+            };
             if (dlg.ShowDialog() != true) return;
 
-            MeshGeometry3D mesh;
-            try { mesh = PlyLoader.Load(dlg.FileName); }
+            string fileName = dlg.FileName;
+
+            MeshGeometry3D mesh = null;
+            Mouse.OverrideCursor = Cursors.Wait;
+            try
+            {
+                // MeshGeometry3D is Freezable: the loaders freeze it before returning,
+                // so it can be built on a worker thread and then used from the UI
+                // thread. Parsing + welding + decimation all happen off-thread; the UI
+                // stays responsive with a wait cursor instead of freezing.
+                mesh = await System.Threading.Tasks.Task.Run(() => MeshLoader.Load(fileName));
+            }
             catch (Exception ex)
             {
-                MessageBox.Show($"Could not read the PLY file:\n{ex.Message}", "Open 3D Model",
+                MessageBox.Show($"Could not read the 3D model:\n{ex.Message}", "Open 3D Model",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
+                return;   // finally still restores the cursor
             }
-            if (mesh.Positions.Count == 0 || mesh.TriangleIndices.Count == 0)
+            finally
             {
-                MessageBox.Show("The PLY file contains no triangle mesh (point clouds can't be rendered).",
+                Mouse.OverrideCursor = null;
+            }
+
+            if (mesh == null || mesh.Positions.Count == 0 || mesh.TriangleIndices.Count == 0)
+            {
+                MessageBox.Show("The 3D model contains no triangle mesh (point clouds can't be rendered).",
                     "Open 3D Model", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            ShowModelPoseOverlay(mesh, System.IO.Path.GetFileNameWithoutExtension(dlg.FileName));
+            // Fresh model: start at the front (identity) and treat a resulting capture as a new
+            // specimen. The committed reposition state isn't touched until an actual capture.
+            ShowModelPoseOverlay(mesh, System.IO.Path.GetFileNameWithoutExtension(fileName),
+                                 Quaternion.Identity, isReposition: false);
         }
 
-        private void ShowModelPoseOverlay(MeshGeometry3D mesh, string name)
+        private void Menu_Reposition3DModel(object sender, RoutedEventArgs e)
         {
+            if (_activeMesh == null)
+            {
+                MessageBox.Show("Open and capture a 3D model (.ply) first, then you can reposition it.",
+                    "No 3D Model", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Re-open the posing overlay on the same mesh, resuming from the orientation the last
+            // capture was taken at so the object doesn't snap back to the front. isReposition:true
+            // keeps a re-capture on the same specimen.
+            ShowModelPoseOverlay(_activeMesh, _activeModelName, _lastModelQuaternion, isReposition: true);
+        }
+
+        private void ShowModelPoseOverlay(MeshGeometry3D mesh, string name,
+            Quaternion initialRotation, bool isReposition)
+        {
+            _isRepositioning = isReposition;
+
             if (_poseModel != null) UI_ModelGroup.Children.Remove(_poseModel);
 
             var b = mesh.Bounds;
@@ -1181,7 +1250,7 @@ namespace DinoLino
             var mat = new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(205, 205, 210)));
             mat.Freeze();
 
-            _modelRotation = new QuaternionRotation3D(Quaternion.Identity);
+            _modelRotation = new QuaternionRotation3D(initialRotation);
             var tg = new Transform3DGroup();
             tg.Children.Add(new TranslateTransform3D(-center.X, -center.Y, -center.Z)); // spin about its own center
             tg.Children.Add(new RotateTransform3D(_modelRotation));
@@ -1263,8 +1332,24 @@ namespace DinoLino
             // full bitmap width, uniformly, regardless of depth.
             double pxPerModelUnit = bmp.PixelWidth / UI_ModelCamera.Width;
 
-            ModelPose_Cancel(sender, e);                 // hide overlay, free the mesh
-            LoadWorkspaceImage(bmp, _pendingModelName);  // shared open-image entry point (see note)
+            // Retain the mesh, orientation, and name so the view can be re-posed later. Grab the
+            // mesh from the live model BEFORE ModelPose_Cancel tears it down. Committing here (not
+            // when the overlay opens) means cancelling a freshly opened model leaves the model
+            // behind the current captured view intact.
+            _activeMesh = _poseModel.Geometry as MeshGeometry3D;
+            _activeModelName = _pendingModelName;
+            _lastModelQuaternion = _modelRotation.Quaternion;
+            bool wasReposition = _isRepositioning;
+
+            ModelPose_Cancel(sender, e);                 // hide overlay, remove the live model
+
+            // A reposition re-captures the same specimen from a new angle, so don't register it
+            // as a new specimen (which would advance the counter and start a new history block).
+            SetWorkspaceImage(bmp, _activeModelName, registerAsNewSpecimen: !wasReposition);
+
+            // This working image is a captured 3D view, so it can be re-posed.
+            _workingImageIsModelCapture = true;
+            UI_MenuReposition3D.IsEnabled = true;
 
             // Optional auto-calibration: if the PLY is in real units (scanners typically export mm),
             // 1 model unit == pxPerModelUnit pixels in this image. Hook into ScaleCalibration here,
