@@ -14,6 +14,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Media3D;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
@@ -61,7 +62,7 @@ namespace DinoLino
         private Line _scaleLine;
 
         // Current working image in the workspace
-        public BitmapImage WorkingImage;
+        public BitmapSource WorkingImage { get; private set; }
 
         // Work Modes
         public CurvatureMode CurvatureMode;
@@ -421,26 +422,41 @@ namespace DinoLino
         #endregion
 
         #region Menu Bar functions
+
         private void Menu_OpenImage(object sender, RoutedEventArgs e)
         {
             OpenFileDialog openFileDialog = new OpenFileDialog();
 
-            if (openFileDialog.ShowDialog() == true)
-            {
-                if (SpecimenManager.HasOpenedImage)
-                    UndoRedoManager.ArchiveAndReset(SpecimenManager.DisplayName);
+            if (openFileDialog.ShowDialog() != true)
+                return;
 
-                WorkingImage = new BitmapImage(new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));
-                UI_WorkImage.Source = WorkingImage;
-                SpecimenManager.OnImageOpened(openFileDialog.SafeFileName);
-                ResetWorkSpaceZoom();
-                ScaleCalibration.Clear();
-                ClearWorkspace();
-                RefreshAllScalePlaceholders();
-                _imageAdjuster.CacheImage(WorkingImage);
-                OutlineMode.SourceImage = WorkingImage;
-                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(SyncOutlineImageTransform));
-            }
+            if (SpecimenManager.HasOpenedImage)
+                UndoRedoManager.ArchiveAndReset(SpecimenManager.DisplayName);
+
+            BitmapImage bmp = new BitmapImage(
+                new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));
+
+            LoadWorkspaceImage(bmp, openFileDialog.SafeFileName);
+        }
+
+        private void LoadWorkspaceImage(BitmapSource bmp, string specimenName)
+        {
+            WorkingImage = bmp;
+            UI_WorkImage.Source = WorkingImage;
+
+            SpecimenManager.OnImageOpened(specimenName);
+
+            ResetWorkSpaceZoom();
+            ScaleCalibration.Clear();
+            ClearWorkspace();
+            RefreshAllScalePlaceholders();
+
+            _imageAdjuster.CacheImage(WorkingImage);
+            OutlineMode.SourceImage = WorkingImage;
+
+            Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Loaded,
+                new Action(SyncOutlineImageTransform));
         }
 
         private void SyncOutlineImageTransform()
@@ -1119,6 +1135,182 @@ namespace DinoLino
         {
             UpdateWorkSpaceZoom(e.Delta, e.GetPosition(UI_WorkImage));
         }
+        #endregion
+
+        #region 3D model posing
+
+        private GeometryModel3D _poseModel;
+        private QuaternionRotation3D _modelRotation;
+        private double _modelDiag = 1;
+        private string _pendingModelName;
+        private Point _lastPosePoint;
+        private bool _rotatingModel;
+
+        private void Menu_Open3DModel(object sender, RoutedEventArgs e)
+        {
+            var dlg = new OpenFileDialog { Title = "Open 3D Model", Filter = "PLY mesh (*.ply)|*.ply" };
+            if (dlg.ShowDialog() != true) return;
+
+            MeshGeometry3D mesh;
+            try { mesh = PlyLoader.Load(dlg.FileName); }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not read the PLY file:\n{ex.Message}", "Open 3D Model",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (mesh.Positions.Count == 0 || mesh.TriangleIndices.Count == 0)
+            {
+                MessageBox.Show("The PLY file contains no triangle mesh (point clouds can't be rendered).",
+                    "Open 3D Model", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            ShowModelPoseOverlay(mesh, System.IO.Path.GetFileNameWithoutExtension(dlg.FileName));
+        }
+
+        private void ShowModelPoseOverlay(MeshGeometry3D mesh, string name)
+        {
+            if (_poseModel != null) UI_ModelGroup.Children.Remove(_poseModel);
+
+            var b = mesh.Bounds;
+            var center = new Point3D(b.X + b.SizeX / 2, b.Y + b.SizeY / 2, b.Z + b.SizeZ / 2);
+            _modelDiag = Math.Sqrt(b.SizeX * b.SizeX + b.SizeY * b.SizeY + b.SizeZ * b.SizeZ);
+            if (_modelDiag <= 0) _modelDiag = 1;
+
+            var mat = new DiffuseMaterial(new SolidColorBrush(Color.FromRgb(205, 205, 210)));
+            mat.Freeze();
+
+            _modelRotation = new QuaternionRotation3D(Quaternion.Identity);
+            var tg = new Transform3DGroup();
+            tg.Children.Add(new TranslateTransform3D(-center.X, -center.Y, -center.Z)); // spin about its own center
+            tg.Children.Add(new RotateTransform3D(_modelRotation));
+
+            // BackMaterial: PLY winding conventions vary, so light both sides of every face.
+            _poseModel = new GeometryModel3D(mesh, mat) { BackMaterial = mat, Transform = tg };
+            UI_ModelGroup.Children.Add(_poseModel);
+
+            UI_ModelCamera.Position = new Point3D(0, 0, _modelDiag * 2);
+            UI_ModelCamera.NearPlaneDistance = _modelDiag * 0.1;
+            UI_ModelCamera.FarPlaneDistance = _modelDiag * 4;
+            UI_ModelCamera.Width = _modelDiag * 1.2;
+
+            _pendingModelName = name;
+            UI_ModelPoseOverlay.Visibility = Visibility.Visible;
+
+            PreviewKeyDown -= ModelPose_PreviewKeyDown;   // guard against double-subscribe
+            PreviewKeyDown += ModelPose_PreviewKeyDown;
+        }
+
+        private void ModelPose_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Middle) return;
+            _rotatingModel = true;
+            _lastPosePoint = e.GetPosition(UI_ModelPoseOverlay);
+            UI_ModelPoseOverlay.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void ModelPose_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_rotatingModel) return;
+            var p = e.GetPosition(UI_ModelPoseOverlay);
+            double dx = p.X - _lastPosePoint.X;
+            double dy = p.Y - _lastPosePoint.Y;
+            _lastPosePoint = p;
+            if (dx == 0 && dy == 0) return;
+
+            var axis = new Vector3D(dy, dx, 0);
+            RotateModel(axis, axis.Length * 0.4);
+            e.Handled = true;
+        }
+
+        private void ModelPose_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Middle) return;
+            _rotatingModel = false;
+            UI_ModelPoseOverlay.ReleaseMouseCapture();
+            e.Handled = true;
+        }
+
+        private void ModelPose_MouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            double f = e.Delta > 0 ? 1 / 1.1 : 1.1;   // smaller camera width = zoomed in
+            double w = UI_ModelCamera.Width * f;
+            UI_ModelCamera.Width = Math.Max(_modelDiag * 0.02, Math.Min(_modelDiag * 10, w));
+            e.Handled = true;
+        }
+
+        private void ModelPose_Capture(object sender, RoutedEventArgs e)
+        {
+            double w = UI_ModelViewportHost.ActualWidth, h = UI_ModelViewportHost.ActualHeight;
+            if (w <= 0 || h <= 0 || _poseModel == null) return;
+
+            const double ss = 2.0;   // supersample, same idea as the screenshot exporter
+            var rtb = new RenderTargetBitmap((int)(w * ss), (int)(h * ss), 96 * ss, 96 * ss, PixelFormats.Pbgra32);
+            rtb.Render(UI_ModelViewportHost);
+
+            // Re-tag at 96 DPI so downstream code sees an ordinary bitmap whose layout size
+            // equals its pixel size — no DPI surprises in the 2D pipeline.
+            int stride = rtb.PixelWidth * 4;
+            var px = new byte[stride * rtb.PixelHeight];
+            rtb.CopyPixels(px, stride, 0);
+            var bmp = BitmapSource.Create(rtb.PixelWidth, rtb.PixelHeight, 96, 96,
+                                          PixelFormats.Pbgra32, null, px, stride);
+            bmp.Freeze();
+
+            // Exact projection scale: the ortho camera maps Width model units across the
+            // full bitmap width, uniformly, regardless of depth.
+            double pxPerModelUnit = bmp.PixelWidth / UI_ModelCamera.Width;
+
+            ModelPose_Cancel(sender, e);                 // hide overlay, free the mesh
+            LoadWorkspaceImage(bmp, _pendingModelName);  // shared open-image entry point (see note)
+
+            // Optional auto-calibration: if the PLY is in real units (scanners typically export mm),
+            // 1 model unit == pxPerModelUnit pixels in this image. Hook into ScaleCalibration here,
+            // e.g. Scale.SetPixelsPerUnit(pxPerModelUnit) — adapt to your API.
+        }
+
+        private void ModelPose_Cancel(object sender, RoutedEventArgs e)
+        {
+            PreviewKeyDown -= ModelPose_PreviewKeyDown;
+
+            UI_ModelPoseOverlay.Visibility = Visibility.Collapsed;
+            _rotatingModel = false;
+            if (_poseModel != null)
+            {
+                UI_ModelGroup.Children.Remove(_poseModel);
+                _poseModel = null;   // releases the (potentially large) mesh
+            }
+        }
+
+        // Rotates the model about a screen-space axis (camera is axis-aligned, so world
+        // X = screen right, world Y = screen up). Used by both middle-drag and arrow keys.
+        private void RotateModel(Vector3D screenAxis, double angleDegrees)
+        {
+            if (_modelRotation == null || screenAxis.LengthSquared == 0 || angleDegrees == 0) return;
+            var q = _modelRotation.Quaternion * new Quaternion(screenAxis, angleDegrees);
+            q.Normalize();
+            _modelRotation.Quaternion = q;
+        }
+
+        private const double ArrowRotateStep = 2.0;   // degrees per key event; holding a key auto-repeats
+
+        private void ModelPose_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (UI_ModelPoseOverlay.Visibility != Visibility.Visible) return;
+
+            switch (e.Key)
+            {
+                case Key.Down: RotateModel(new Vector3D(1, 0, 0), ArrowRotateStep); break; // top tips forward & down
+                case Key.Up: RotateModel(new Vector3D(1, 0, 0), -ArrowRotateStep); break; // bottom tips forward & up
+                case Key.Right: RotateModel(new Vector3D(0, 1, 0), ArrowRotateStep); break; // left margin swings forward & right
+                case Key.Left: RotateModel(new Vector3D(0, 1, 0), -ArrowRotateStep); break; // right margin swings forward & left
+                default: return;
+            }
+            e.Handled = true;   // stop arrows from moving focus to the Capture/Cancel buttons
+        }
+
         #endregion
     }
 }

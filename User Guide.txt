@@ -133,17 +133,28 @@ EFD: Elliptic Fourier Descriptors. A mathematical representation of the shape of
 
 ------------------------------------------------------------------------------------------------
 FILE:
+
 ----- Open Image ----- 
-Open an image file to analyze. Supported formats include .jpg, .png, .tif, and .bmp.
+Open a 2D image file to analyze. Supported formats include .jpg, .png, .tif, and .bmp.
+
+----- Open 3D Model (.ply) ----- 
+Open a 3D ply file to analyze. Position the model by pressing the scroll wheel and dragging, or by pressing the arrow keys. Click 'Capture Image' to finish positioning andbegin taking measurements.
+
 ----- Take Screenshot ----- 
-Take a screenshot of the current screen to analyze. The screenshot will be saved in the same directory as the program.
+Take a screenshot of the current software image screen. The screenshot may be saved as a .jpg, .png, or .tif file. The screenshot will include all drawn elements. 
+
 ----- Export Operation History -----
+Export the history of all operations performed. Undone or cleared operations will not be included. The exported file will be a workbook in .xlsx format, with each operation's history on a separate sheet.
+
 ------------------------------------------------------------------------------------------------
 EDIT:
+
 ----- Undo ----- 
 Undoes the last operation performed. This removes the drawn elements and data associated with that operation. It will not be stored in the operation history.
+
 ----- Redo ----- 
 Redoes the most recently undone operation. This reinstates the drawn elements and data associated with that operation.
+
 ------------------------------------------------------------------------------------------------
 VIEW:
 

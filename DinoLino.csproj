@@ -76,6 +76,7 @@
     <Compile Include="PictureAdjustmentWindow.xaml.cs">
       <DependentUpon>PictureAdjustmentWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="PlyLoader.cs" />
     <Compile Include="ScaleWindow.xaml.cs">
       <DependentUpon>ScaleWindow.xaml</DependentUpon>
     </Compile>

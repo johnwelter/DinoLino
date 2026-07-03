@@ -86,8 +86,8 @@ namespace DinoLino.Utilities.Modes
         #endregion
 
         #region get image data
-        private BitmapImage _sourceImage;
-        public BitmapImage SourceImage
+        private BitmapSource _sourceImage;
+        public BitmapSource SourceImage
         {
             get => _sourceImage;
             set

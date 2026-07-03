@@ -40,7 +40,7 @@ namespace DinoLino
             };
         }
 
-        public void CacheImage(BitmapImage image)
+        public void CacheImage(BitmapSource image)
         {
             if (image == null) return;
 

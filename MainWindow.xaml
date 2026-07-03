@@ -25,6 +25,7 @@
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Open Image" Click="Menu_OpenImage" InputGestureText="Ctrl+F"/>
+                <MenuItem Header="Open 3D _Model (.ply)" Click="Menu_Open3DModel"/>
                 <MenuItem Header="_Take Screenshot" Click="Menu_Screenshot" InputGestureText="Ctrl+S"/>
                 <MenuItem Header="_Export Operation History" Click="Menu_ExportHistory" InputGestureText="Ctrl+E"/>
             </MenuItem>
@@ -156,6 +157,40 @@
                     </Border>
                     <Canvas x:Name="UI_WorkBackground" Background="Gray" />
                     <Image x:Name="UI_WorkImage"/>
+                    <Grid x:Name="UI_ModelPoseOverlay" Visibility="Collapsed"
+      MouseDown="ModelPose_MouseDown" MouseMove="ModelPose_MouseMove"
+      MouseUp="ModelPose_MouseUp" MouseWheel="ModelPose_MouseWheel">
+
+                        <!-- Opaque host: this is what gets rendered on capture, so the bitmap has a
+         solid background (keeps JPEG-style consumers and outline contrast happy) -->
+                        <Grid x:Name="UI_ModelViewportHost" Background="#FF3A3A3A">
+                            <Viewport3D x:Name="UI_ModelViewport">
+                                <Viewport3D.Camera>
+                                    <OrthographicCamera x:Name="UI_ModelCamera"
+                                    Position="0,0,10" LookDirection="0,0,-1"
+                                    UpDirection="0,1,0" Width="10"/>
+                                </Viewport3D.Camera>
+                                <ModelVisual3D>
+                                    <ModelVisual3D.Content>
+                                        <Model3DGroup x:Name="UI_ModelGroup">
+                                            <AmbientLight Color="#666666"/>
+                                            <DirectionalLight Color="#B0B0B0" Direction="-0.3,-0.4,-1"/>
+                                        </Model3DGroup>
+                                    </ModelVisual3D.Content>
+                                </ModelVisual3D>
+                            </Viewport3D>
+                        </Grid>
+
+                        <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,12"
+            Background="#CC202020" CornerRadius="6" Padding="10,6">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Foreground="White" VerticalAlignment="Center"
+                       Text="Press scroll-wheel or arrow keys to rotate  •  Wheel to zoom"/>
+                                <Button Content="Capture View" Margin="14,0,0,0" Padding="10,3" Click="ModelPose_Capture"/>
+                                <Button Content="Cancel" Margin="8,0,0,0" Padding="10,3" Click="ModelPose_Cancel"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </Grid>
 
                 <!-- Attempt counter overlay (draggable HUD, bottom-right by default) -->
