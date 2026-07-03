@@ -74,6 +74,7 @@
     </Compile>
     <Compile Include="MeshLoader.cs" />
     <Compile Include="MeshSimplifier.cs" />
+    <Compile Include="ModelPoseController.cs" />
     <Compile Include="MultivariateStatistics.cs" />
     <Compile Include="ObjLoader.cs" />
     <Compile Include="PictureAdjustmentWindow.xaml.cs">

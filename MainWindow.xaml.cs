@@ -1157,6 +1157,11 @@ namespace DinoLino
         private Point _lastPosePoint;
         private bool _rotatingModel;
 
+        // 3D pose fine-tuning: exact-degree rotation + preset views over the live transform.
+        private ModelPoseController _poseController;
+        private System.Windows.Controls.TextBox _poseStepBox;
+        private System.Windows.Controls.Border _poseFineControls;
+
         // Mesh + orientation retained after a capture so the same model can be re-posed later
         // via "Reposition 3D Object". Committed only on a successful capture, so cancelling a
         // freshly opened model doesn't overwrite the model behind the current captured view.
@@ -1251,6 +1256,9 @@ namespace DinoLino
             mat.Freeze();
 
             _modelRotation = new QuaternionRotation3D(initialRotation);
+            _poseController = new ModelPoseController(_modelRotation);
+            BuildPoseFineTuneControls();
+
             var tg = new Transform3DGroup();
             tg.Children.Add(new TranslateTransform3D(-center.X, -center.Y, -center.Z)); // spin about its own center
             tg.Children.Add(new RotateTransform3D(_modelRotation));
@@ -1367,6 +1375,140 @@ namespace DinoLino
                 UI_ModelGroup.Children.Remove(_poseModel);
                 _poseModel = null;   // releases the (potentially large) mesh
             }
+        }
+
+        // Reads the step size (degrees) from the box; falls back to 15 and clamps to
+        // (0, 180] so a stray value can't spin wildly or do nothing.
+        private double ReadPoseStepDegrees()
+        {
+            double step = 15;
+            if (_poseStepBox != null &&
+                double.TryParse(_poseStepBox.Text, System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double s))
+                step = s;
+            if (step <= 0) step = 15;
+            if (step > 180) step = 180;
+            return step;
+        }
+
+        private void BuildPoseFineTuneControls()
+        {
+            if (_poseFineControls != null) return; // built once; survives repositioning
+
+            var panel = new System.Windows.Controls.StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Vertical
+            };
+
+            System.Windows.Controls.Button MakeBtn(string text, string tip,
+                System.Windows.RoutedEventHandler onClick)
+            {
+                var b = new System.Windows.Controls.Button
+                {
+                    Content = text,
+                    ToolTip = tip,
+                    MinWidth = 36,
+                    Margin = new System.Windows.Thickness(2),
+                    Padding = new System.Windows.Thickness(4, 2, 4, 2),
+                    FontSize = 12
+                };
+                b.Click += onClick;
+                return b;
+            }
+
+            System.Windows.Controls.TextBlock Label(string t)
+            {
+                return new System.Windows.Controls.TextBlock
+                {
+                    Text = t,
+                    Foreground = System.Windows.Media.Brushes.White,
+                    FontSize = 11,
+                    FontWeight = System.Windows.FontWeights.SemiBold,
+                    Margin = new System.Windows.Thickness(2, 6, 2, 1)
+                };
+            }
+
+            System.Windows.Controls.TextBlock RowLabel(string t)
+            {
+                return new System.Windows.Controls.TextBlock
+                {
+                    Text = t,
+                    Foreground = System.Windows.Media.Brushes.White,
+                    FontSize = 11,
+                    VerticalAlignment = System.Windows.VerticalAlignment.Center
+                };
+            }
+
+            // Preset views
+            panel.Children.Add(Label("Preset views"));
+            var presets = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
+            presets.Children.Add(MakeBtn("Front", "View the model's front", (s, e) => _poseController.ViewFront()));
+            presets.Children.Add(MakeBtn("Back", "View the back", (s, e) => _poseController.ViewBack()));
+            presets.Children.Add(MakeBtn("Left", "View the left side", (s, e) => _poseController.ViewLeft()));
+            presets.Children.Add(MakeBtn("Right", "View the right side", (s, e) => _poseController.ViewRight()));
+            presets.Children.Add(MakeBtn("Top", "View from above", (s, e) => _poseController.ViewTop()));
+            presets.Children.Add(MakeBtn("Bottom", "View from below", (s, e) => _poseController.ViewBottom()));
+            panel.Children.Add(presets);
+
+            // Step size
+            panel.Children.Add(Label("Rotate by (degrees)"));
+            _poseStepBox = new System.Windows.Controls.TextBox
+            {
+                Text = "15",
+                Width = 56,
+                Margin = new System.Windows.Thickness(2),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                HorizontalContentAlignment = System.Windows.HorizontalAlignment.Center
+            };
+            panel.Children.Add(_poseStepBox);
+
+            var chips = new System.Windows.Controls.StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal
+            };
+            foreach (var deg in new[] { "1", "5", "15", "90" })
+                chips.Children.Add(MakeBtn(deg + "\u00B0", "Set step to " + deg + "\u00B0",
+                    (s, e) => _poseStepBox.Text = deg));
+            panel.Children.Add(chips);
+
+            // Exact-degree axis nudges (world/camera frame)
+            panel.Children.Add(Label("Fine rotate"));
+            var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
+
+            grid.Children.Add(RowLabel("Pitch"));
+            grid.Children.Add(MakeBtn("\u25B2", "Tilt up (Up arrow)",
+                (s, e) => _poseController.Nudge(ModelPoseController.Axis.Pitch, +ReadPoseStepDegrees())));
+            grid.Children.Add(MakeBtn("\u25BC", "Tilt down (Down arrow)",
+                (s, e) => _poseController.Nudge(ModelPoseController.Axis.Pitch, -ReadPoseStepDegrees())));
+
+            grid.Children.Add(RowLabel("Yaw"));
+            grid.Children.Add(MakeBtn("\u25C0", "Turn left (Left arrow)",
+                (s, e) => _poseController.Nudge(ModelPoseController.Axis.Yaw, +ReadPoseStepDegrees())));
+            grid.Children.Add(MakeBtn("\u25B6", "Turn right (Right arrow)",
+                (s, e) => _poseController.Nudge(ModelPoseController.Axis.Yaw, -ReadPoseStepDegrees())));
+
+            grid.Children.Add(RowLabel("Roll"));
+            grid.Children.Add(MakeBtn("\u21BA", "Roll counter-clockwise ( , )",
+                (s, e) => _poseController.Nudge(ModelPoseController.Axis.Roll, +ReadPoseStepDegrees())));
+            grid.Children.Add(MakeBtn("\u21BB", "Roll clockwise ( . )",
+                (s, e) => _poseController.Nudge(ModelPoseController.Axis.Roll, -ReadPoseStepDegrees())));
+            panel.Children.Add(grid);
+
+            _poseFineControls = new System.Windows.Controls.Border
+            {
+                Background = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromArgb(0xB0, 0x20, 0x20, 0x20)),
+                BorderBrush = System.Windows.Media.Brushes.Gray,
+                BorderThickness = new System.Windows.Thickness(1),
+                CornerRadius = new System.Windows.CornerRadius(6),
+                Padding = new System.Windows.Thickness(6),
+                Margin = new System.Windows.Thickness(8),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+                VerticalAlignment = System.Windows.VerticalAlignment.Top,
+                Child = panel
+            };
+
+            UI_ModelPoseOverlay.Children.Add(_poseFineControls);
         }
 
         // Rotates the model about a screen-space axis (camera is axis-aligned, so world
