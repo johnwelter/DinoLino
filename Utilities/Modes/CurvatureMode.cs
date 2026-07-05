@@ -835,15 +835,15 @@ namespace DinoLino.Utilities.Modes
             {
                 if (!SetField(ref _findTurningAngleMode, value)) return;
                 if (value) BeginFindTurningAngle();
-                else OnTurningWindowClear?.Invoke(_windowOval);
+                else TurningWindowClear?.Invoke(_windowOval);
                 OnTipChanged?.Invoke();
             }
         }
 
         // MainWindow wires these: Ready adds the oval to the canvas (and hides the dot
         // cursor); Clear removes it (and restores the cursor).
-        public Action<UIElement> OnTurningWindowReady;
-        public Action<UIElement> OnTurningWindowClear;
+        public event Action<UIElement> TurningWindowReady;
+        public event Action<UIElement> TurningWindowClear;
 
         // The oriented oval that wraps the measured section of the spline.
         private Ellipse _windowOval;
@@ -870,7 +870,7 @@ namespace DinoLino.Utilities.Modes
         private void BeginFindTurningAngle()
         {
             if (_lastSplineDense == null || _lastSplineDense.Count < 3) return;
-            OnTurningWindowReady?.Invoke(EnsureWindowOval());
+            TurningWindowReady?.Invoke(EnsureWindowOval());
             _turningIndex = 0;
             UpdateWindowOval(_turningIndex);
         }

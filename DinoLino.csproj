@@ -72,10 +72,28 @@
     <Compile Include="FontWindow.xaml.cs">
       <DependentUpon>FontWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.AttemptCounter.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+
+    <Compile Include="MainWindow.Input.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+
+    <Compile Include="MainWindow.Menus.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+
+    <Compile Include="MainWindow.Model3D.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+
+    <Compile Include="MainWindow.Workspace.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MeshLoader.cs" />
     <Compile Include="MeshSimplifier.cs" />
     <Compile Include="ModelPoseController.cs" />
-    <Compile Include="MultivariateStatistics.cs" />
     <Compile Include="ObjLoader.cs" />
     <Compile Include="PictureAdjustmentWindow.xaml.cs">
       <DependentUpon>PictureAdjustmentWindow.xaml</DependentUpon>
@@ -110,7 +128,6 @@
     <Compile Include="Utilities\ScaleCalibration.cs" />
     <Compile Include="Utilities\SpecimenManager.cs" />
     <Compile Include="Utilities\SplineFitting.cs" />
-    <Compile Include="Utilities\Stats.cs" />
     <Compile Include="About.xaml.cs">
       <DependentUpon>About.xaml</DependentUpon>
     </Compile>

@@ -251,7 +251,7 @@ namespace DinoLino.Utilities.Modes
         private bool _hasPending = false;
 
         // (newPending, oldPending) — MainWindow swaps them on the canvas
-        public Action<Polyline, Polyline> OnPendingOutlineReady;
+        public event Action<Polyline, Polyline> PendingOutlineReady;
 
         private bool _useActiveContour = false;
         public bool UseActiveContour
@@ -317,7 +317,7 @@ namespace DinoLino.Utilities.Modes
         // =====================
         // PROCESS CLICK
         // =====================
-        public Action<List<UIElement>> OnOutlineReady;
+        public event Action<List<UIElement>> OutlineReady;
 
         // Runs the full cleanup pipeline on a full-image-space mask.
         // Returns the cleaned full-image-space mask, or null if it fails.
@@ -488,6 +488,12 @@ namespace DinoLino.Utilities.Modes
                     });
                 }
                 catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+                        MessageBox.Show($"Outline detection failed:\n{ex.Message}",
+                            "Outline", MessageBoxButton.OK, MessageBoxImage.Warning)));
+                }
             }, token);
         }
 
@@ -537,6 +543,12 @@ namespace DinoLino.Utilities.Modes
                     });
                 }
                 catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+                        MessageBox.Show($"Outline detection failed:\n{ex.Message}",
+                            "Outline", MessageBoxButton.OK, MessageBoxImage.Warning)));
+                }
             }, token);
         }
 
@@ -547,7 +559,7 @@ namespace DinoLino.Utilities.Modes
             _pendingPolyline = newPoly;
             _activePolyline = newPoly;   // so smooth/erase/metadata operate on it if confirmed
             _hasPending = true;
-            OnPendingOutlineReady?.Invoke(newPoly, old);
+            PendingOutlineReady?.Invoke(newPoly, old);
         }
 
         private void ConfirmPending()
@@ -569,7 +581,7 @@ namespace DinoLino.Utilities.Modes
                 Elements = new List<UIElement>(output)
             });
 
-            OnOutlineReady?.Invoke(output);
+            OutlineReady?.Invoke(output);
 
             _hasPending = false;
             _pendingMask = null;
@@ -590,7 +602,7 @@ namespace DinoLino.Utilities.Modes
                 Elements = new List<UIElement>(output)
             });
 
-            OnOutlineReady?.Invoke(output);
+            OutlineReady?.Invoke(output);
         }
 
         private (byte r, byte g, byte b) ReadPixel(int x, int y)
@@ -623,8 +635,8 @@ namespace DinoLino.Utilities.Modes
         private bool _handDrawingActive = false;
 
         // MainWindow wires these: add/remove the live preview line on the canvas.
-        public Action<Polyline> OnHandPreviewReady;     // show/replace the open preview
-        public Action<Polyline> OnHandPreviewClear;     // remove the given preview line
+        public event Action<Polyline> HandPreviewReady;     // show/replace the open preview
+        public event Action<Polyline> HandPreviewClear;     // remove the given preview line
 
         // Minimum canvas distance between consecutive accepted stroke points. Keeps the
         // point list manageable and avoids degenerate zero-length segments that would
@@ -718,15 +730,15 @@ namespace DinoLino.Utilities.Modes
 
             var old = _handPreviewPolyline;
             _handPreviewPolyline = line;
-            OnHandPreviewReady?.Invoke(line);
-            if (old != null) OnHandPreviewClear?.Invoke(old);
+            HandPreviewReady?.Invoke(line);
+            if (old != null) HandPreviewClear?.Invoke(old);
         }
 
         private void ClearHandPreview()
         {
             if (_handPreviewPolyline != null)
             {
-                OnHandPreviewClear?.Invoke(_handPreviewPolyline);
+                HandPreviewClear?.Invoke(_handPreviewPolyline);
                 _handPreviewPolyline = null;
             }
         }
@@ -814,7 +826,7 @@ namespace DinoLino.Utilities.Modes
             _handOutlineCommitted = true;
 
             // Reuse the existing commit path: sets _activePolyline, snapshots for smoothing,
-            // commits an OutlineOperation, and fires OnOutlineReady so MainWindow draws it.
+            // commits an OutlineOperation, and fires OutlineReady so MainWindow draws it.
             CommitFinalOutline(poly);
         }
 
@@ -1428,7 +1440,7 @@ namespace DinoLino.Utilities.Modes
         // MainWindow wires this to refresh the on-image operation counter: setting
         // HasMetadata mutates the operation in place, which does NOT raise a history
         // change, so the counter would otherwise not update until the next commit.
-        public Action OnMetadataGenerated;
+        public event Action MetadataGenerated;
 
 
         // Called when the user clicks Generate Metadata
@@ -1531,7 +1543,7 @@ namespace DinoLino.Utilities.Modes
                 // HasMetadata just flipped on an operation already sitting in history.
                 // Recompute the on-image counter now — mutating the op in place doesn't
                 // raise a history-changed event, so nothing else will trigger the refresh.
-                OnMetadataGenerated?.Invoke();
+                MetadataGenerated?.Invoke();
             }
 
             UpdateEFDPreview();
@@ -1561,14 +1573,14 @@ namespace DinoLino.Utilities.Modes
 
         // The blue EFD preview polyline shown in the workspace
         private Polyline _efdPreviewPolyline = null;
-        public Action<Polyline> OnEFDPreviewReady;   // MainWindow wires this up
-        public Action OnEFDPreviewClear;             // MainWindow wires this up
+        public event Action<Polyline> EFDPreviewReady;   // MainWindow wires this up
+        public event Action EFDPreviewClear;             // MainWindow wires this up
 
         // Reconstructs the outline from EFD coefficients and displays it as a
         // blue overlay. Called whenever EfdHarmonics changes or metadata is generated.
         public void UpdateEFDPreview()
         {
-            OnEFDPreviewClear?.Invoke();
+            EFDPreviewClear?.Invoke();
             _efdPreviewPolyline = null;
 
             if (_efd.RawCoefficients == null || _efd.RawCoefficients.Length == 0) return;
@@ -1594,12 +1606,12 @@ namespace DinoLino.Utilities.Modes
                 previewLine.Points.Add(p);
 
             _efdPreviewPolyline = previewLine;
-            OnEFDPreviewReady?.Invoke(previewLine);
+            EFDPreviewReady?.Invoke(previewLine);
         }
 
         public void ClearEFDPreview()
         {
-            OnEFDPreviewClear?.Invoke();
+            EFDPreviewClear?.Invoke();
             _efdPreviewPolyline = null;
             _efd.Clear();
         }
