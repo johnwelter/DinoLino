@@ -131,7 +131,6 @@ namespace DinoLino.Utilities
                 AddColumn(grid, "Perim / Area", nameof(OutlineHistoryRow.PerimeterAreaRatio));
                 AddColumn(grid, "Circularity", nameof(OutlineHistoryRow.Circularity));
                 AddColumn(grid, "Solidity", nameof(OutlineHistoryRow.Solidity));
-                AddColumn(grid, "Sum Turn. Angles", nameof(OutlineHistoryRow.SumTurningAngles));
                 AddColumn(grid, "Turn. Angles / Length", nameof(OutlineHistoryRow.TurningAngleLength));
 
                 var rows = new List<OutlineHistoryRow>();
@@ -152,11 +151,10 @@ namespace DinoLino.Utilities
                         PerimeterAreaRatio = Fmt4(op.PerimeterAreaRatio),
                         Circularity = Fmt4(op.Circularity),
                         Solidity = Fmt4(op.Solidity),
-                        SumTurningAngles = Fmt4(op.SumTurningAngles),
                         TurningAngleLength = Fmt4(op.TurningAngleLength)
                     };
                     rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt, r.AspectRatio, r.Perimeter, r.Area, r.PerimeterAreaRatio, r.Circularity, r.Solidity, r.SumTurningAngles, r.TurningAngleLength });
+                    csvRows.Add(new[] { name, r.Attempt, r.AspectRatio, r.Perimeter, r.Area, r.PerimeterAreaRatio, r.Circularity, r.Solidity, r.TurningAngleLength });
                 }
                 if (!any)
                     csvRows.Add(new[] { name, "", "", "", "", "", "", "", "", "" });
@@ -268,7 +266,6 @@ namespace DinoLino.Utilities
                 var grid = MakeGrid();
                 AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(SplineHistoryRow.Attempt), 70);
                 AddColumn(grid, "Turn. Angles / Length", nameof(SplineHistoryRow.TurnPerLength));
-                AddColumn(grid, "Sum Turn. Angles", nameof(SplineHistoryRow.SumTurning));
                 AddColumn(grid, "Chord-arc ratio", nameof(SplineHistoryRow.ChordArcRatio));
                 AddColumn(grid, "Length", nameof(SplineHistoryRow.Length));
 
@@ -282,12 +279,11 @@ namespace DinoLino.Utilities
                     {
                         Attempt = (attempt++).ToString(),
                         TurnPerLength = Fmt(op.TurningAngleArcRatio),
-                        SumTurning = Fmt(op.SumTurningAngles),
                         ChordArcRatio = Fmt(op.SChordArcRatio),
                         Length = FmtLength(op.SplineLengthPixels, scale)
                     };
                     rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt, r.TurnPerLength, r.SumTurning, r.ChordArcRatio, r.Length });
+                    csvRows.Add(new[] { name, r.Attempt, r.TurnPerLength, r.ChordArcRatio, r.Length });
                 }
                 if (!any)
                     csvRows.Add(new[] { name, "", "", "", "", "" });
@@ -674,7 +670,7 @@ namespace DinoLino.Utilities
                 foreach (var op in ops.OfType<SplineOperation>())
                 {
                     any = true;
-                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.TurningAngleArcRatio), Fmt(op.SumTurningAngles), Fmt(op.SChordArcRatio), FmtLength(op.SplineLengthPixels, scale) });
+                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.TurningAngleArcRatio), Fmt(op.SChordArcRatio), FmtLength(op.SplineLengthPixels, scale) });
                 }
                 if (!any) rows.Add(new[] { name, "", "", "", "", "" });
             }
@@ -740,7 +736,6 @@ namespace DinoLino.Utilities
                 Fmt4(op.PerimeterAreaRatio),
                 Fmt4(op.Circularity),
                 Fmt4(op.Solidity),
-                Fmt4(op.SumTurningAngles),
                 Fmt4(op.TurningAngleLength)
             });
                 }
@@ -916,7 +911,6 @@ namespace DinoLino.Utilities
     {
         public string Attempt { get; set; }
         public string TurnPerLength { get; set; }
-        public string SumTurning { get; set; }
         public string ChordArcRatio { get; set; }
         public string Length { get; set; }
     }
@@ -945,7 +939,6 @@ namespace DinoLino.Utilities
         public string PerimeterAreaRatio { get; set; }
         public string Circularity { get; set; }
         public string Solidity { get; set; }
-        public string SumTurningAngles { get; set; }
         public string TurningAngleLength { get; set; }
     }
 }

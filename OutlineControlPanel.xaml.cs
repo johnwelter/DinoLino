@@ -697,14 +697,21 @@ namespace DinoLino.Utilities.Modes
             var dialog = new SaveFileDialog
             {
                 Title = "Export EFD Coefficients",
-                Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+                // Filter order defines the choice: 1 = stacked blocks, 2 = wide matrix.
+                Filter = "Stacked blocks — one block per specimen (*.csv)|*.csv|" +
+                         "Wide matrix — specimens as rows (*.csv)|*.csv|" +
+                         "All files (*.*)|*.*",
+                FilterIndex = 1,
                 DefaultExt = "csv",
             };
             if (dialog.ShowDialog() != true) return;
 
             try
             {
-                File.WriteAllText(dialog.FileName, _mode.EfdCsv.BuildCsv());
+                string text = dialog.FilterIndex == 2
+                    ? _mode.EfdCsv.BuildWideCsv()
+                    : _mode.EfdCsv.BuildCsv();
+                File.WriteAllText(dialog.FileName, text);
             }
             catch (Exception ex)
             {

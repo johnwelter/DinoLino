@@ -89,50 +89,54 @@ namespace DinoLino.Utilities
         /// Returns an empty list if fewer than 3 points are provided.
         public static List<Point> ConvexHull(List<Point> pts)
         {
-            if (pts.Count < 3) return new List<Point>();
+            if (pts == null || pts.Count < 3) return new List<Point>();
 
-            // Find the lowest point (then leftmost if tie) as the pivot
             Point pivot = pts[0];
             foreach (var p in pts)
-            {
                 if (p.Y < pivot.Y || (p.Y == pivot.Y && p.X < pivot.X))
                     pivot = p;
-            }
 
-            // Sort remaining points by polar angle relative to pivot
-            var sorted = new List<Point>(pts);
+            var sorted = new List<Point>(pts.Count);
+            foreach (var p in pts)
+                if (p != pivot)
+                    sorted.Add(p);
+
             sorted.Sort((a, b) =>
             {
-                if (a == pivot) return -1;
-                if (b == pivot) return 1;
-
                 double angleA = Math.Atan2(a.Y - pivot.Y, a.X - pivot.X);
                 double angleB = Math.Atan2(b.Y - pivot.Y, b.X - pivot.X);
-
                 if (Math.Abs(angleA - angleB) < 1e-10)
                 {
-                    // Collinear — keep closer point first
                     double distA = (a.X - pivot.X) * (a.X - pivot.X) + (a.Y - pivot.Y) * (a.Y - pivot.Y);
                     double distB = (b.X - pivot.X) * (b.X - pivot.X) + (b.Y - pivot.Y) * (b.Y - pivot.Y);
                     return distA.CompareTo(distB);
                 }
-
                 return angleA.CompareTo(angleB);
             });
 
-            var hull = new List<Point>();
+            int i = sorted.Count - 1;
+            if (i >= 1)
+            {
+                double lastAngle = Math.Atan2(sorted[i].Y - pivot.Y, sorted[i].X - pivot.X);
+                while (i > 0)
+                {
+                    double prevAngle = Math.Atan2(sorted[i - 1].Y - pivot.Y, sorted[i - 1].X - pivot.X);
+                    if (Math.Abs(prevAngle - lastAngle) >= 1e-10) break;
+                    i--;
+                }
+                sorted.Reverse(i, sorted.Count - i);
+            }
+
+            var hull = new List<Point> { pivot };
             foreach (var p in sorted)
             {
                 while (hull.Count >= 2)
                 {
                     Point a = hull[hull.Count - 2];
                     Point b = hull[hull.Count - 1];
-                    // Cross product of AB × BP — negative means right turn, remove b
                     double cross = (b.X - a.X) * (p.Y - a.Y) - (b.Y - a.Y) * (p.X - a.X);
-                    if (cross <= 0)
-                        hull.RemoveAt(hull.Count - 1);
-                    else
-                        break;
+                    if (cross < 0) hull.RemoveAt(hull.Count - 1);
+                    else break;
                 }
                 hull.Add(p);
             }
@@ -249,6 +253,11 @@ namespace DinoLino.Utilities
         /// than epsilon from the simplified line.
         public static List<Point> DouglasPeucker(List<Point> points, double epsilon)
         {
+            // Guard: the recursion dereferences points[0] and points[Count-1], so anything
+            // shorter than a triangle would throw. Nothing to simplify below 3 points anyway.
+            if (points == null || points.Count < 3)
+                return points != null ? new List<Point>(points) : new List<Point>();
+
             var result = new List<Point>();
             DouglasPeuckerRecursive(points, 0, points.Count - 1, epsilon, result);
             result.Add(points[points.Count - 1]);
@@ -296,6 +305,50 @@ namespace DinoLino.Utilities
             double projX = a.X + t * dx, projY = a.Y + t * dy;
             return Math.Sqrt((p.X - projX) * (p.X - projX) + (p.Y - projY) * (p.Y - projY));
         }
+
+        /// Resamples a closed contour to exactly n points equally spaced by arc length,
+        /// starting at contour[0]. Input may or may not include a closing duplicate;
+        /// the returned list has no closure duplicate.
+        public static List<Point> ResampleClosed(List<Point> contour, int n)
+        {
+            if (contour == null || contour.Count < 3 || n < 3)
+                return contour != null ? new List<Point>(contour) : new List<Point>();
+
+            var pts = new List<Point>(contour);
+            // Drop a closing duplicate if present.
+            if (pts.Count > 1)
+            {
+                Point f = pts[0], l = pts[pts.Count - 1];
+                if ((f.X - l.X) * (f.X - l.X) + (f.Y - l.Y) * (f.Y - l.Y) < 1e-12)
+                    pts.RemoveAt(pts.Count - 1);
+            }
+            int m = pts.Count;
+            if (m < 3) return pts;
+
+            var cum = new double[m + 1];
+            for (int i = 0; i < m; i++)
+            {
+                Point a = pts[i], b = pts[(i + 1) % m];
+                cum[i + 1] = cum[i] + Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+            }
+            double total = cum[m];
+            var outPts = new List<Point>(n);
+            if (total < 1e-12) { for (int k = 0; k < n; k++) outPts.Add(pts[0]); return outPts; }
+
+            double step = total / n;
+            int seg = 0;
+            for (int k = 0; k < n; k++)
+            {
+                double target = k * step;
+                while (seg < m - 1 && cum[seg + 1] < target) seg++;
+                Point a = pts[seg], b = pts[(seg + 1) % m];
+                double segLen = cum[seg + 1] - cum[seg];
+                double t = segLen > 1e-12 ? (target - cum[seg]) / segLen : 0.0;
+                outPts.Add(new Point(a.X + t * (b.X - a.X), a.Y + t * (b.Y - a.Y)));
+            }
+            return outPts;
+        }
+
         // =====================================================================
         // AREA
         // =====================================================================
@@ -335,8 +388,7 @@ namespace DinoLino.Utilities
             return width * height;
         }
 
-        /// Signed area of a triangle from three 2-D points using the cross product.
-        /// Absolute value gives unsigned area; divide by 2 already applied here.
+        /// Unsigned area of a triangle from three 2-D points using the cross product.
         public static double TriangleArea(Vector2 a, Vector2 b, Vector2 c)
         {
             // Cross product of AB × AC, halved
@@ -405,7 +457,7 @@ namespace DinoLino.Utilities
         // =====================================================================
 
         /// Fits a quadratic y = ax² + bx + c through three (x,y) pairs.
-        /// Returns (a, b, c). Returns (0,0,0) if the points are collinear or coincident.
+        /// Returns (a, b, c). 
         public static (double a, double b, double c) SolveParabola(double x1, double y1, double x2, double y2, double x3, double y3)
         {
             double denom = (x1 - x2) * (x1 - x3) * (x2 - x3);
@@ -472,6 +524,11 @@ namespace DinoLino.Utilities
             Vector3 p1 = new Vector3(a.X, a.Y, 1);
             Vector3 p2 = new Vector3(b.X, b.Y, 1);
             Vector2 perp = (p1 ^ p2).ToVector2();
+
+            double len = perp.Magnitude();
+            if (len < 1e-6) return new Vector2(0, 0);
+
+
             perp.Normalize();
             return perp;
         }
@@ -591,6 +648,9 @@ namespace DinoLino.Utilities
         /// Returns [minX, minY, maxX, maxY].
         public static double[] BoundingBox(List<Point> pts)
         {
+            if (pts == null || pts.Count == 0)
+                return new double[] { 0, 0, 0, 0 };
+
             double minX = pts[0].X, maxX = pts[0].X;
             double minY = pts[0].Y, maxY = pts[0].Y;
 

@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -76,6 +77,38 @@ namespace DinoLino.Utilities
                         entry.Coefficients[k + 2].ToString("R", CultureInfo.InvariantCulture),
                         entry.Coefficients[k + 3].ToString("R", CultureInfo.InvariantCulture)));
                 }
+            }
+            return sb.ToString();
+        }
+
+        public string BuildWideCsv()
+        {
+            var sb = new StringBuilder();
+            if (_entries.Count == 0) return sb.ToString();
+
+            int maxH = 0;
+            foreach (var e in _entries) maxH = Math.Max(maxH, e.Coefficients.Length / 4);
+
+            // Header
+            sb.Append("specimen");
+            foreach (char L in new[] { 'A', 'B', 'C', 'D' })
+                for (int i = 1; i <= maxH; i++) sb.Append(',').Append(L).Append(i);
+            sb.AppendLine();
+
+            // One row per specimen; offset picks a=0,b=1,c=2,d=3 within each harmonic quad.
+            foreach (var e in _entries)
+            {
+                int h = e.Coefficients.Length / 4;
+                sb.Append(CsvEscape(e.Name));
+                for (int comp = 0; comp < 4; comp++)
+                    for (int i = 0; i < maxH; i++)
+                    {
+                        sb.Append(',');
+                        if (i < h)
+                            sb.Append(e.Coefficients[i * 4 + comp].ToString("R", CultureInfo.InvariantCulture));
+                        // else: blank cell (ragged padded)
+                    }
+                sb.AppendLine();
             }
             return sb.ToString();
         }

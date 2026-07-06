@@ -57,7 +57,6 @@ Catmull-Rom splines: The spline must pass through every point. This operation us
 Bezier splines: The spline is pulled towards the clicked points, but does not necessarily pass through them. This operation uses Schneider's Bezier fitting to convert n points into one or more smooth cubic Bezier segments. 
 
 Turn.Angles/Length: A measure of curvature. The sum of the turning angles (change in angle of the tangent lines along the spline) divided by the length of the spline. Approximates the average change in angle of the tangent lines along the spline.
-Sum Turn. Angles: A measure of curvature. The total change in angle of the tangent lines at the start and end points of the spline.
 Chord-Arc Ratio: A measure of curvature. The length of the straight line (chord) connecting the start and end points of the curve divided by the length of the spline.
 ------------------------------------------------------------------------------------------------
 TRIANGLE MODE:
@@ -127,7 +126,6 @@ Aspect Ratio: Width of the outline (its longest side) divided by its height (max
 Perimeter / Area: Length of the outline divided by its area.
 Circularity: 4π*Area / Perimeter^2
 Solidity: Area of the outlined shape / Convex hull area
-Sum. Turn. Angles: Sum of the turning angles at each point along the outline. Measures the total amount of directional change.
 Turn.Angles/Length: A measure of curvature. The sum of the turning angles (change in angle of the tangent lines along the outline) divided by the outline perimeter length. Approximates the average change in angle of the tangent lines along the outline.
 EFD: Elliptic Fourier Descriptors. A mathematical representation of the shape of the outline. The number of harmonics can be adjusted to capture more or less detail of the shape.
 

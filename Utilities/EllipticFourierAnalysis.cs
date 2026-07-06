@@ -8,8 +8,7 @@ namespace DinoLino.Utilities
     /// Quality flag describing how reliable a normalization was. The first harmonic
     /// defines the ellipse used to remove rotation and scale; when that ellipse is
     /// near-circular or near-zero, its orientation is ambiguous and the normalized
-    /// rotation/scale should be treated with caution (Momocs warns about the same case
-    /// for near-circular or bilaterally symmetric outlines).
+    /// rotation/scale should be treated with caution 
     /// </summary>
     public enum EfdNormalizationStatus
     {
@@ -284,6 +283,18 @@ namespace DinoLino.Utilities
                 normalized[k + 1] = (bhr * cosP + dhr * sinP) / major;
                 normalized[k + 2] = (-ahr * sinP + chr * cosP) / major;
                 normalized[k + 3] = (-bhr * sinP + dhr * cosP) / major;
+            }
+
+            // Sign-pin so the SAME outline can't normalize into two mirror branches.
+            if (normalized.Length >= 4 && normalized[3] < 0)
+            {
+                for (int h = 1; h <= harmonics; h++)
+                {
+                    int k = (h - 1) * 4;
+                    normalized[k + 1] = -normalized[k + 1];
+                    normalized[k + 2] = -normalized[k + 2];
+                    normalized[k + 3] = -normalized[k + 3];
+                }
             }
 
             var status = (minor / major) >= NearlyCircularAxisRatio

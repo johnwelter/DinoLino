@@ -217,7 +217,6 @@ namespace DinoLino.Utilities.Modes
             CircularityResult = 0;
             SolidityResult = 0;
             TurningAngleLengthResult = 0;
-            SumTurningAnglesResult = 0;
             EFDCoefficientsResult = null;
             MetadataSummary = "";
             PerimeterScaledResult = ScaledPlaceholder;
@@ -382,6 +381,11 @@ namespace DinoLino.Utilities.Modes
             bool simAfterDP = !PolylineHasSelfIntersection(simplified);
             if (!simAfterDP)
                 simplified = new List<Point>(boundary);
+
+            // Keep the DENSE boundary (pre-simplification) in full-image space for EFA.
+            _activeDenseContourImage = new List<Point>(boundary.Count);
+            foreach (var p in boundary)
+                _activeDenseContourImage.Add(new Point(p.X + bx0, p.Y + by0));
 
             // The destructive per-point border clamp that used to live here was REMOVED.
             // CleanMaskFullSpace already clears everything within 5 px of the edge, so
@@ -1393,6 +1397,21 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _efdCoefficientsResult, value);
         }
 
+        // Dense traced boundary of the current outline, in FULL-IMAGE space (no closure
+        // dup), captured before Douglas-Peucker simplification. EFA runs on this — resampled
+        // to ContourSampleCount points — so the harmonic spectrum reflects the true outline
+        // detail rather than the thinned display polyline. 
+        private List<Point> _activeDenseContourImage;
+
+        // How many equally-spaced points the dense contour is resampled to before computing 
+        // coefficients. Higher = more faithful, slower.
+        private int _contourSampleCount = 128;
+        public int ContourSampleCount
+        {
+            get => _contourSampleCount;
+            set { if (SetField(ref _contourSampleCount, Math.Max(16, Math.Min(2048, value)))) UpdateEFDPreview(); }
+        }
+
         private double _solidityResult;
         public double SolidityResult
         {
@@ -1421,6 +1440,20 @@ namespace DinoLino.Utilities.Modes
             get => _metadataSummary;
             set => SetField(ref _metadataSummary, value);
         }
+
+        private string _normalizationWarning = "";
+        public string NormalizationWarning
+        {
+            get => _normalizationWarning;
+            set
+            {
+                if (SetField(ref _normalizationWarning, value))
+                    OnPropertyChanged(nameof(HasNormalizationWarning));
+            }
+        }
+
+        // Visibility companion for NormalizationWarning (BooleanToVisibilityConverter needs a bool).
+        public bool HasNormalizationWarning => !string.IsNullOrEmpty(_normalizationWarning);
 
         private string _perimeterScaledResult = "Scale to measure";
         public string PerimeterScaledResult
@@ -1504,10 +1537,36 @@ namespace DinoLino.Utilities.Modes
             TurningAngleLengthResult = GeometryCalculations.TurningAnglePerLength(SumTurningAnglesResult, perimeter);
 
             int harmonics = EfdHarmonics;
-            EFDCoefficientsResult = _efd.ComputeNormalized(pts, harmonics);
+
+            // Run EFA on the dense contour resampled to ContourSampleCount equally-spaced points,
+            // not the Douglas-Peucker display polyline (which drops the low-amplitude detail
+            // the higher harmonics are meant to capture). 
+            List<Point> efaSource;
+            if (_activeDenseContourImage != null && _activeDenseContourImage.Count >= 3)
+            {
+                var canvasDense = new List<Point>(_activeDenseContourImage.Count);
+                foreach (var ip in _activeDenseContourImage)
+                    canvasDense.Add(new Point(ip.X * ScaleX + OffsetX, ip.Y * ScaleY + OffsetY));
+                efaSource = GeometryCalculations.ResampleClosed(canvasDense, ContourSampleCount);
+            }
+            else
+            {
+                efaSource = pts; // simplified polyline fallback
+            }
+            EFDCoefficientsResult = _efd.ComputeNormalized(efaSource, harmonics);
 
             // Build display string
             var sb = new System.Text.StringBuilder();
+
+            NormalizationWarning = _efd.NormalizationStatus switch
+            {
+                EfdNormalizationStatus.NearlyCircular =>
+                    $"⚠ Near-circular first harmonic (axis ratio {_efd.FirstHarmonicAxisRatio:F2}); " +
+                    "rotation/start-point alignment is unstable — normalized coefficients may not be comparable across specimens.",
+                EfdNormalizationStatus.Degenerate =>
+                    "⚠ First harmonic ~0; orientation and scale can't be defined for this outline.",
+                _ => ""
+            };
 
             if (_efd.NormalizationStatus != EfdNormalizationStatus.Ok)
                 sb.AppendLine($"  ⚠ Orientation ambiguous (1st-harmonic axis ratio {_efd.FirstHarmonicAxisRatio:F2}); normalized rotation may be unstable.");
@@ -1516,7 +1575,6 @@ namespace DinoLino.Utilities.Modes
             sb.AppendLine($"Perim / Area:       {PerimeterAreaRatioResult:F4}");
             sb.AppendLine($"Circularity:        {CircularityResult:F4}");
             sb.AppendLine($"Solidity:           {SolidityResult:F4}");
-            sb.AppendLine($"Sum Turning Angles: {SumTurningAnglesResult:F4}");
             sb.AppendLine($"Turn. Angles / Length: {TurningAngleLengthResult:F4}");
             sb.AppendLine($"EFD harmonics ({harmonics}):");
             for (int h = 0; h < harmonics; h++)

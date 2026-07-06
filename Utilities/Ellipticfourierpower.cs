@@ -5,7 +5,6 @@ namespace DinoLino.Utilities
     /// <summary>
     /// Per-outline harmonic-power analysis: how much of an outline's Fourier "signal" each
     /// harmonic carries, and the smallest harmonic count whose cumulative power reaches a
-    /// target fraction (e.g. 0.99). Mirrors Momocs' hpow / calibrate_harmonicpower workflow.
     /// </summary>
     public sealed class HarmonicPowerProfile
     {
@@ -79,7 +78,7 @@ namespace DinoLino.Utilities
         /// When true (default), the fundamental (harmonic 1) is excluded from the accounting. The
         /// fundamental is the overall ellipse and almost always dominates total power, so including
         /// it makes the threshold trivial to reach; excluding it measures how many harmonics of
-        /// *detail* the outline needs. (Mirrors Momocs' default of dropping the first harmonic.)
+        /// *detail* the outline needs. 
         /// The fundamental is still used when reconstructing — it is only left out of the percentage.
         /// </param>
         public static HarmonicPowerProfile Analyze(double[] coefficients, double threshold, bool dropFirstHarmonic = true)

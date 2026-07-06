@@ -55,7 +55,6 @@ namespace DinoLino.Utilities.Operations
     {
         public double TurningAngleArcRatio { get; set; }
         public double SChordArcRatio { get; set; }
-        public double SumTurningAngles { get; set; }
         public double SplineLengthPixels { get; set; }
 
         public override void ApplyMetadataToMode()
@@ -64,7 +63,6 @@ namespace DinoLino.Utilities.Operations
             {
                 mode.TurningAngleArcRatioResult = TurningAngleArcRatio;
                 mode.SChordArcRatioResult = SChordArcRatio;
-                mode.SumTurningAnglesResult = SumTurningAngles;
             }
         }
     }

@@ -191,15 +191,6 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Sum Turn. Angles:" Foreground="Gray"/>
-                <TextBlock Grid.Column="1" Text="{Binding SumTurningAnglesResult, StringFormat={}{0:F2}°}" HorizontalAlignment="Right"/>
-            </Grid>
-
-            <Grid Margin="0,2,0,2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Turn. Angles / Length:" Foreground="Gray"/>
                 <TextBlock Grid.Column="1" Text="{Binding TurningAngleLengthResult, StringFormat={}{0:F4}}" HorizontalAlignment="Right"/>
             </Grid>
@@ -217,6 +208,27 @@
                  HorizontalContentAlignment="Right"
                  Margin="140,0,0,0"/>
             </Grid>
+
+            <Grid Margin="0,2,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Contour Points:" Foreground="Gray"
+                           ToolTip="How many equally-spaced points the outline is resampled to before computing coefficients. Higher = more faithful, slower. Keep well above 2× harmonics."/>
+                <TextBox x:Name="ContourPointsBox"
+                 Width="47"
+                 Text="{Binding ContourSampleCount, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                 HorizontalAlignment="Left"
+                 HorizontalContentAlignment="Right"
+                 Margin="140,0,0,0"/>
+            </Grid>
+
+            <!-- normalization caveat: only visible when set -->
+            <TextBlock Text="{Binding NormalizationWarning}"
+                       Foreground="#C0392B" TextWrapping="Wrap"
+                       Margin="0,6,0,0"
+                       Visibility="{Binding HasNormalizationWarning, Converter={StaticResource BoolToVis}}"/>
 
             <!-- EFD detail link -->
             <Button Content="Elliptic Fourier Analysis"

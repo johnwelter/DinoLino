@@ -154,7 +154,6 @@ namespace DinoLino.Utilities.Modes
             VertexCurvatureResult = 0;
             TurningAngleArcRatioResult = 0;
             SChordArcRatioResult = 0;
-            SumTurningAnglesResult = 0;
             SplineLengthScaledResult = ScaledPlaceholder;
         }
 
@@ -654,13 +653,6 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        private double _sumTurningAnglesResult;
-        public double SumTurningAnglesResult
-        {
-            get => _sumTurningAnglesResult;
-            set { _sumTurningAnglesResult = value; OnPropertyChanged(nameof(SumTurningAnglesResult)); }
-        }
-
         private double _sChordArcRatioResult;
         public double SChordArcRatioResult
         {
@@ -765,7 +757,6 @@ namespace DinoLino.Utilities.Modes
                 : "Scale to measure";
             TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 1);
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 1);
-            SumTurningAnglesResult = GeometryCalculations.SumTurningAnglesOpen(splinePointsDense);
 
             // store in history
             CommitOperation(new SplineOperation
@@ -777,7 +768,6 @@ namespace DinoLino.Utilities.Modes
                 Elements = new List<UIElement>(_splineCurrentOperation),
                 TurningAngleArcRatio = TurningAngleArcRatioResult,
                 SChordArcRatio = SChordArcRatioResult,
-                SumTurningAngles = SumTurningAnglesResult,
                 SplineLengthPixels = splineLength
             });
 
@@ -1060,7 +1050,6 @@ namespace DinoLino.Utilities.Modes
 
         // n-point spline (Catmull-Rom and Bézier combined, matching n_spline)
         public string AvgTurningAngleArcRatioResult => FormatAverage(SplineOps.Select(o => o.TurningAngleArcRatio));
-        public string AvgSumTurningAnglesResult => FormatAverage(SplineOps.Select(o => o.SumTurningAngles));
         public string AvgSChordArcRatioResult => FormatAverage(SplineOps.Select(o => o.SChordArcRatio));
         public string AvgSplineLengthScaledResult => FormatScaledLengthAverage(SplineOps.Select(o => o.SplineLengthPixels));
 
@@ -1091,7 +1080,6 @@ namespace DinoLino.Utilities.Modes
             OnPropertyChanged(nameof(AvgRiseSpanRatioResult));
             OnPropertyChanged(nameof(AvgVertexCurvatureResult));
             OnPropertyChanged(nameof(AvgTurningAngleArcRatioResult));
-            OnPropertyChanged(nameof(AvgSumTurningAnglesResult));
             OnPropertyChanged(nameof(AvgSChordArcRatioResult));
             OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
         }
