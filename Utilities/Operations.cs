@@ -1,5 +1,4 @@
 ﻿// Utilities/Operations/Operations.cs
-using DinoLino.DataTypes;
 using DinoLino.Utilities.Modes;
 using System.Collections.Generic;
 using System.Windows;

@@ -5,12 +5,15 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using ImageSnapshot = DinoLino.Utilities.OutlineProcessor.ImageSnapshot;
+using Microsoft.ML.OnnxRuntime;
+
 
 namespace DinoLino.Utilities.Modes
 {
@@ -110,9 +113,43 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _minAreaPixels, value);
         }
 
+        // ── Per-image analysis, built ONCE per image on a worker thread ──
+        // All arrays are written during the build and only read afterwards, so
+        // they are safe to share read-only across concurrent click operations.
+        private sealed class ImageAnalysis
+        {
+            public byte[] Pixels;
+            public int Width, Height, Stride, Bpp;
+            public bool[] BackgroundMask;
+            public int[] Gradient;             // squared weighted-Sobel magnitude
+            public int[] DistToBackground;     // BFS distance to border/background
+            public int GradientEdgeThreshold;  // "counts as an edge" cutoff for mask scoring
+            public float[] TextureMap;         // per-pixel local luma std-dev, PerceptualDistance scale (adaptive flood)
+            public byte[] FlattenedPixels;     // illumination-normalized copy (poor-man's retinex), same stride/bpp
+            public bool[] FlattenedBackgroundMask; // background model REBUILT on the flattened copy
+            public SamImageState SamState;         // neural encoder output; null when no model is installed or encoding failed
+            public int Version;
+        }
+
+        private Task<ImageAnalysis> _analysisTask;
+        private int _imageVersion;
+
         private void CacheSourcePixels()
         {
-            if (_sourceImage == null) { _cachedPixels = null; return; }
+            _imageVersion++;
+            _opCts?.Cancel();   // supersede any operation still running against the old image
+
+            if (_sourceImage == null)
+            {
+                _cachedPixels = null;
+                _analysisTask = null;
+                return;
+            }
+
+            // Synchronous part: just the pixel copy (fast). The expensive analysis
+            // — background mask, Sobel gradient, distance transform — runs on a
+            // worker so loading a large photo no longer freezes the UI; the first
+            // click simply awaits the task inside its own background work.
             var formatted = new FormatConvertedBitmap(_sourceImage, PixelFormats.Bgra32, null, 0);
             _cachedWidth = formatted.PixelWidth;
             _cachedHeight = formatted.PixelHeight;
@@ -121,72 +158,280 @@ namespace DinoLino.Utilities.Modes
             _cachedPixels = new byte[_cachedStride * _cachedHeight];
             formatted.CopyPixels(_cachedPixels, _cachedStride, 0);
 
-            var bgColors = EstimateBackgroundColors();
-            _bgColors = bgColors;
-            // Compute variance across the four corner patch averages to estimate
-            // how uniform the background is. High variance = noisy/gradient background
-            // = use a higher threshold. Low variance = clean background = use lower threshold.
-            double adaptiveThreshold = ComputeAdaptiveBackgroundThreshold(bgColors);
-            _backgroundMask = _processor.BuildBackgroundMaskProgressive(
-                _cachedPixels, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp,
-                bgColors,
+            byte[] pixels = _cachedPixels;
+            int w = _cachedWidth, h = _cachedHeight, stride = _cachedStride, bpp = _cachedBpp;
+            int version = _imageVersion;
+            _analysisTask = Task.Run(() => BuildImageAnalysis(pixels, w, h, stride, bpp, version));
+        }
+
+        private ImageAnalysis BuildImageAnalysis(byte[] pixels, int w, int h, int stride, int bpp, int version)
+        {
+            var proc = new OutlineProcessor();
+
+            // Neural encoder (item 8): when SAM-class models are installed
+            // (Models\*.onnx beside the executable — see SamSegmenter), run
+            // the image encoder ONCE per image, in PARALLEL with the classical
+            // caches below. The 1–3 s CPU cost hides behind this same async
+            // load, and each click then pays only a tens-of-milliseconds
+            // decoder pass. Null when absent or failed — everything downstream
+            // silently falls back to the classical pipeline.
+            Task<SamImageState> samTask = Task.Run(() =>
+            {
+                try { return SamSegmenter.Shared?.EncodeImage(pixels, w, h, stride, bpp); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[sam] encode failed: {ex.Message}");
+                    return null;
+                }
+            });
+
+            // Border-palette background model (see EstimateBackgroundPalette):
+            // up to ~6 clustered border colors matched by nearest entry, with
+            // per-corner hard-seed trust flags and an adaptive threshold from
+            // robust patch residuals.
+            var (bgPalette, hardSeedCorners, adaptiveThreshold) =
+                EstimateBackgroundPalette(pixels, w, h, stride, bpp);
+            bool[] bgMask = proc.BuildBackgroundMaskProgressive(
+                pixels, w, h, stride, bpp, bgPalette, hardSeedCorners,
                 tightThreshold: adaptiveThreshold * 0.6,
                 relaxedThreshold: adaptiveThreshold);
-        }
 
-        private double ComputeAdaptiveBackgroundThreshold((double r, double g, double b)[] bgColors)
-        {
-            // Compute mean color across all four corners
-            double mr = 0, mg = 0, mb = 0;
-            foreach (var (r, g, b) in bgColors) { mr += r; mg += g; mb += b; }
-            mr /= 4; mg /= 4; mb /= 4;
+            var snap = new ImageSnapshot(pixels, bgMask, w, h, stride, bpp);
+            int[] gradient = proc.ComputeGradient(snap);
 
-            // Compute max perceptual distance between any corner and the mean
-            double maxDist = 0;
-            foreach (var (r, g, b) in bgColors)
+            // "Counts as an edge" cutoff for mask scoring: 90th percentile of the
+            // image's own gradient distribution, floored at roughly a 9-level
+            // luminance step so a perfectly flat background can't drive it to
+            // zero and make every rim look edge-aligned.
+            int edgeThreshold = Math.Max(
+                OutlineProcessor.GradientPercentileThreshold(gradient, 0.90), 120_000);
+
+            // Per-pixel local texture (std-dev of luma over a 7×7 window),
+            // ~4 bytes/pixel to keep. Lets the adaptive flood treat "uniformly
+            // textured" as a match criterion and self-tune its tolerance from
+            // the seed's own texture.
+            float[] textureMap = proc.ComputeTextureMap(snap);
+
+            int[] distToBackground = proc.ComputeDistanceToBackground(w, h, bgMask);
+
+            // Illumination-flattened copy (poor-man's retinex, radius
+            // ~min(w,h)/8) plus a background model REBUILT on it — that rebuild
+            // is the point: a vignetted or side-lit background that defeated
+            // the original model becomes uniform here, so both the flattened
+            // candidate's flood and its bg mask see a clean scene. Costs one
+            // extra pixel buffer + mask (~5 bytes/pixel).
+            int flattenRadius = Math.Max(8, Math.Min(w, h) / 8);
+            byte[] flattened = proc.ComputeIlluminationFlattened(snap, flattenRadius);
+            var (flatPalette, flatCorners, flatThreshold) =
+                EstimateBackgroundPalette(flattened, w, h, stride, bpp);
+            bool[] flatBgMask = proc.BuildBackgroundMaskProgressive(
+                flattened, w, h, stride, bpp, flatPalette, flatCorners,
+                tightThreshold: flatThreshold * 0.6,
+                relaxedThreshold: flatThreshold);
+
+            SamImageState samState = null;
+            try { samState = samTask.Result; } catch { samState = null; }
+
+            System.Diagnostics.Debug.WriteLine(samState != null
+                ? $"[sam] embedding ready ({w}x{h}) — neural candidate active"
+                : "[sam] embedding unavailable — neural candidate disabled for this image");
+
+            return new ImageAnalysis
             {
-                double dr = r - mr, dg = g - mg, db = b - mb;
-                double dist = Math.Sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db);
-                if (dist > maxDist) maxDist = dist;
-            }
-
-            // Map corner spread to threshold: uniform background → 35, noisy → 60
-            return Math.Max(35, Math.Min(60, 35 + maxDist * 0.8));
-        }
-
-
-        private (double r, double g, double b)[] _bgColors;
-        // Samples one pixel at each corner for use as individual background seeds.
-        private (double r, double g, double b)[] EstimateBackgroundColors()
-        {
-            int w = _cachedWidth, h = _cachedHeight;
-            int patch = Math.Max(4, Math.Min(20, Math.Min(w, h) / 10));
-
-            (double r, double g, double b) SamplePatch(int x0, int y0, int x1, int y1)
-            {
-                double tr = 0, tg = 0, tb = 0; int count = 0;
-                for (int y = y0; y <= y1; y++)
-                    for (int x = x0; x <= x1; x++)
-                    {
-                        var (r, g, b) = ReadPixel(x, y);
-                        tr += r; tg += g; tb += b; count++;
-                    }
-                return count > 0 ? (tr / count, tg / count, tb / count) : (0, 0, 0);
-            }
-
-            int inset = Math.Min(5, Math.Min(w, h) / 20); // skip the outermost pixels
-            int p = patch - 1;
-            return new[]
-            {
-                SamplePatch(inset,         inset,         inset + p,         inset + p),         // top-left
-                SamplePatch(w - patch - inset, inset,     w - 1 - inset,     inset + p),         // top-right
-                SamplePatch(inset,         h - patch - inset, inset + p,     h - 1 - inset),     // bottom-left
-                SamplePatch(w - patch - inset, h - patch - inset, w - 1 - inset, h - 1 - inset), // bottom-right
+                Pixels = pixels,
+                Width = w,
+                Height = h,
+                Stride = stride,
+                Bpp = bpp,
+                BackgroundMask = bgMask,
+                Gradient = gradient,
+                DistToBackground = distToBackground,
+                GradientEdgeThreshold = edgeThreshold,
+                TextureMap = textureMap,
+                FlattenedPixels = flattened,
+                FlattenedBackgroundMask = flatBgMask,
+                SamState = samState,
+                Version = version
             };
         }
 
-        private bool[] _backgroundMask;
-        
+        // =====================
+        // BACKGROUND PALETTE ESTIMATION
+        // =====================
+        private const int BgPatchesPerEdge = 5;              // corners shared between edges → 16 patches total
+        private const int BgMaxPaletteSize = 6;
+        private const double BgPaletteMergeThreshold = 30.0; // perceptual units, same family as the flood threshold
+
+        // Estimates the background as a PALETTE of up to BgMaxPaletteSize colors
+        // clustered from 16 median patches around the entire border — replacing
+        // the four-corner quadrant model, which assumed each quadrant of the
+        // background is a single color. Multi-region backgrounds (mat + ruler +
+        // label + shadow band) get one palette entry per region instead.
+        //
+        // Subject rejection: an entry supported by only ONE patch is dropped —
+        // a genuine background color along the border virtually always spans
+        // several of the 16 patches, while a subject touching the border in one
+        // place contributes one or two. (A subject spanning three or more
+        // border patches is genuinely ambiguous with a background region; the
+        // click rescue and candidate scoring handle that case downstream.)
+        //
+        // Returns: the palette; per-corner trust flags (TL, TR, BL, BR — true
+        // when that corner's median survived into the palette, which licenses
+        // the hard corner seeding in BuildBackgroundMask); and the adaptive
+        // flood threshold, computed from a robust (top-two-excluded) residual
+        // of the patches against the palette, so one or two subject-contaminated
+        // patches cannot inflate it — the failure mode the old max-corner-spread
+        // formula had.
+        private ((double r, double g, double b)[] palette, bool[] hardSeedCorners, double threshold)
+            EstimateBackgroundPalette(byte[] pixels, int w, int h, int stride, int bpp)
+        {
+            int patch = Math.Max(4, Math.Min(20, Math.Min(w, h) / 10));
+            int inset = Math.Min(5, Math.Min(w, h) / 20);
+            int p = patch - 1;
+            int lo = inset;
+            int hiX = Math.Max(lo, w - patch - inset);
+            int hiY = Math.Max(lo, h - patch - inset);
+
+            (double r, double g, double b) SamplePatchMedian(int x0, int y0)
+            {
+                int x1 = Math.Min(w - 1, x0 + p), y1 = Math.Min(h - 1, y0 + p);
+                int cap = Math.Max(1, (x1 - x0 + 1) * (y1 - y0 + 1));
+                var rs = new List<double>(cap);
+                var gs = new List<double>(cap);
+                var bs = new List<double>(cap);
+                for (int y = y0; y <= y1; y++)
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        int i = y * stride + x * bpp;
+                        byte pr = bpp == 1 ? pixels[i] : pixels[i + 2];
+                        byte pg = bpp == 1 ? pixels[i] : pixels[i + 1];
+                        byte pb = bpp == 1 ? pixels[i] : pixels[i];
+                        rs.Add(pr); gs.Add(pg); bs.Add(pb);
+                    }
+                double Med(List<double> v)
+                {
+                    if (v.Count == 0) return 0;
+                    v.Sort();
+                    return v[v.Count / 2];
+                }
+                return (Med(rs), Med(gs), Med(bs));
+            }
+
+            double PDist((double r, double g, double b) a, (double r, double g, double b) b2)
+            {
+                double dr = a.r - b2.r, dg = a.g - b2.g, db = a.b - b2.b;
+                return Math.Sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db);
+            }
+
+            // 16 patch anchors: BgPatchesPerEdge along top and bottom (their
+            // end patches ARE the corners), interior points only on left/right.
+            var anchors = new List<(int x, int y)>();
+            int idxTL = -1, idxTR = -1, idxBL = -1, idxBR = -1;
+            for (int k = 0; k < BgPatchesPerEdge; k++)
+            {
+                double t = k / (double)(BgPatchesPerEdge - 1);
+                int ax = lo + (int)Math.Round(t * (hiX - lo));
+                if (k == 0) idxTL = anchors.Count;
+                else if (k == BgPatchesPerEdge - 1) idxTR = anchors.Count;
+                anchors.Add((ax, lo));
+                if (k == 0) idxBL = anchors.Count;
+                else if (k == BgPatchesPerEdge - 1) idxBR = anchors.Count;
+                anchors.Add((ax, hiY));
+            }
+            for (int k = 1; k < BgPatchesPerEdge - 1; k++)
+            {
+                double t = k / (double)(BgPatchesPerEdge - 1);
+                int ay = lo + (int)Math.Round(t * (hiY - lo));
+                anchors.Add((lo, ay));
+                anchors.Add((hiX, ay));
+            }
+
+            int m = anchors.Count;
+            var med = new (double r, double g, double b)[m];
+            for (int i = 0; i < m; i++)
+                med[i] = SamplePatchMedian(anchors[i].x, anchors[i].y);
+
+            // Greedy clustering into palette entries, then merge-down to the cap.
+            var er = new List<double>(); var eg = new List<double>();
+            var eb = new List<double>(); var ec = new List<int>();
+
+            void MergeInto(int k, double r, double g, double b, int count)
+            {
+                int total = ec[k] + count;
+                er[k] = (er[k] * ec[k] + r * count) / total;
+                eg[k] = (eg[k] * ec[k] + g * count) / total;
+                eb[k] = (eb[k] * ec[k] + b * count) / total;
+                ec[k] = total;
+            }
+
+            for (int i = 0; i < m; i++)
+            {
+                int nearest = -1; double nd = double.MaxValue;
+                for (int k = 0; k < er.Count; k++)
+                {
+                    double d = PDist(med[i], (er[k], eg[k], eb[k]));
+                    if (d < nd) { nd = d; nearest = k; }
+                }
+                if (nearest >= 0 && nd <= BgPaletteMergeThreshold)
+                    MergeInto(nearest, med[i].r, med[i].g, med[i].b, 1);
+                else
+                {
+                    er.Add(med[i].r); eg.Add(med[i].g); eb.Add(med[i].b); ec.Add(1);
+                }
+            }
+
+            while (er.Count > BgMaxPaletteSize)
+            {
+                int bi = 0, bj = 1; double bd = double.MaxValue;
+                for (int i2 = 0; i2 < er.Count; i2++)
+                    for (int j2 = i2 + 1; j2 < er.Count; j2++)
+                    {
+                        double d = PDist((er[i2], eg[i2], eb[i2]), (er[j2], eg[j2], eb[j2]));
+                        if (d < bd) { bd = d; bi = i2; bj = j2; }
+                    }
+                MergeInto(bi, er[bj], eg[bj], eb[bj], ec[bj]);
+                er.RemoveAt(bj); eg.RemoveAt(bj); eb.RemoveAt(bj); ec.RemoveAt(bj);
+            }
+
+            // Drop singleton entries (likely a subject touching the border) —
+            // but only when a multi-patch entry remains to stand on.
+            bool anyMulti = false;
+            for (int k = 0; k < ec.Count; k++) if (ec[k] >= 2) { anyMulti = true; break; }
+            if (m >= 8 && anyMulti)
+                for (int k = ec.Count - 1; k >= 0; k--)
+                    if (ec[k] < 2) { er.RemoveAt(k); eg.RemoveAt(k); eb.RemoveAt(k); ec.RemoveAt(k); }
+
+            var palette = new (double r, double g, double b)[er.Count];
+            for (int k = 0; k < er.Count; k++) palette[k] = (er[k], eg[k], eb[k]);
+
+            double MinDistToPalette((double r, double g, double b) c2)
+            {
+                double best = double.MaxValue;
+                for (int k = 0; k < palette.Length; k++)
+                {
+                    double d = PDist(c2, palette[k]);
+                    if (d < best) best = d;
+                }
+                return best;
+            }
+
+            // Adaptive flood threshold from robust patch residuals: sort the
+            // per-patch distances to the palette and ignore the top two, which
+            // may be subject-contaminated patches whose colors were dropped.
+            var residual = new double[m];
+            for (int i = 0; i < m; i++) residual[i] = MinDistToPalette(med[i]);
+            Array.Sort(residual);
+            double robust = residual[Math.Max(0, m - 3)];
+            double threshold = Math.Max(35, Math.Min(60, 35 + robust * 1.5));
+
+            var corners = new bool[4];
+            corners[0] = idxTL >= 0 && MinDistToPalette(med[idxTL]) <= BgPaletteMergeThreshold * 1.5;
+            corners[1] = idxTR >= 0 && MinDistToPalette(med[idxTR]) <= BgPaletteMergeThreshold * 1.5;
+            corners[2] = idxBL >= 0 && MinDistToPalette(med[idxBL]) <= BgPaletteMergeThreshold * 1.5;
+            corners[3] = idxBR >= 0 && MinDistToPalette(med[idxBR]) <= BgPaletteMergeThreshold * 1.5;
+
+            return (palette, corners, threshold);
+        }
 
         // Converts a canvas-space point back to image-space (pixel coordinates).
         // Inverse of the transform applied when building the polyline from simplified boundary points.
@@ -200,6 +445,12 @@ namespace DinoLino.Utilities.Modes
 
         #region shared functions and variables
 
+        // When true, FORCES watershed for every click (legacy behavior, kept so an
+        // existing XAML binding doesn't break). When false — the recommended
+        // default — each click runs flood fill first, scores the result against
+        // the image gradient, and silently retries with watershed when the flood
+        // looks poor, keeping whichever mask scores better (see SegmentAtClick).
+        // That makes this toggle, and its checkbox, safe to delete from the UI.
         private bool _useWatershed = false;
         public bool UseWatershed
         {
@@ -249,6 +500,14 @@ namespace DinoLino.Utilities.Modes
         private Polyline _pendingPolyline;    // the dashed preview currently shown
         private bool _hasPending = false;
 
+        // Accumulated click coordinates for the CURRENT pending outline — fed
+        // to the neural candidate as positive point prompts, so a second
+        // multi-click doesn't just merge two masks, it RE-PROMPTS the model
+        // with both points and lets it produce one coherent object. Mutated
+        // only on the UI thread; snapshot with ToArray() before capturing
+        // into a background task.
+        private readonly List<(int x, int y)> _pendingClickPoints = new List<(int x, int y)>();
+
         // (newPending, oldPending) — MainWindow swaps them on the canvas
         public event Action<Polyline, Polyline> PendingOutlineReady;
 
@@ -263,7 +522,10 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // 0 = Off, 1 = Low, 2 = High
+        // 0 = Off, 1 = Low, 2 = High. Only honored on the legacy forced-watershed
+        // path (UseWatershed == true): in auto mode the candidate portfolio tries
+        // blur levels 0 and 1 itself, so this knob — like UseWatershed — can be
+        // deleted from the UI.
         private int _watershedBlurLevel = 0;
         public int WatershedBlurLevel
         {
@@ -297,20 +559,54 @@ namespace DinoLino.Utilities.Modes
         public double OffsetX { get; set; } = 0;
         public double OffsetY { get; set; } = 0;
 
+        // Superseding cancellation for click operations: a new click cancels the
+        // previous computation instead of racing it. (Operations also no longer
+        // share OutlineProcessor scratch buffers — see StartNewOutline.)
+        private CancellationTokenSource _opCts;
+
+        // A candidate mask whose ScoreMask result reaches this is accepted
+        // outright and the portfolio stops; below it, the next (more expensive)
+        // candidate runs and the highest score wins. Tunable.
+        private const double AcceptableMaskScore = 0.5;
+
+        // Masks scoring at or above this already hug the image edges well;
+        // GmmRefine rarely beats them and costs an ROI-sized model fit plus a
+        // per-pixel reclassification, so refinement is skipped. Tunable.
+        private const double RefinementSkipScore = 0.72;
+
+        // One-line diagnostic of the last click's candidate arbitration, e.g.
+        // "[outline] click(412,300) neural=0.81 winner=neural". Written by
+        // SegmentAtClick on the worker thread (WPF marshals PropertyChanged
+        // for scalar bindings); bind a TextBlock to it for a live readout, or
+        // watch the same line in the debugger's Output window.
+        private string _lastSegmentationInfo = "";
+        public string LastSegmentationInfo
+        {
+            get => _lastSegmentationInfo;
+            private set => SetField(ref _lastSegmentationInfo, value);
+        }
+
         public override void Reset()
         {
             base.Reset();
+            _opCts?.Cancel();
             _activePolyline = null;
             _pendingMask = null;
             _pendingPolyline = null;
             _hasPending = false;
+            _pendingClickPoints.Clear();
             _efd.Clear();
-            CancelHandDraw();         
+            CancelHandDraw();
             _handOutlineCommitted = false;
             ClearMetadata();
             ClearEFDPreview();
         }
 
+        // UI-THREAD-ONLY processor for synchronous helpers (erase re-trace).
+        // Background click operations create their OWN instance so scratch
+        // buffers are never shared across threads — two overlapping clicks used
+        // to mutate the same queue/distance buffers concurrently, which could
+        // corrupt both results.
         private readonly OutlineProcessor _processor = new OutlineProcessor();
 
         // =====================
@@ -320,40 +616,89 @@ namespace DinoLino.Utilities.Modes
 
         // Runs the full cleanup pipeline on a full-image-space mask.
         // Returns the cleaned full-image-space mask, or null if it fails.
+        // Runs on a background thread; 'proc' is that operation's own processor.
         private bool[] CleanMaskFullSpace(bool[] rawFull, ImageSnapshot snap,
-    int seedPxX, int seedPxY, CancellationToken token, bool preserveMultipleComponents = false)
+            int seedPxX, int seedPxY, OutlineProcessor proc, CancellationToken token,
+            bool preserveMultipleComponents = false)
         {
             int sw = snap.Width, sh = snap.Height;
 
-            // Strip the border band so flood bleed at the image edge can't anchor a component
+            // Strip the 5-px border band ONLY when the mask occupies enough of it
+            // to look like background bleed. A subject that genuinely touches the
+            // frame in a small arc keeps its edge pixels instead of losing a slice
+            // (or being cut in two, after which "largest component" could keep the
+            // wrong half). The crack tracer stays in-bounds either way.
+            const int band = 5;
+            long bandFg = 0, bandTotal = 0;
             for (int i = 0; i < rawFull.Length; i++)
             {
-                if (!rawFull[i]) continue;
                 int rx = i % sw, ry = i / sw;
-                if (rx <= 4 || rx >= sw - 5 || ry <= 4 || ry >= sh - 5) rawFull[i] = false;
+                if (rx >= band && rx < sw - band && ry >= band && ry < sh - band) continue;
+                bandTotal++;
+                if (rawFull[i]) bandFg++;
+            }
+            if (bandTotal > 0 && bandFg > bandTotal * 0.2)
+            {
+                for (int i = 0; i < rawFull.Length; i++)
+                {
+                    if (!rawFull[i]) continue;
+                    int rx = i % sw, ry = i / sw;
+                    if (rx < band || rx >= sw - band || ry < band || ry >= sh - band) rawFull[i] = false;
+                }
             }
 
-            var (bx0, by0, bx1, by1) = _processor.GetMaskBounds(rawFull, sw, sh, margin: 4);
-            var (cropped, cw, ch) = _processor.CropMask(rawFull, sw, bx0, by0, bx1, by1);
+            token.ThrowIfCancellationRequested();
+
+            var (bx0, by0, bx1, by1) = proc.GetMaskBounds(rawFull, sw, sh, margin: 4);
+            var (cropped, cw, ch) = proc.CropMask(rawFull, sw, bx0, by0, bx1, by1);
+            // Mask-space snapshot: Width/Height describe the crop but Pixels/Stride
+            // are full-image; everything downstream is mask-only.
             var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
+
+            // Seed in crop space, clamped: with the conditional strip the seed can
+            // in principle sit just outside the surviving bounds.
+            int cpx = Math.Max(0, Math.Min(cw - 1, seedPxX - bx0));
+            int cpy = Math.Max(0, Math.Min(ch - 1, seedPxY - by0));
 
             bool[] traced;
             if (preserveMultipleComponents)
             {
-                // Clean every component independently and keep all that survive.
+                // Clean every component independently (each in its own crop, with
+                // per-component scaled radii) and keep all that survive.
                 // No single-component collapse, no trace-seed dependence.
-                bool[] work = _processor.CleanEachComponent(cropped, croppedSnap, MinAreaPixels);
-                traced = _processor.HasMinimumPixels(work, MinAreaPixels) ? work : cropped;
+                bool[] work = proc.CleanEachComponent(cropped, croppedSnap, MinAreaPixels, token);
+                traced = proc.HasMinimumPixels(work, MinAreaPixels) ? work : cropped;
             }
             else
             {
-                // Single-region path: clean the whole mask as one shape, then
-                // explicitly collapse to the largest component as a separate step.
-                bool[] work = _processor.CleanComponentMorphology(cropped, croppedSnap);
-                work = _processor.KeepLargestComponent(work, croppedSnap);
+                // Scale the cleanup morphology to the object instead of fixed radii:
+                // a fixed radius-2 opening plus corridor-3 thinning deterministically
+                // deletes any feature under ~5 px wide — exactly an antenna or spine
+                // on a small specimen. Small blobs still get cleaned aggressively.
+                int maskArea = proc.CountPixels(cropped);
+                double objScale = Math.Sqrt(Math.Max(1, maskArea));
+                // Floor restored to the ORIGINAL radius 2 (see the matching
+                // note in CleanEachComponent); tiny objects keep radius 1.
+                int openRadius = maskArea < 2500
+                    ? 1
+                    : (int)Math.Min(3, Math.Max(2, objScale / 64.0));
+                int corridorWidth = Math.Min(3, openRadius + 1);
 
-                int cpx = seedPxX - bx0, cpy = seedPxY - by0;
-                traced = _processor.PrepareMaskForTracing(work, cropped, cpx, cpy, MinAreaPixels, croppedSnap);
+                bool[] work = proc.CleanComponentMorphology(cropped, croppedSnap,
+                    openRadius, closeRadius: 1, minCorridorWidth: corridorWidth);
+
+                token.ThrowIfCancellationRequested();
+
+                // Honor the click: if the component the user pointed at survived
+                // cleanup, keep THAT one. Fall back to "largest" only when it
+                // didn't — MorphOpen can split a mask, and the biggest fragment
+                // is not necessarily the one under the cursor.
+                int cseed = cpy * cw + cpx;
+                work = work[cseed]
+                    ? proc.KeepComponentContainingSeed(work, cseed, croppedSnap)
+                    : proc.KeepLargestComponent(work, croppedSnap);
+
+                traced = proc.PrepareMaskForTracing(work, cropped, cpx, cpy, MinAreaPixels, croppedSnap);
             }
 
             // Paste cropped result back into full-image space
@@ -364,35 +709,54 @@ namespace DinoLino.Utilities.Modes
             return full;
         }
 
-        private Polyline BuildPolylineFromFullMask(bool[] full, ImageSnapshot snap, bool dashed)
+        private Polyline BuildPolylineFromFullMask(bool[] full, ImageSnapshot snap, bool dashed, OutlineProcessor proc,
+            int[] gradient, int edgeGradThreshold)
         {
-            var (bx0, by0, bx1, by1) = _processor.GetMaskBounds(full, snap.Width, snap.Height, margin: 2);
-            var (cropped, cw, ch) = _processor.CropMask(full, snap.Width, bx0, by0, bx1, by1);
+            var (bx0, by0, bx1, by1) = proc.GetMaskBounds(full, snap.Width, snap.Height, margin: 2);
+            var (cropped, cw, ch) = proc.CropMask(full, snap.Width, bx0, by0, bx1, by1);
             var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
-            var boundary = _processor.TraceBoundary(cropped, croppedSnap);
+            var boundary = proc.TraceBoundary(cropped, croppedSnap);
             if (boundary.Count < 8) return null;
 
-            var simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
-            if (simplified.Count < 3) return null;
+            // Boundary snap post-pass (conservative — see SnapBoundaryToGradient).
+            // Keep the unsnapped trace: if simplification of the snapped
+            // contour self-intersects, retry from the raw trace — which is
+            // simple by construction — effectively disabling the snap for that
+            // outline. The old fallback dumped the ENTIRE dense contour into
+            // the display polyline, which is exactly the "every pixel of
+            // jitter becomes a vertex" jaggedness this replaces.
+            // NOTE: in multi-click mode the stored pending MASK is not
+            // re-rasterized from the snapped contour — the ≤3 px divergence is
+            // immaterial for its two uses (click-inside test, merge base).
+            var rawBoundary = boundary;
+            boundary = proc.SnapBoundaryToGradient(boundary, bx0, by0,
+                gradient, snap.Width, snap.Height, edgeGradThreshold);
 
-            // The crack-traced boundary is simple, but Douglas-Peucker can occasionally
-            // cross a concave bay. Validate and fall back to the dense boundary if so.
-            bool simAfterDP = !PolylineHasSelfIntersection(simplified);
+            var simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
+            bool simAfterDP = simplified.Count >= 3 && !PolylineHasSelfIntersection(simplified);
             if (!simAfterDP)
-                simplified = new List<Point>(boundary);
+            {
+                boundary = rawBoundary;
+                simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
+                if (simplified.Count < 3) return null;
+                if (PolylineHasSelfIntersection(simplified))
+                    simplified = new List<Point>(boundary);
+            }
 
             // Keep the DENSE boundary (pre-simplification) in full-image space for EFA.
             _activeDenseContourImage = new List<Point>(boundary.Count);
             foreach (var p in boundary)
                 _activeDenseContourImage.Add(new Point(p.X + bx0, p.Y + by0));
 
-            // The destructive per-point border clamp that used to live here was REMOVED.
-            // CleanMaskFullSpace already clears everything within 5 px of the edge, so
-            // every traced point is in-bounds. Clamping each point onto a box could
-            // collapse a near-edge concavity onto the box line and self-intersect the
-            // polygon — that was the source of the corrupted metadata, and it only bit
-            // specimens close to the image border (hence the intermittency).
+            // The destructive per-point border clamp that used to live here was
+            // REMOVED. The crack tracer only ever emits vertices at grid corners
+            // inside [0..w] x [0..h], so every traced point is in-bounds by
+            // construction — including now that CleanMaskFullSpace strips the
+            // border band only when it detects bleed, so masks CAN legitimately
+            // touch the edge. Clamping each point onto a box could collapse a
+            // near-edge concavity onto the box line and self-intersect the
+            // polygon — that was the source of the corrupted metadata.
 
             var poly = new Polyline
             {
@@ -426,12 +790,20 @@ namespace DinoLino.Utilities.Modes
 
             if (_eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode || _handDrawMode)
                 return new List<UIElement>();
-            if (_cachedPixels == null) return new List<UIElement>();
+            if (_cachedPixels == null || _analysisTask == null) return new List<UIElement>();
 
             int px = (int)((mousePos.X - OffsetX) / ScaleX);
             int py = (int)((mousePos.Y - OffsetY) / ScaleY);
             if ((uint)px >= _cachedWidth || (uint)py >= _cachedHeight)
                 return new List<UIElement>();
+
+            // Drop pending state that belongs to a previous image (dimension change).
+            if (_pendingMask != null && _pendingMask.Length != _cachedWidth * _cachedHeight)
+            {
+                _pendingMask = null;
+                _pendingPolyline = null;
+                _hasPending = false;
+            }
 
             // ── Multi-click: a pending outline already exists ──
             if (_multiClickOutline && _hasPending && _pendingMask != null)
@@ -456,38 +828,291 @@ namespace DinoLino.Utilities.Modes
             return new List<UIElement>();
         }
 
-        private void StartNewOutline(int px, int py)
+        // Segments the object at the click.
+        //  * Rescues clicks landing on background-classified pixels by dropping
+        //    the (locally wrong) background mask for this operation.
+        //  * Snaps the flood seed to the local distance-transform peak, like
+        //    watershed already did, so a click on a highlight or a few pixels
+        //    from the boundary still samples a representative interior color.
+        //  * Runs a cheapest-first CANDIDATE PORTFOLIO, stopping at the first
+        //    acceptable mask:
+        //      0. neural (SAM) mask — when Models\*.onnx are installed, the
+        //                             accumulated click(s) prompt a MobileSAM-
+        //                             class decoder against the per-image
+        //                             embedding computed at load; skipped
+        //                             entirely when no model is present;
+        //      1. classic flood     — identical to the original pipeline, so
+        //                             images that already worked don't change;
+        //      2. adaptive flood    — chroma-weighted seed distance + texture
+        //                             channel, for shaded and textured objects;
+        //      3. classic flood on the illumination-flattened copy — cancels
+        //                             vignetting/lighting falloff, with a
+        //                             background model rebuilt on that copy;
+        //      4. watershed, no blur (cached gradient);
+        //      5. watershed, blur 1  — the portfolio absorbs WatershedBlurLevel;
+        //      6. half-resolution classic flood, upsampled — downsampling
+        //                             averages out the noise/texture that
+        //                             fragments the full-resolution flood.
+        //    If nothing is acceptable, the best-scoring candidate wins; if even
+        //    that failed the size veto, the classic flood is returned so this
+        //    can never do worse than the original pipeline.
+        //  * SIZE VETO: DistToBackground at the seed peak is the radius of a
+        //    disc around the peak containing no background at all, so a correct
+        //    mask must contain at least (roughly) that disc — any candidate
+        //    smaller than HALF its area has under-segmented no matter how well
+        //    its rim scores. This closes ScoreMask's blind spot on textured
+        //    objects, where a fragment's internal texture edges look like a
+        //    perfectly edge-aligned rim.
+        //  * REFINEMENT: unless the winner already hugs edges well
+        //    (>= RefinementSkipScore), it is passed through GmmRefine —
+        //    GrabCut-style foreground/background mixture models — and the
+        //    refined mask replaces it only when it scores strictly better.
+        private (bool[] mask, int seedX, int seedY, ImageSnapshot snap) SegmentAtClick(
+            int px, int py, ImageAnalysis a, OutlineProcessor proc, CancellationToken token,
+            (int x, int y)[] samPrompts = null)
         {
-            var token = CancellationToken;
-            var snap = new ImageSnapshot(_cachedPixels, _backgroundMask, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp);
+            int clickIdx = py * a.Width + px;
+            bool clickOnBg = a.BackgroundMask != null && a.BackgroundMask[clickIdx];
 
-            System.Threading.Tasks.Task.Run(() =>
+            // Rescue path: the click landed on a pixel the background model
+            // claimed, so the model is evidently wrong here. Run this operation
+            // without it rather than letting every flood/watershed step silently
+            // refuse to grow anywhere near the click.
+            bool[] opBgMask = clickOnBg ? null : a.BackgroundMask;
+            var snap = new ImageSnapshot(a.Pixels, opBgMask, a.Width, a.Height, a.Stride, a.Bpp);
+            int[] opDist = clickOnBg ? null : a.DistToBackground; // null → watershed recomputes vs. border only
+
+            int sx = px, sy = py;
+            if (!clickOnBg)
+                (sx, sy) = proc.FindDistanceTransformPeak(px, py, a.Width, a.Height,
+                    a.DistToBackground, a.BackgroundMask, searchRadius: 8);
+
+            var (sr, sg, sb) = proc.SampleSeedColor(sx, sy, snap, radius: 2);
+
+            if (_useWatershed)
+            {
+                // Legacy "force watershed" path (see UseWatershed remarks).
+                bool[] forced = proc.WatershedSegment(px, py, snap, a.Gradient, opDist, token,
+                    seedRadius: 3, blurLevel: _watershedBlurLevel);
+                if (forced != null) return (forced, sx, sy, snap);
+                return (proc.FloodFill(sx, sy, sr, sg, sb, snap,
+                    _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold, token), sx, sy, snap);
+            }
+
+            // Size veto threshold. Cap the peak distance so a sparse or failed
+            // background mask (large distances everywhere) can only WEAKEN the
+            // veto toward legacy behavior — never reject correct masks of
+            // ordinary size.
+            int peakDist = clickOnBg ? 0 : a.DistToBackground[sy * a.Width + sx];
+            peakDist = Math.Min(peakDist, Math.Min(a.Width, a.Height) / 8);
+            int minPlausibleArea = Math.Max(MinAreaPixels,
+                (int)(0.5 * Math.PI * (double)peakDist * peakDist));
+
+            bool[] best = null;
+            double bestScore = -1.0;
+            string bestName = "none";
+            var diag = new System.Text.StringBuilder();
+
+            double Score(bool[] m)
+            {
+                if (m == null) return 0;
+                if (!proc.HasMinimumPixels(m, minPlausibleArea)) return 0; // size veto
+                return proc.ScoreMask(m, a.Width, a.Height, a.Gradient, a.GradientEdgeThreshold);
+            }
+
+            bool Consider(string name, bool[] m)
+            {
+                double s = Score(m);
+                diag.Append(name).Append('=').Append(s.ToString("F2")).Append(' ');
+                if (s > bestScore) { bestScore = s; best = m; bestName = name; }
+                return s >= AcceptableMaskScore;
+            }
+
+            // Item 7: GrabCut-style GMM refinement. A mixture fitted to the
+            // chosen mask covers what no single seed color can — a textured
+            // object's several color modes, or the lit and shadowed halves of
+            // one surface — so it recovers regions the coarse candidates missed
+            // and sheds background they grabbed. The refined mask must WIN on
+            // score (size veto included) to replace the coarse one, so this
+            // stage can only improve the result.
+            (bool[] mask, int seedX, int seedY, ImageSnapshot snap) Finish(bool[] chosen)
+            {
+                bool refinedWon = false;
+                if (bestScore < RefinementSkipScore)
+                {
+                    bool[] refined = proc.GmmRefine(chosen, snap, sx, sy, token);
+                    if (!ReferenceEquals(refined, chosen))
+                    {
+                        double rs = Score(refined);
+                        diag.Append("gmm=").Append(rs.ToString("F2")).Append(' ');
+                        if (rs > Math.Max(bestScore, 0.0)) { chosen = refined; refinedWon = true; }
+                    }
+                }
+
+                // One line per click answering "which engine produced this
+                // outline, and why": every candidate's score plus the winner.
+                // Visible in the debugger's Output window; also exposed via
+                // LastSegmentationInfo for an optional UI binding.
+                string info = $"[outline] click({px},{py}) {diag}winner={bestName}{(refinedWon ? "+gmm" : "")}";
+                System.Diagnostics.Debug.WriteLine(info);
+                LastSegmentationInfo = info;
+
+                return (chosen, sx, sy, snap);
+            }
+
+            // 0) Neural candidate: click-prompted SAM (MobileSAM-class) when a
+            //    model is installed. Tried FIRST because the encoder already
+            //    ran at image load and a decoder pass costs tens of
+            //    milliseconds — and it handles texture, clutter, and variable
+            //    lighting at a level the color heuristics below can't reach.
+            //    Deliberately NOT clamped by the background mask: the neural
+            //    mask's whole value is its independence from the color
+            //    background model, and the shared score, size veto, and
+            //    downstream cleanup arbitrate it like every other candidate.
+            //    The classical portfolio below remains the complete fallback.
+            if (a.SamState != null)
             {
                 try
                 {
-                    token.ThrowIfCancellationRequested();
-                    bool[] full = FloodFullSpace(px, py, snap);
-                    if (full == null) return;
+                    var prompts = new List<(int x, int y, bool positive)>();
+                    if (samPrompts != null)
+                        foreach (var (qx, qy) in samPrompts) prompts.Add((qx, qy, true));
+                    if (prompts.Count == 0) prompts.Add((px, py, true));
 
-                    bool[] cleaned = CleanMaskFullSpace(full, snap, px, py, token);
-                    if (cleaned == null || !_processor.HasMinimumPixels(cleaned, MinAreaPixels)) return;
+                    bool[] neural = SamSegmenter.Shared?.Segment(
+                        a.SamState, prompts, a.Width, a.Height, token);
+                    if (neural != null && Consider("neural", neural)) return Finish(best);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[sam] decode failed: {ex.Message}");
+                    diag.Append("neural=err ");
+                }
+                token.ThrowIfCancellationRequested();
+            }
+            else
+            {
+                diag.Append("neural=off ");
+            }
+
+            // 1) Classic flood — unchanged legacy behavior.
+            bool[] classicFlood = proc.FloodFill(sx, sy, sr, sg, sb, snap,
+                _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold, token);
+            if (Consider("flood", classicFlood)) return Finish(best);
+            token.ThrowIfCancellationRequested();
+
+            // 2) Chroma + texture aware flood.
+            float seedTexture = proc.SampleSeedTexture(sx, sy, snap, a.TextureMap, radius: 2);
+            bool[] adaptive = proc.FloodFillAdaptive(sx, sy, sr, sg, sb, seedTexture, snap,
+                a.TextureMap, _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold, token);
+            if (Consider("adaptive", adaptive)) return Finish(best);
+            token.ThrowIfCancellationRequested();
+
+            // 3) Classic flood on the illumination-flattened copy, with the
+            //    background model rebuilt on that copy. Cancels vignetting and
+            //    lighting falloff that the chroma metric alone can't fix when
+            //    the BACKGROUND (not the object) carries the gradient. Scored
+            //    against the ORIGINAL image's edges like every other candidate,
+            //    and the winning mask feeds the normal downstream pipeline —
+            //    only the segmentation itself looks at flattened pixels.
+            bool clickOnFlatBg = a.FlattenedBackgroundMask != null && a.FlattenedBackgroundMask[clickIdx];
+            var flatSnap = new ImageSnapshot(a.FlattenedPixels,
+                clickOnFlatBg ? null : a.FlattenedBackgroundMask,
+                a.Width, a.Height, a.Stride, a.Bpp);
+            var (flr, flg, flb) = proc.SampleSeedColor(sx, sy, flatSnap, radius: 2);
+            bool[] flatFlood = proc.FloodFill(sx, sy, flr, flg, flb, flatSnap,
+                _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold, token);
+            if (Consider("flat", flatFlood)) return Finish(best);
+            token.ThrowIfCancellationRequested();
+
+            // 4) Watershed, no blur (cached gradient).
+            bool[] shed0 = proc.WatershedSegment(px, py, snap, a.Gradient, opDist, token,
+                seedRadius: 3, blurLevel: 0);
+            if (Consider("shed0", shed0)) return Finish(best);
+            token.ThrowIfCancellationRequested();
+
+            // 5) Watershed, blur level 1 (fresh gradient from the blurred copy).
+            bool[] shed1 = proc.WatershedSegment(px, py, snap, a.Gradient, opDist, token,
+                seedRadius: 3, blurLevel: 1);
+            if (Consider("shed1", shed1)) return Finish(best);
+            token.ThrowIfCancellationRequested();
+
+            // 6) Half-resolution classic flood, upsampled.
+            var half = proc.DownsampleHalf(snap);
+            if (half.Width >= 8 && half.Height >= 8 && half.Width < a.Width)
+            {
+                int hx = Math.Min(half.Width - 1, sx / 2);
+                int hy = Math.Min(half.Height - 1, sy / 2);
+                if (half.BgMask == null || !half.BgMask[hy * half.Width + hx])
+                {
+                    var (hr, hg, hb) = proc.SampleSeedColor(hx, hy, half, radius: 2);
+                    bool[] halfMask = proc.FloodFill(hx, hy, hr, hg, hb, half,
+                        _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold, token);
+                    Consider("halfres", proc.UpsampleMask2x(halfMask, half.Width, half.Height, a.Width, a.Height));
+                }
+            }
+
+            // Nothing acceptable: best-scoring candidate wins; if even that was
+            // vetoed away, fall back to the classic flood so this never does
+            // worse than the original pipeline.
+            if (best == null || bestScore <= 0) best = classicFlood;
+            return Finish(best);
+        }
+
+        private void StartNewOutline(int px, int py)
+        {
+            var analysisTask = _analysisTask;
+            if (analysisTask == null) return;
+
+            // Newest click wins: supersede any in-flight computation instead of
+            // racing it. Combined with per-operation processors below, this
+            // removes the buffer data race between overlapping clicks and stops
+            // superseded work from burning CPU to completion.
+            _opCts?.Cancel();
+            _opCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+            var token = _opCts.Token;
+            int version = _imageVersion;
+
+            // SAM prompt bookkeeping: a NEW outline resets the accumulated
+            // click list to just this click; ExpandPending appends instead.
+            _pendingClickPoints.Clear();
+            _pendingClickPoints.Add((px, py));
+            var samPrompts = _pendingClickPoints.ToArray();
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    ImageAnalysis a = await analysisTask.ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+
+                    // Per-operation processor: scratch buffers are never shared
+                    // across concurrent tasks.
+                    var proc = new OutlineProcessor();
+
+                    var (raw, usedX, usedY, snap) = SegmentAtClick(px, py, a, proc, token, samPrompts);
+                    if (raw == null) return;
+
+                    bool[] cleaned = CleanMaskFullSpace(raw, snap, usedX, usedY, proc, token);
+                    if (cleaned == null || !proc.HasMinimumPixels(cleaned, MinAreaPixels)) return;
                     token.ThrowIfCancellationRequested();
 
                     System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
-                        if (token.IsCancellationRequested) return;
+                        if (token.IsCancellationRequested || version != _imageVersion) return;
 
                         if (_multiClickOutline)
                         {
-                            var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true);
+                            var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true, proc, a.Gradient, a.GradientEdgeThreshold);
                             if (poly == null) return;
                             SwapPending(cleaned, poly);   // store mask + show dashed preview
                         }
                         else
                         {
-                            var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: false);
+                            var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: false, proc, a.Gradient, a.GradientEdgeThreshold);
                             if (poly == null) return;
-                            CommitFinalOutline(poly);     // your existing commit path
+                            CommitFinalOutline(poly);     // existing commit path
                         }
                     });
                 }
@@ -501,47 +1126,51 @@ namespace DinoLino.Utilities.Modes
             }, token);
         }
 
-        private bool[] FloodFullSpace(int px, int py, ImageSnapshot snap)
-        {
-            var (sr, sg, sb) = _processor.SampleSeedColor(px, py, snap, radius: 2);
-            bool[] raw = _useWatershed
-                ? (_processor.WatershedSegment(px, py, snap, seedRadius: 3, _watershedBlurLevel)
-                   ?? _processor.FloodFill(px, py, sr, sg, sb, snap, _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold))
-                : _processor.FloodFill(px, py, sr, sg, sb, snap, _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold);
-            return _processor.HasMinimumPixels(raw, 1) ? raw : null;
-        }
-
         private void ExpandPending(int px, int py)
         {
-            var token = CancellationToken;
-            var snap = new ImageSnapshot(_cachedPixels, _backgroundMask, _cachedWidth, _cachedHeight, _cachedStride, _cachedBpp);
+            var analysisTask = _analysisTask;
+            if (analysisTask == null) return;
+
+            _opCts?.Cancel();
+            _opCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+            var token = _opCts.Token;
+            int version = _imageVersion;
             bool[] accumulated = (bool[])_pendingMask.Clone();
 
-            System.Threading.Tasks.Task.Run(() =>
+            _pendingClickPoints.Add((px, py));
+            var samPrompts = _pendingClickPoints.ToArray();
+
+            Task.Run(async () =>
             {
                 try
                 {
+                    ImageAnalysis a = await analysisTask.ConfigureAwait(false);
                     token.ThrowIfCancellationRequested();
-                    bool[] newFlood = FloodFullSpace(px, py, snap);
+                    var proc = new OutlineProcessor();
+
+                    var (newFlood, usedX, usedY, snap) = SegmentAtClick(px, py, a, proc, token, samPrompts);
                     if (newFlood == null) return;
 
                     // Union the new seed's region with the accumulated outline
                     for (int i = 0; i < accumulated.Length; i++)
                         if (newFlood[i]) accumulated[i] = true;
 
-                    int bridgeRadius = 6; // tune to the largest gap you want to span
-                    accumulated = _processor.MorphClose(accumulated, _cachedWidth, _cachedHeight, bridgeRadius);
+                    const int bridgeRadius = 6; // tune to the largest gap you want to span
+                    // Cropped close: the old full-frame MorphClose ran two
+                    // full-image distance transforms per added click.
+                    accumulated = proc.MorphCloseCropped(accumulated, a.Width, a.Height, bridgeRadius);
 
                     // Re-clean the union. Use the new click as the trace seed so
                     // PrepareMaskForTracing keeps the component the user just added.
-                    bool[] cleaned = CleanMaskFullSpace(accumulated, snap, px, py, token, preserveMultipleComponents: true);
+                    bool[] cleaned = CleanMaskFullSpace(accumulated, snap, usedX, usedY, proc, token,
+                        preserveMultipleComponents: true);
                     if (cleaned == null) return;
                     token.ThrowIfCancellationRequested();
 
                     System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
-                        if (token.IsCancellationRequested) return;
-                        var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true);
+                        if (token.IsCancellationRequested || version != _imageVersion) return;
+                        var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true, proc, a.Gradient, a.GradientEdgeThreshold);
                         if (poly == null) return;
                         SwapPending(cleaned, poly);
                     });
@@ -590,6 +1219,7 @@ namespace DinoLino.Utilities.Modes
             _hasPending = false;
             _pendingMask = null;
             _pendingPolyline = null;
+            _pendingClickPoints.Clear();
         }
 
         private void CommitFinalOutline(Polyline poly)
@@ -607,13 +1237,6 @@ namespace DinoLino.Utilities.Modes
             });
 
             OutlineReady?.Invoke(output);
-        }
-
-        private (byte r, byte g, byte b) ReadPixel(int x, int y)
-        {
-            int i = y * _cachedStride + x * _cachedBpp;
-            if (_cachedBpp == 1) return (_cachedPixels[i], _cachedPixels[i], _cachedPixels[i]);
-            return (_cachedPixels[i + 2], _cachedPixels[i + 1], _cachedPixels[i]);
         }
         #endregion
 
@@ -1712,8 +2335,8 @@ namespace DinoLino.Utilities.Modes
         {
             if (DrawOutlineMode)
                 return UseWatershed
-                    ? new[] 
-                    { 
+                    ? new[]
+                    {
                         "💡 Use Watershed to generate more accurate outlines on complex images, at the cost of reduced speed.",
                         "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
                         "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.",
@@ -1727,8 +2350,8 @@ namespace DinoLino.Utilities.Modes
                         "💡 Press 'Ctrl' and left click to drag the image.",
                         "💡 Toggle tip visibility in the View menu."
                     }
-                    : new[] 
-                    { 
+                    : new[]
+                    {
                         "💡 Set fill sensitivity to maximum values for images on a solid background.",
                         "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.",
                         "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
@@ -1744,8 +2367,8 @@ namespace DinoLino.Utilities.Modes
                         "💡 Toggle tip visibility in the View menu."
                     };
             if (EraseOutlineMode)
-                return new[] 
-                { 
+                return new[]
+                {
                     "💡 Click and drag over the outline to erase. Adjust brush size for precision.",
                     "💡 Outline mode performs best on unpatterned images with a solid background.",
                     "💡 The user guide and software information can be found in the Help menu.",
@@ -1756,8 +2379,8 @@ namespace DinoLino.Utilities.Modes
                     "💡 Toggle tip visibility in the View menu."
                 };
             if (SmoothOutlineMode)
-                return new[] 
-                { 
+                return new[]
+                {
                     "💡 Adjust smooth strength for cleaner outlines. Too high may distort sharp features.",
                     "💡 Outline mode performs best on unpatterned images with a solid background.",
                     "💡 The user guide and software information can be found in the Help menu.",
@@ -1768,8 +2391,8 @@ namespace DinoLino.Utilities.Modes
                     "💡 Toggle tip visibility in the View menu."
                 };
             if (OutlineMetadataMode)
-                return new[] 
-                { 
+                return new[]
+                {
                     "💡 Adjust the number of EFD Harmonics to control Fourier detail. The EF outline is overlaid in a blue, dashed line.",
                     "💡 A perfect circle has a circularity value of 1. Circularity, aka roundness, is calculated as ⁠4π × Area ÷ Perimeter squared⁠.",
                     "💡 Solidity is the ratio of the outlined area divided by the area of its convex hull. The convex hull is the smallest convex polygon enclosing the outline.",

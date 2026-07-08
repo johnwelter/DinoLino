@@ -20,7 +20,7 @@
     <LangVersion>preview</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>x64</PlatformTarget>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
@@ -30,7 +30,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>x64</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
@@ -75,24 +75,21 @@
     <Compile Include="MainWindow.AttemptCounter.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
-
     <Compile Include="MainWindow.Input.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
-
     <Compile Include="MainWindow.Menus.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
-
     <Compile Include="MainWindow.Model3D.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
-
     <Compile Include="MainWindow.Workspace.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="MeshLoader.cs" />
     <Compile Include="MeshSimplifier.cs" />
+    <Compile Include="MLSegmenter.cs" />
     <Compile Include="ModelPoseController.cs" />
     <Compile Include="ObjLoader.cs" />
     <Compile Include="PictureAdjustmentWindow.xaml.cs">
@@ -210,6 +207,14 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.17.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Models\**\*.onnx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Resource Include="TestImages\test.png" />

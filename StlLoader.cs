@@ -1,7 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;    // Dictionary
 using System.Globalization;
 using System.IO;
-using System.Collections.Generic;    // Dictionary
 using System.Windows.Media;          // Int32Collection
 using System.Windows.Media.Media3D;  // Point3D, Point3DCollection, MeshGeometry3D
 

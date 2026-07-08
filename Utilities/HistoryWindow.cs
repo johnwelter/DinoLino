@@ -1,5 +1,4 @@
-﻿using DinoLino.DataTypes;
-using DinoLino.Utilities.Operations;
+﻿using DinoLino.Utilities.Operations;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
