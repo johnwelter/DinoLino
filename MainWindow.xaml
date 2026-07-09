@@ -127,7 +127,7 @@
                            Foreground="#777"
                            TextTrimming="CharacterEllipsis"
                            Text="{Binding LoadedFileLabel}"/>
-                
+
                 <!-- Mode tabs -->
                 <TabControl x:Name="UI_ControlTabs" Margin="0,10,0,10"
                             SelectionChanged="ControlTabs_SelectionChanged">
@@ -195,6 +195,40 @@
                         </Border>
                     </Grid>
                 </Grid>
+
+                <!-- Busy indicator: bottom-left, shown only while an outline
+                     operation is running (see OutlineMode.BusyChanged). The
+                     hourglass glyph counter-rotates continuously via an
+                     indefinite storyboard that runs only while visible. -->
+                <Border x:Name="UI_BusyIndicator"
+                    HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                    Margin="16,0,0,16" Panel.ZIndex="60"
+                    Background="#CC1E1E1E" BorderBrush="#666" BorderThickness="1"
+                    CornerRadius="4" Padding="10,8" Visibility="Collapsed"
+                    IsHitTestVisible="False">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="UI_BusyGlyph" Text="&#x231B;"
+                            FontSize="40" Foreground="#EEE" VerticalAlignment="Center"
+                            RenderTransformOrigin="0.5,0.5">
+                            <TextBlock.RenderTransform>
+                                <RotateTransform x:Name="UI_BusyGlyphRotate" Angle="0"/>
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
+                        <TextBlock Text="Working…" Margin="8,0,0,0"
+                            FontSize="22" Foreground="#EEE" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border.Triggers>
+                        <EventTrigger RoutedEvent="Border.Loaded">
+                            <BeginStoryboard>
+                                <Storyboard x:Name="UI_BusySpin" RepeatBehavior="Forever">
+                                    <DoubleAnimation Storyboard.TargetName="UI_BusyGlyphRotate"
+                                        Storyboard.TargetProperty="Angle"
+                                        From="0" To="360" Duration="0:0:4"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Border.Triggers>
+                </Border>
 
                 <!-- Attempt counter overlay (draggable HUD, bottom-right by default) -->
                 <Border x:Name="UI_AttemptCounter"

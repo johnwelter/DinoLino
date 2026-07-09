@@ -166,10 +166,12 @@
             </Grid>
 
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
-                <RadioButton Content="Find turning angle"
-                             Style="{StaticResource CheckBoxRadioButton}"
-                             IsChecked="{Binding FindTurningAngleMode, Mode=TwoWay}"
-                             VerticalAlignment="Center"/>
+                <!-- A true CheckBox, NOT a checkbox-styled RadioButton: radio
+                     buttons cannot be UNchecked by clicking them, which made it
+                     impossible to leave probe mode and return to drawing. -->
+                <CheckBox Content="Find turning angle"
+                          IsChecked="{Binding FindTurningAngleMode, Mode=TwoWay}"
+                          VerticalAlignment="Center"/>
                 <Label Content="{Binding FindTurningAngleDisplay}"
                        VerticalAlignment="Center" Margin="8,0,0,0"/>
             </StackPanel>

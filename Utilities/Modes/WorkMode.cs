@@ -24,6 +24,17 @@ namespace DinoLino.Utilities.Modes
         // Returns true when the mode is at the start of a new operation.
         public virtual bool IsStartingNewOperation => CurrentStep == 0;
 
+        // True when the current click is a NON-DESTRUCTIVE probe of an existing
+        // operation rather than the start/continuation of a drawing. The input
+        // router uses this to skip the "starting a new operation" workspace
+        // clear, so probe interactions (e.g. Curvature's Find-Turning-Angle,
+        // which returns no new elements to re-add) don't wipe the very shape
+        // they're inspecting. Default false; modes with a probe sub-tool
+        // override it. MUST stay virtual — CurvatureMode overrides it, and the
+        // pair once fell out of sync during a merge, silently disabling the
+        // guard.
+        public virtual bool IsProbeInteraction => false;
+
         public UndoRedoManager UndoRedoManager { get; set; }
 
         // Shared image-scale calibration, injected by MainWindow. Null until set.
@@ -97,9 +108,9 @@ namespace DinoLino.Utilities.Modes
 
         // Resets drawing state only (mid-operation cleanup)
         public virtual void ResetDrawingState() { }
-        
+
         // full reset
-        public virtual void Reset() 
+        public virtual void Reset()
         {
             UpdateUndoRedoState();
         }

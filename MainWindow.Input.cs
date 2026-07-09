@@ -71,6 +71,10 @@ namespace DinoLino
             // Enter finalizes an in-progress n-point spline
             if (e.Key == Key.Enter && CurrentWorkMode is CurvatureMode cm && cm.CanFinalizeSpline)
             {
+                // The last drawing click queued the previous preview for
+                // removal; nothing runs between that click and Enter, so mop it
+                // up here or it lingers invisibly under the committed spline.
+                RemovePendingElements();
                 foreach (UIElement element in cm.FinalizeSpline())
                     AddElementToWorkSpace(element);
                 e.Handled = true;
@@ -88,6 +92,15 @@ namespace DinoLino
                     e.Handled = true;
                     return;
                 }
+                // Esc while probing turning angle = leave the probe (uncheck
+                // the box). Nothing destructive; the spline stays.
+                if (CurrentWorkMode is CurvatureMode probeCm && probeCm.FindTurningAngleMode)
+                {
+                    probeCm.FindTurningAngleMode = false;
+                    e.Handled = true;
+                    return;
+                }
+
                 CurrentWorkMode?.CancelCurrentOperation();
                 e.Handled = true;
                 return;
@@ -138,9 +151,27 @@ namespace DinoLino
                 return;
             }
 
-            if (!CurrentWorkMode.SeePreviousOperations && CurrentWorkMode.IsStartingNewOperation)
+            // Probe safety: IsProbeInteraction is the polymorphic contract,
+            // but this guard was once silently defeated by a WorkMode.cs that
+            // lacked the virtual (the override couldn't dispatch), so the
+            // concrete check below keeps the safety independent of that pairing
+            // surviving future merges. A Find-Turning-Angle probe click
+            // inspects the existing spline and returns nothing to re-add —
+            // clearing here erases the very shape being measured.
+            bool probing = CurrentWorkMode.IsProbeInteraction
+                || (CurrentWorkMode is CurvatureMode probeGuardCm && probeGuardCm.FindTurningAngleMode);
+
+            if (!CurrentWorkMode.SeePreviousOperations
+                && CurrentWorkMode.IsStartingNewOperation
+                && !probing)
             {
-                // don't use Children.Clear() because we want to keep the DotCursor
+                // Tripwire: prints ONLY when the workspace is actually cleared,
+                // so if a shape ever vanishes unexpectedly again, the Output
+                // window names the failing condition instantly.
+                System.Diagnostics.Debug.WriteLine(
+                    $"[workspace] clearing visuals on click (seePrev={CurrentWorkMode.SeePreviousOperations}, " +
+                    $"starting={CurrentWorkMode.IsStartingNewOperation}, probe={probing}, mode={CurrentWorkMode.GetType().Name})");
+                // don't use Children.Clear() because we want to keep the DotCursor.
                 ClearWorkspaceVisualsOnly();
             }
 

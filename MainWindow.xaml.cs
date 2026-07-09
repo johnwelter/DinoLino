@@ -166,6 +166,18 @@ namespace DinoLino
                 }
             };
 
+            // Busy indicator: BusyChanged can fire on a background thread, so
+            // marshal to the UI thread before touching the overlay. Only the
+            // outline modes raise it today, but any WorkMode could reuse the
+            // same pattern.
+            OutlineMode.BusyChanged += busy =>
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                    UI_BusyIndicator.Visibility = busy
+                        ? System.Windows.Visibility.Visible
+                        : System.Windows.Visibility.Collapsed));
+            };
+
             // When an outline is measured (Generate Metadata sets HasMetadata), refresh the
             // on-image counter so n_outline ticks up immediately rather than on the next commit.
             OutlineMode.MetadataGenerated += UpdateAttemptCounter;

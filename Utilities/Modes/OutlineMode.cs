@@ -564,6 +564,29 @@ namespace DinoLino.Utilities.Modes
         // share OutlineProcessor scratch buffers — see StartNewOutline.)
         private CancellationTokenSource _opCts;
 
+        // Busy indicator: raised when a background click operation starts and
+        // lowered when it settles (success, cancel, early return, or error).
+        // A COUNTER rather than a bool so overlapping clicks behave correctly —
+        // a superseded op and its replacement can both be in flight briefly,
+        // and the indicator must stay up until the LAST one finishes. Fired on
+        // whatever thread the transition happens on; MainWindow marshals to the
+        // UI thread. int + Interlocked keeps the raise/lower balanced without a
+        // lock.
+        public event Action<bool> BusyChanged;
+        private int _busyCount;
+
+        private void EnterBusy()
+        {
+            if (System.Threading.Interlocked.Increment(ref _busyCount) == 1)
+                BusyChanged?.Invoke(true);
+        }
+
+        private void ExitBusy()
+        {
+            if (System.Threading.Interlocked.Decrement(ref _busyCount) == 0)
+                BusyChanged?.Invoke(false);
+        }
+
         // A candidate mask whose ScoreMask result reaches this is accepted
         // outright and the portfolio stops; below it, the next (more expensive)
         // candidate runs and the highest score wins. Tunable.
@@ -1080,6 +1103,7 @@ namespace DinoLino.Utilities.Modes
             _pendingClickPoints.Add((px, py));
             var samPrompts = _pendingClickPoints.ToArray();
 
+            EnterBusy();
             Task.Run(async () =>
             {
                 try
@@ -1123,6 +1147,7 @@ namespace DinoLino.Utilities.Modes
                         MessageBox.Show($"Outline detection failed:\n{ex.Message}",
                             "Outline", MessageBoxButton.OK, MessageBoxImage.Warning)));
                 }
+                finally { ExitBusy(); }
             }, token);
         }
 
@@ -1140,6 +1165,7 @@ namespace DinoLino.Utilities.Modes
             _pendingClickPoints.Add((px, py));
             var samPrompts = _pendingClickPoints.ToArray();
 
+            EnterBusy();
             Task.Run(async () =>
             {
                 try
@@ -1182,6 +1208,7 @@ namespace DinoLino.Utilities.Modes
                         MessageBox.Show($"Outline detection failed:\n{ex.Message}",
                             "Outline", MessageBoxButton.OK, MessageBoxImage.Warning)));
                 }
+                finally { ExitBusy(); }
             }, token);
         }
 

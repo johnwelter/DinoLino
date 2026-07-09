@@ -18,6 +18,17 @@ namespace DinoLino.Utilities.Modes
         public override string TabName => "Curvature";
         public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
 
+        // While probing turning angle, a click inspects the finished spline and
+        // returns no new visuals — so the router must NOT clear the workspace,
+        // or the spline being probed vanishes on the first probe click. Paired
+        // with WorkMode.IsProbeInteraction (virtual): BOTH halves must exist.
+        // This pairing once fell out of sync across project copies, the guard
+        // silently read false, and that is exactly the "spline disappears after
+        // one measurement" bug. The input router also carries a concrete
+        // fallback check so a future mismatch cannot disable the safety again.
+        public override bool IsProbeInteraction =>
+            CurrentMethod == CurvatureMethod.NPointSpline && FindTurningAngleMode;
+
         // enums for toggling between curvature methods and spline methods
         public enum CurvatureMethod
         {
@@ -89,6 +100,7 @@ namespace DinoLino.Utilities.Modes
         // no operation selected 
         public void SelectNone()
         {
+            ExitFindTurningAngle();
             CurrentMethod = CurvatureMethod.None;
             ResetDrawingState();
         }
@@ -162,6 +174,13 @@ namespace DinoLino.Utilities.Modes
             OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
         }
 
+        // Resets the IN-PROGRESS drawing (partial clicks, live preview). Note it
+        // deliberately does NOT touch FindTurningAngleMode anymore: probing is a
+        // mode the user turns on/off explicitly, and having a generic
+        // drawing-state reset silently exit it (and thus, before Fix 1, wipe the
+        // spline) was the root of the disappearing-spline bug. Callers that truly
+        // need to leave probe mode do so explicitly (see SelectNone / the other
+        // Select* methods / Reset).
         public override void ResetDrawingState()
         {
             CurrentStep = 0;
@@ -170,7 +189,14 @@ namespace DinoLino.Utilities.Modes
             _splinePoints.Clear();
             _splinePreview = null;
             _splineCurrentOperation.Clear();
-            FindTurningAngleMode = false;
+        }
+
+        // Explicitly leaves Find-Turning-Angle probing (removes the oval, drops
+        // the readout). Called from the mode-changing Select* paths so switching
+        // to a different curvature tool ends probing cleanly.
+        private void ExitFindTurningAngle()
+        {
+            if (FindTurningAngleMode) FindTurningAngleMode = false;
         }
 
         public override void Reset()
@@ -231,7 +257,7 @@ namespace DinoLino.Utilities.Modes
 
             CurrentStep++;
         }
-       
+
 
         #region Circular Arc Section
         //-----CIRCULAR ARCS-----//
@@ -262,6 +288,7 @@ namespace DinoLino.Utilities.Modes
         // switch to circular arc operation
         public void SelectCircularArc()
         {
+            ExitFindTurningAngle();
             CurrentMethod = CurvatureMethod.CircularArc;
             CurrentStep = 0;
             ResetDrawingState();
@@ -473,6 +500,7 @@ namespace DinoLino.Utilities.Modes
         // switch to parabolic arc operation
         public void SelectParabolicArc()
         {
+            ExitFindTurningAngle();
             CurrentMethod = CurvatureMethod.ParabolicArc;
             CurrentStep = 0;
             ResetDrawingState();
@@ -686,6 +714,13 @@ namespace DinoLino.Utilities.Modes
             List<UIElement> output = new List<UIElement>();
             ClearElementsToRemove();
 
+            // First point of a brand-new spline: retire the previous finished
+            // spline's retained curve so Find-Turning-Angle can't later probe a
+            // stale shape. (The previous spline's committed visuals stay on the
+            // canvas and in history; this only drops the probe target.)
+            if (_splinePoints.Count == 0)
+                _lastSplineDense = null;
+
             // add the point
             _splinePoints.Add(mousePos);
 
@@ -718,11 +753,23 @@ namespace DinoLino.Utilities.Modes
         // switch to n-point spline operation
         public void SelectNPointSpline()
         {
+            // Re-selecting the spline tool while a finished spline is available
+            // to probe must NOT discard it. The Find-Turning-Angle control lives
+            // under the spline sub-tool, so reaching for it can re-invoke this
+            // method; an unconditional ResetDrawingState() here is what made the
+            // drawn spline disappear. Only reset when actually (re)starting fresh
+            // — i.e. no probe-ready spline exists.
+            bool alreadySplineWithFinished =
+                CurrentMethod == CurvatureMethod.NPointSpline
+                && _lastSplineDense != null && _lastSplineDense.Count >= 3;
+
             CurrentMethod = CurvatureMethod.NPointSpline;
             _splineAlgorithm = SplineAlgorithm.CatmullRom;
             OnPropertyChanged(nameof(IsCatmullRomSelected));
             OnPropertyChanged(nameof(IsBezierSelected));
-            ResetDrawingState();
+
+            if (!alreadySplineWithFinished)
+                ResetDrawingState();
         }
 
         // True when there's an in-progress spline ready to finalize with Enter.
@@ -804,7 +851,7 @@ namespace DinoLino.Utilities.Modes
                 {
                     UpdateWindowOval(_turningIndex);
                     FindTurningAngleDisplay =
-                        $"{LocalTurningAngle(_lastSplineDense, _turningIndex, _turningAngleWindow):F2}\u00B0";
+                        FormatTurningReadout(_lastSplineDense, _turningIndex, _turningAngleWindow);
                 }
             }
         }
@@ -822,6 +869,16 @@ namespace DinoLino.Utilities.Modes
             get => _findTurningAngleMode;
             set
             {
+                // No finished spline to probe: refuse the check and snap the
+                // CheckBox back (raising PropertyChanged makes the TwoWay
+                // binding re-read the still-false value). Prevents a dead
+                // probe state where canvas clicks silently do nothing.
+                if (value && (_lastSplineDense == null || _lastSplineDense.Count < 3))
+                {
+                    OnPropertyChanged(nameof(FindTurningAngleMode));
+                    return;
+                }
+
                 if (!SetField(ref _findTurningAngleMode, value)) return;
                 if (value) BeginFindTurningAngle();
                 else TurningWindowClear?.Invoke(_windowOval);
@@ -876,7 +933,7 @@ namespace DinoLino.Utilities.Modes
             _turningIndex = idx;
             UpdateWindowOval(idx);
             FindTurningAngleDisplay =
-                $"{LocalTurningAngle(_lastSplineDense, idx, _turningAngleWindow):F2}\u00B0";
+                FormatTurningReadout(_lastSplineDense, idx, _turningAngleWindow);
             return new List<UIElement>();
         }
 
@@ -921,19 +978,60 @@ namespace DinoLino.Utilities.Modes
             return (i0, i1);
         }
 
-        // Local turning angle (degrees): the bend between the curve direction at the
-        // start and end of the measured span. Wider windows give a smoother, coarser reading.
-        private static double LocalTurningAngle(List<Vector2> pts, int index, int window)
+        // Sum of turning angles over the window, per unit arc length — the SAME
+        // quantity as the committed "Turn.Angles/Length" metric
+        // (GeometryCalculations.TurningAnglePerUnitLength), restricted to the
+        // probed span. Sums |angle between consecutive segments| at every
+        // interior vertex of pts[i0..i1] and returns it together with the
+        // window's true arc length; the caller divides. The guards mirror the
+        // committed function exactly, so a window that covers the whole spline
+        // reproduces the committed value to rounding.
+        //
+        // (The previous implementation measured ONE net angle between the two
+        // half-window chords. For a circular arc a chord's direction equals the
+        // tangent at the chord's arc midpoint, so that net angle is exactly
+        // HALF the window's swept turning — and even less for S-shapes, where
+        // opposite turns cancel. That is why a full-spline window read ~0.26
+        // against a committed 0.4.)
+        private static (double angleDeg, double arcLenPx) LocalTurningAngleArcLength(
+            List<Vector2> pts, int index, int window)
         {
             int n = pts.Count;
-            if (n < 3) return 0;
+            if (n < 3) return (0, 0);
 
             var (i0, i1) = TurningWindowBounds(n, index, window);
-            Vector2 vIn = pts[index] - pts[i0];
-            Vector2 vOut = pts[i1] - pts[index];
-            if (vIn.Magnitude() < 1e-9 || vOut.Magnitude() < 1e-9) return 0;
+            if (i1 - i0 < 2) return (0, 0); // need at least one interior vertex
 
-            return Math.Round(Math.Abs(Vector2.AngleBetween(vIn, vOut)), 1);
+            double arc = 0;
+            for (int k = i0 + 1; k <= i1; k++)
+                arc += (pts[k] - pts[k - 1]).Magnitude();
+
+            double totalTurning = 0;
+            for (int k = i0 + 1; k <= i1 - 1; k++)
+            {
+                Vector2 seg1 = pts[k] - pts[k - 1];
+                Vector2 seg2 = pts[k + 1] - pts[k];
+                if (seg1.Magnitude() < 1e-5 || seg2.Magnitude() < 1e-5) continue;
+                totalTurning += Math.Abs(Vector2.AngleBetween(seg1, seg2));
+            }
+
+            return (totalTurning, arc);
+        }
+
+        // Formats the hover readout. Deliberately ALWAYS degrees-per-PIXEL:
+        // the committed "Turn.Angles/Length" column is also °/px — its angles
+        // come from Vector2.AngleBetween (degrees) and its length is raw
+        // pixels; it just displays without a unit label — and this readout must
+        // be directly comparable with it and with previously recorded data.
+        // Converting only one of the pair to calibrated units was itself a
+        // source of confusion. If calibrated reporting is ever wanted, convert
+        // BOTH together. Full precision is kept internally; only the display
+        // is rounded.
+        private string FormatTurningReadout(List<Vector2> pts, int index, int window)
+        {
+            var (angleDeg, arcLenPx) = LocalTurningAngleArcLength(pts, index, window);
+            if (arcLenPx < 1e-9) return "";
+            return $"{angleDeg / arcLenPx:F2}\u00B0/px";
         }
 
         // Sizes and orients the oval so it encloses the measured span pts[i0..i1]:
@@ -1159,8 +1257,8 @@ namespace DinoLino.Utilities.Modes
                     "💡 Zoom in or out using the scroll wheel.",
                     "💡 Toggle tip visibility in the View menu."
                 };
-                return new[] 
-            { 
+            return new[]
+        {
                 "💡 Select a curvature method to begin.",
                 "💡 The user guide and software information can be found in the Help menu.",
                 "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the File menu.",

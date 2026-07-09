@@ -586,25 +586,18 @@ namespace DinoLino.Utilities
             if (points.Count < 3) return 0;
 
             double totalTurning = 0;
+            // Sum ALL segment lengths once — unambiguous.
             double totalLength = 0;
+            for (int i = 1; i < points.Count; i++)
+                totalLength += (points[i] - points[i - 1]).Magnitude();
 
             for (int i = 1; i < points.Count - 1; i++)
             {
                 Vector2 seg1 = points[i] - points[i - 1];
                 Vector2 seg2 = points[i + 1] - points[i];
-
-                double len1 = seg1.Magnitude();
-                double len2 = seg2.Magnitude();
-                totalLength += len1;
-
-                if (len1 < 1e-5 || len2 < 1e-5) continue;
-
+                if (seg1.Magnitude() < 1e-5 || seg2.Magnitude() < 1e-5) continue;
                 totalTurning += Math.Abs(Vector2.AngleBetween(seg1, seg2));
             }
-
-            // Include the final segment length
-            if (points.Count >= 2)
-                totalLength += (points[points.Count - 1] - points[points.Count - 2]).Magnitude();
 
             return totalLength > 1e-5 ? totalTurning / totalLength : 0;
         }
