@@ -127,7 +127,8 @@ Perimeter / Area: Length of the outline divided by its area.
 Circularity: 4π*Area / Perimeter^2
 Solidity: Area of the outlined shape / Convex hull area
 Turn.Angles/Length: A measure of curvature. The sum of the turning angles (change in angle of the tangent lines along the outline) divided by the outline perimeter length. Approximates the average change in angle of the tangent lines along the outline.
-EFD: Elliptic Fourier Descriptors. A mathematical representation of the shape of the outline. The number of harmonics can be adjusted to capture more or less detail of the shape.
+
+Elliptic Fourier Analysis: Click to open a pop-up window to perform Elliptic Fourier Analysis (EFA) on the outline.
 
 ------------------------------------------------------------------------------------------------
 FILE:
@@ -192,3 +193,6 @@ Flip image horizontally or vertically to produce a mirror image.
 
 ----- Rotate -----
 Rotate image by 90 degrees clockwise or counterclockwise.
+
+----- Reposition 3D Object -----
+Return to the 3D image viewer after capturing view of a 3D image to reposition the object. Click 'Capture View' when ready to save the new view as a 2D image, which the user can begin measuring.

@@ -2,12 +2,12 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:DinoLino.Utilities.Modes">
-  <UserControl.Resources>
-    <BooleanToVisibilityConverter x:Key="BoolToVis"/>
-    <local:IntEqualityConverter x:Key="EqualityConverter"/>
-    <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
-  </UserControl.Resources>
-    
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:IntEqualityConverter x:Key="EqualityConverter"/>
+        <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
+    </UserControl.Resources>
+
     <StackPanel Margin="10,10,10,0">
 
         <!-- Draw Outline tool -->
@@ -16,56 +16,56 @@
                      IsChecked="{Binding DrawOutlineMode, Mode=TwoWay}"
                      MinHeight="26"/>
 
-      <StackPanel Visibility="{Binding DrawOutlineMode, Converter={StaticResource BoolToVis}}">
-        <CheckBox Content="Use Watershed"
+        <StackPanel Visibility="{Binding DrawOutlineMode, Converter={StaticResource BoolToVis}}">
+            <CheckBox Content="Use Watershed"
                   IsChecked="{Binding UseWatershed, Mode=TwoWay}"
                   Margin="0,6,0,0"
                   ToolTip="More accurate boundaries on complex images, slightly slower"/>
 
-        <CheckBox Content="Multi-Click"
+            <CheckBox Content="Multi-Click"
                 IsChecked="{Binding MultiClickOutline, Mode=TwoWay}"
                 Margin="0,6,0,0"
                 ToolTip="First click shows a candidate outline. Click inside to confirm, or outside to expand."/>
 
-          <StackPanel Visibility="{Binding UseWatershed, Converter={StaticResource BoolToVis}}">
-          <TextBlock Text="Boundary Sensitivity:" FontWeight="Bold" Margin="0,8,0,0"/>
-          <TextBlock TextWrapping="Wrap" Foreground="Gray"
+            <StackPanel Visibility="{Binding UseWatershed, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Boundary Sensitivity:" FontWeight="Bold" Margin="0,8,0,0"/>
+                <TextBlock TextWrapping="Wrap" Foreground="Gray"
                      Text="Pre-blur reduces noise. Lower sensitivity follows broader boundaries."
                      Margin="0,0,0,4"/>
-          <StackPanel Orientation="Horizontal">
-            <RadioButton Content="Off"
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton Content="Off"
                          GroupName="WatershedBlur"
                          IsChecked="{Binding WatershedBlurLevel,
                              Converter={StaticResource EqualityConverter},
                              ConverterParameter=0, Mode=TwoWay}"
                          Margin="0,0,8,0"/>
-            <RadioButton Content="Low"
+                    <RadioButton Content="Low"
                          GroupName="WatershedBlur"
                          IsChecked="{Binding WatershedBlurLevel,
                              Converter={StaticResource EqualityConverter},
                              ConverterParameter=1, Mode=TwoWay}"
                          Margin="0,0,8,0"/>
-            <RadioButton Content="High"
+                    <RadioButton Content="High"
                          GroupName="WatershedBlur"
                          IsChecked="{Binding WatershedBlurLevel,
                              Converter={StaticResource EqualityConverter},
                              ConverterParameter=2, Mode=TwoWay}"/>
-          </StackPanel>
-        </StackPanel>
-        <StackPanel Visibility="{Binding UseWatershed, Converter={StaticResource InverseBoolToVis}}">
-          <TextBlock Text="Fill Sensitivity:" FontWeight="Bold" Margin="0,8,0,0"/>
-          <TextBlock TextWrapping="Wrap" Foreground="Gray"
+                </StackPanel>
+            </StackPanel>
+            <StackPanel Visibility="{Binding UseWatershed, Converter={StaticResource InverseBoolToVis}}">
+                <TextBlock Text="Fill Sensitivity:" FontWeight="Bold" Margin="0,8,0,0"/>
+                <TextBlock TextWrapping="Wrap" Foreground="Gray"
                      Text="How aggressively the fill expands from the clicked point."
                      Margin="0,0,0,2"/>
-          <Slider Minimum="5" Maximum="150" Value="{Binding FillSensitivity}"
+                <Slider Minimum="5" Maximum="150" Value="{Binding FillSensitivity}"
                   TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,2,0,2"/>
-          <TextBlock>
-            <TextBlock.Text>
-              <Binding Path="FillSensitivity" StringFormat="{}Value: {0:F0}"/>
-            </TextBlock.Text>
-          </TextBlock>
+                <TextBlock>
+                    <TextBlock.Text>
+                        <Binding Path="FillSensitivity" StringFormat="{}Value: {0:F0}"/>
+                    </TextBlock.Text>
+                </TextBlock>
+            </StackPanel>
         </StackPanel>
-      </StackPanel>
 
         <!-- Draw by Hand tool -->
         <RadioButton Content="Draw by Hand"
@@ -80,7 +80,7 @@
                Text="Hold the left button and drag to draw. The outline closes automatically when your stroke crosses itself; leftover tails are removed."
                Margin="0,6,0,4"/>
         </StackPanel>
-        
+
         <!-- Erase Outline tool -->
         <RadioButton Content="Erase Outline"
                      GroupName="OutlineTool"
@@ -195,34 +195,9 @@
                 <TextBlock Grid.Column="1" Text="{Binding TurningAngleLengthResult, StringFormat={}{0:F4}}" HorizontalAlignment="Right"/>
             </Grid>
 
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="EFD Harmonics:" Foreground="Gray"/>
-                <TextBox x:Name="EfdHarmonicsBox"
-                 Width="47"
-                 Text="{Binding EfdHarmonics, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                 HorizontalAlignment="Left"
-                 HorizontalContentAlignment="Right"
-                 Margin="140,0,0,0"/>
-            </Grid>
-
-            <Grid Margin="0,2,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Contour Points:" Foreground="Gray"
-                           ToolTip="How many equally-spaced points the outline is resampled to before computing coefficients. Higher = more faithful, slower. Keep well above 2× harmonics."/>
-                <TextBox x:Name="ContourPointsBox"
-                 Width="47"
-                 Text="{Binding ContourSampleCount, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
-                 HorizontalAlignment="Left"
-                 HorizontalContentAlignment="Right"
-                 Margin="140,0,0,0"/>
-            </Grid>
+            <!-- EFD Harmonics and Contour Points moved into the Elliptic
+                 Fourier Analysis window (button below) so every EFA control,
+                 plot, and readout lives in one place. -->
 
             <!-- normalization caveat: only visible when set -->
             <TextBlock Text="{Binding NormalizationWarning}"

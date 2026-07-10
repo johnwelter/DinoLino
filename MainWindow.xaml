@@ -208,14 +208,14 @@
                     IsHitTestVisible="False">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock x:Name="UI_BusyGlyph" Text="&#x231B;"
-                            FontSize="40" Foreground="#EEE" VerticalAlignment="Center"
+                            FontSize="30" Foreground="#EEE" VerticalAlignment="Center"
                             RenderTransformOrigin="0.5,0.5">
                             <TextBlock.RenderTransform>
                                 <RotateTransform x:Name="UI_BusyGlyphRotate" Angle="0"/>
                             </TextBlock.RenderTransform>
                         </TextBlock>
                         <TextBlock Text="Working…" Margin="8,0,0,0"
-                            FontSize="22" Foreground="#EEE" VerticalAlignment="Center"/>
+                            FontSize="20" Foreground="#EEE" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Border.Triggers>
                         <EventTrigger RoutedEvent="Border.Loaded">

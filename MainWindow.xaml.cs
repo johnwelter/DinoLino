@@ -148,23 +148,12 @@ namespace DinoLino
                     UI_WorkCanvas.Children.Remove(previewLine);
             };
 
-            OutlineMode.EFDPreviewReady += previewLine =>
-            {
-                AddElementToWorkSpace(previewLine);
-            };
-
-            OutlineMode.EFDPreviewClear += () =>
-            {
-                // Remove any existing EFD preview polylines from the canvas
-                for (int i = UI_WorkCanvas.Children.Count - 1; i >= 0; i--)
-                {
-                    if (UI_WorkCanvas.Children[i] is System.Windows.Shapes.Polyline pl
-                        && pl.Stroke == System.Windows.Media.Brushes.DodgerBlue)
-                    {
-                        UI_WorkCanvas.Children.RemoveAt(i);
-                    }
-                }
-            };
+            // The blue EFD reconstruction is no longer drawn over the workspace
+            // image: the consolidated Elliptic Fourier Analysis window's
+            // "Outline" tab replaced it (see OutlineControlPanel). OutlineMode's
+            // EFDPreviewReady/Clear events still exist but now have no
+            // subscribers, so UpdateEFDPreview is inert here — re-subscribing
+            // restores the overlay if it is ever wanted back.
 
             // Busy indicator: BusyChanged can fire on a background thread, so
             // marshal to the UI thread before touching the overlay. Only the

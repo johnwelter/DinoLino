@@ -214,6 +214,13 @@ namespace DinoLino.Utilities.Modes
 
         private OutlineMode _mode;
         private readonly System.Windows.Threading.DispatcherTimer _harmonicsDebounce;
+
+        // ── Consolidated Elliptic Fourier Analysis window state ──
+        // Single-instance window; the settings boxes live inside it and these
+        // references are null whenever the window is closed.
+        private Window _efaWindow;
+        private TextBox _efaHarmonicsBox;
+        private TextBox _efaContourBox;
         public OutlineControlPanel(OutlineMode mode)
         {
             InitializeComponent();
@@ -226,13 +233,14 @@ namespace DinoLino.Utilities.Modes
                                 "Outline Incomplete",
                                 MessageBoxButton.OK, MessageBoxImage.Information);
 
-            // Update the EFA preview 1 second after the user stops typing harmonics.
+            // Applies EFA settings ~1 second after the user stops typing in
+            // the Elliptic Fourier Analysis window's boxes (the boxes attach
+            // themselves to this timer when the window is built).
             _harmonicsDebounce = new System.Windows.Threading.DispatcherTimer
             {
                 Interval = TimeSpan.FromSeconds(1)
             };
             _harmonicsDebounce.Tick += HarmonicsDebounce_Tick;
-            EfdHarmonicsBox.TextChanged += EfdHarmonicsBox_TextChanged;
         }
 
         // Veto selecting Generate Metadata while a hand-drawn stroke is still open.
@@ -252,55 +260,122 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        private void EfdHarmonicsBox_TextChanged(object sender, TextChangedEventArgs e)
+        private void EfaSettingsBox_TextChanged(object sender, TextChangedEventArgs e)
         {
             // Restart the countdown on every keystroke so it only fires once typing pauses.
             _harmonicsDebounce.Stop();
             _harmonicsDebounce.Start();
         }
 
-    private void HarmonicsDebounce_Tick(object sender, EventArgs e)
-    {
-        _harmonicsDebounce.Stop();
-
-        // Push the typed value into EfdHarmonics, then regenerate so the blue
-        // EFA outline reflects the new harmonic count (same path as the button).
-        EfdHarmonicsBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
-        _mode.GenerateMetadata();
-    }
-
-    private void ShowEFDDetails_Click(object sender, RoutedEventArgs e)
+        private void HarmonicsDebounce_Tick(object sender, EventArgs e)
         {
-            EfdHarmonicsBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+            _harmonicsDebounce.Stop();
 
-            // Always regenerate so the coefficients reflect the current harmonic count
+            // Push whatever the user typed into the mode. The property setters
+            // raise PropertyChanged, and the EFA window's hook regenerates the
+            // coefficients and repaints every tab — so this needs no explicit
+            // GenerateMetadata call, and typing an unchanged value is a no-op.
+            _efaHarmonicsBox?.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+            _efaContourBox?.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        }
+
+        private void ShowEFDDetails_Click(object sender, RoutedEventArgs e)
+        {
+            // Single instance: a second click focuses the existing window.
+            if (_efaWindow != null) { _efaWindow.Activate(); return; }
+
+            // Always regenerate so everything reflects the current settings.
             _mode.GenerateMetadata();
 
             if (_mode.EFDCoefficientsResult == null || _mode.EFDCoefficientsResult.Length == 0)
             {
                 MessageBox.Show("No EFD data available. Please draw an outline first.",
-                                "EFD Coefficients", MessageBoxButton.OK, MessageBoxImage.Information);
+                                "Elliptic Fourier Analysis", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            int harmonics = _mode.EfdHarmonics; // use the current setting, not back-calculated
-
-            // ── Tab 1: coefficient text (existing behavior) ──
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"Elliptic Fourier Descriptors ({harmonics} harmonics)");
-            sb.AppendLine(new string('─', 48));
-            for (int h = 0; h < harmonics; h++)
+            // ══ Settings bar (moved here from the sidebar so every EFA
+            //    control, plot, and readout lives in one place) ══
+            TextBox MakeSettingBox(string propertyPath, string tooltip)
             {
-                int k = h * 4;
-                sb.AppendLine($"  n={h + 1,2}:  a={_mode.EFDCoefficientsResult[k]:F6}  " +
-                              $"b={_mode.EFDCoefficientsResult[k + 1]:F6}  " +
-                              $"c={_mode.EFDCoefficientsResult[k + 2]:F6}  " +
-                              $"d={_mode.EFDCoefficientsResult[k + 3]:F6}");
+                var box = new TextBox
+                {
+                    Width = 47,
+                    HorizontalContentAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(6, 0, 16, 0),
+                    ToolTip = tooltip
+                };
+                box.SetBinding(TextBox.TextProperty, new Binding(propertyPath)
+                {
+                    Source = _mode,
+                    Mode = BindingMode.TwoWay,
+                    UpdateSourceTrigger = UpdateSourceTrigger.LostFocus
+                });
+                // Same debounce behavior the old sidebar box had: values apply
+                // ~1 s after typing pauses (or immediately on focus loss).
+                box.TextChanged += EfaSettingsBox_TextChanged;
+                return box;
             }
 
+            _efaHarmonicsBox = MakeSettingBox(nameof(OutlineMode.EfdHarmonics), null);
+            _efaContourBox = MakeSettingBox(nameof(OutlineMode.ContourSampleCount),
+                "How many equally-spaced points the outline is resampled to before computing " +
+                "coefficients. Higher = more faithful, slower. Keep well above 2\u00D7 harmonics.");
+
+            var settingsRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 8, 8, 2) };
+            settingsRow.Children.Add(new TextBlock { Text = "EFD Harmonics:", VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gray });
+            settingsRow.Children.Add(_efaHarmonicsBox);
+            settingsRow.Children.Add(new TextBlock { Text = "Contour Points:", VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.Gray });
+            settingsRow.Children.Add(_efaContourBox);
+
+            var warningText = new TextBlock
+            {
+                Foreground = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(8, 0, 8, 4)
+            };
+            warningText.SetBinding(TextBlock.TextProperty,
+                new Binding(nameof(OutlineMode.NormalizationWarning)) { Source = _mode });
+            warningText.SetBinding(VisibilityProperty,
+                new Binding(nameof(OutlineMode.HasNormalizationWarning))
+                {
+                    Source = _mode,
+                    Converter = new BooleanToVisibilityConverter()
+                });
+
+            var settingsBar = new StackPanel();
+            settingsBar.Children.Add(settingsRow);
+            settingsBar.Children.Add(warningText);
+
+            // ══ Tab 1: Outline — drawn outline + EFD reconstruction, exactly
+            //    as the workspace overlay looked, minus the image ══
+            var outlineCanvas = new Canvas { Background = Brushes.White, ClipToBounds = true };
+            var outlineBorder = new Border
+            {
+                BorderBrush = Brushes.LightGray,
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(8),
+                Child = outlineCanvas
+            };
+            var outlineLegend = new TextBlock
+            {
+                Margin = new Thickness(8, 0, 8, 8),
+                Foreground = Brushes.Gray,
+                Text = "solid red line \u2014 drawn outline      blue dashed line \u2014 EFD reconstruction"
+            };
+            var outlineDock = new DockPanel();
+            DockPanel.SetDock(outlineLegend, Dock.Bottom);
+            outlineDock.Children.Add(outlineLegend);
+            outlineDock.Children.Add(outlineBorder);
+            var outlineTab = new TabItem { Header = "Outline", Content = outlineDock };
+
+            Action redrawOutline = () => DrawOutlineComparison(outlineCanvas);
+            outlineCanvas.SizeChanged += (s, ev) => redrawOutline();
+
+            // ══ Tab 2: coefficient text ══
             var coeffTextBox = new TextBox
             {
-                Text = sb.ToString(),
                 IsReadOnly = true,
                 TextWrapping = TextWrapping.NoWrap,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -308,8 +383,10 @@ namespace DinoLino.Utilities.Modes
                 Margin = new Thickness(8),
                 FontFamily = new FontFamily("Consolas")
             };
+            Action rebuildCoefficients = () => coeffTextBox.Text = BuildCoefficientText();
+            rebuildCoefficients();
 
-            // ── Bottom bar: add-to-batch + export-batch ──
+            // ── Bottom bar: add-to-batch + export-batch (unchanged) ──
             var addButton = new Button
             {
                 Content = "Add specimen data to spreadsheet",
@@ -371,21 +448,25 @@ namespace DinoLino.Utilities.Modes
 
             var coeffTab = new TabItem { Header = "Coefficients", Content = coeffDock };
 
-            // ── Tab 2: x(t) and y(t) projection plots ──
-            int sampleCount = Math.Max(200, harmonics * 20);
-            var (xSeries, ySeries) = SampleXYProjections(harmonics, sampleCount);
-
+            // ══ Tab 3: x(t) and y(t) projection plots (rebuilt on refresh) ══
             var plotsPanel = new Grid { Margin = new Thickness(8) };
             plotsPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             plotsPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            var xPlot = BuildProjectionPlot("X-Coordinates", xSeries, Brushes.SteelBlue);
-            Grid.SetRow(xPlot, 0);
-            var yPlot = BuildProjectionPlot("Y-Coordinates", ySeries, Brushes.IndianRed);
-            Grid.SetRow(yPlot, 1);
-
-            plotsPanel.Children.Add(xPlot);
-            plotsPanel.Children.Add(yPlot);
+            Action redrawProjections = () =>
+            {
+                plotsPanel.Children.Clear();
+                int h = Math.Max(1, Math.Min(_mode.EfdHarmonics, (_mode.EFDCoefficientsResult?.Length ?? 0) / 4));
+                int sampleCount = Math.Max(200, h * 20);
+                var (xSeries, ySeries) = SampleXYProjections(h, sampleCount);
+                var xPlot = BuildProjectionPlot("X-Coordinates", xSeries, Brushes.SteelBlue);
+                Grid.SetRow(xPlot, 0);
+                var yPlot = BuildProjectionPlot("Y-Coordinates", ySeries, Brushes.IndianRed);
+                Grid.SetRow(yPlot, 1);
+                plotsPanel.Children.Add(xPlot);
+                plotsPanel.Children.Add(yPlot);
+            };
+            redrawProjections();
 
             var plotsExportButton = new Button
             {
@@ -394,7 +475,8 @@ namespace DinoLino.Utilities.Modes
                 Margin = new Thickness(8, 0, 8, 8),
                 HorizontalAlignment = HorizontalAlignment.Right
             };
-            plotsExportButton.Click += (s, ev) => ExportProjectionPlotsPng(harmonics);
+            plotsExportButton.Click += (s, ev) => ExportProjectionPlotsPng(
+                Math.Max(1, Math.Min(_mode.EfdHarmonics, (_mode.EFDCoefficientsResult?.Length ?? 0) / 4)));
 
             var plotsDock = new DockPanel();
             DockPanel.SetDock(plotsExportButton, Dock.Bottom);
@@ -403,24 +485,148 @@ namespace DinoLino.Utilities.Modes
 
             var plotsTab = new TabItem { Header = "Projections (x(t), y(t))", Content = plotsDock };
 
-            // ── Assemble tabs and window ──
+            // ══ Assemble tabs and window ══
             var tabs = new TabControl();
+            tabs.Items.Add(outlineTab);
             tabs.Items.Add(coeffTab);
             tabs.Items.Add(plotsTab);
             tabs.Items.Add(BuildHarmonicPowerTab(_mode));
 
+            // ══ Live refresh: any settings change — from these boxes OR the
+            //    Harmonic Power tab's Apply — regenerates the coefficients and
+            //    repaints every tab ══
+            bool refreshing = false;
+            System.ComponentModel.PropertyChangedEventHandler onModeChanged = (s2, pe) =>
+            {
+                if (pe.PropertyName != nameof(OutlineMode.EfdHarmonics)
+                    && pe.PropertyName != nameof(OutlineMode.ContourSampleCount)) return;
+                if (refreshing) return;
+                refreshing = true;
+                try
+                {
+                    _mode.GenerateMetadata();
+                    rebuildCoefficients();
+                    redrawProjections();
+                    redrawOutline();
+                }
+                finally { refreshing = false; }
+            };
+            _mode.PropertyChanged += onModeChanged;
+
+            var root = new DockPanel();
+            DockPanel.SetDock(settingsBar, Dock.Top);
+            root.Children.Add(settingsBar);
+            root.Children.Add(tabs);
+
             var window = new Window
             {
-                Title = "EFD Coefficients",
-                Width = 560,
-                Height = 520,
+                Title = "Elliptic Fourier Analysis",
+                Width = 640,
+                Height = 620,
                 ResizeMode = ResizeMode.CanResize,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = Window.GetWindow(this),
-                Content = tabs
+                Content = root
+            };
+            window.Closed += (s2, ev2) =>
+            {
+                _mode.PropertyChanged -= onModeChanged;
+                _efaWindow = null;
+                _efaHarmonicsBox = null;
+                _efaContourBox = null;
             };
 
+            _efaWindow = window;
             window.Show();
+        }
+
+        // Coefficient listing for the consolidated window, clamped to the
+        // coefficients actually available so a mid-edit harmonic count can
+        // never overrun the array.
+        private string BuildCoefficientText()
+        {
+            var c = _mode.EFDCoefficientsResult;
+            int harmonics = Math.Min(_mode.EfdHarmonics, (c?.Length ?? 0) / 4);
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Elliptic Fourier Descriptors ({harmonics} harmonics)");
+            sb.AppendLine(new string('\u2500', 48));
+            for (int h = 0; h < harmonics; h++)
+            {
+                int k = h * 4;
+                sb.AppendLine($"  n={h + 1,2}:  a={c[k]:F6}  " +
+                              $"b={c[k + 1]:F6}  " +
+                              $"c={c[k + 2]:F6}  " +
+                              $"d={c[k + 3]:F6}");
+            }
+            return sb.ToString();
+        }
+
+        // The Outline tab: the drawn outline (solid, in the mode's line color)
+        // with the EFD reconstruction overlaid in the same blue dashed style
+        // the workspace overlay used. Both point sets are in canvas space, so
+        // one shared uniform-scale fit renders them exactly as they relate on
+        // screen — minus the image.
+        private void DrawOutlineComparison(Canvas canvas)
+        {
+            canvas.Children.Clear();
+            double cw = canvas.ActualWidth, ch = canvas.ActualHeight;
+            if (cw < 20 || ch < 20) return;
+
+            var outline = _mode.GetActiveOutlinePoints();
+            var efd = _mode.GetEfdReconstructionPoints();
+            if (outline == null)
+            {
+                canvas.Children.Add(new TextBlock
+                {
+                    Text = "No outline available.",
+                    Foreground = Brushes.Gray,
+                    Margin = new Thickness(12)
+                });
+                return;
+            }
+
+            double minX = double.MaxValue, minY = double.MaxValue;
+            double maxX = double.MinValue, maxY = double.MinValue;
+            void Extend(IEnumerable<Point> pts)
+            {
+                if (pts == null) return;
+                foreach (var p in pts)
+                {
+                    if (p.X < minX) minX = p.X;
+                    if (p.X > maxX) maxX = p.X;
+                    if (p.Y < minY) minY = p.Y;
+                    if (p.Y > maxY) maxY = p.Y;
+                }
+            }
+            Extend(outline);
+            Extend(efd);
+
+            double bw = Math.Max(1e-9, maxX - minX);
+            double bh = Math.Max(1e-9, maxY - minY);
+            const double margin = 16;
+            double scale = Math.Min((cw - 2 * margin) / bw, (ch - 2 * margin) / bh);
+            if (scale <= 0 || double.IsInfinity(scale)) return;
+            double ox = (cw - bw * scale) / 2;
+            double oy = (ch - bh * scale) / 2;
+            Point Map(Point p) => new Point(ox + (p.X - minX) * scale, oy + (p.Y - minY) * scale);
+
+            Polyline MakeLoop(IEnumerable<Point> pts, Brush stroke, double thickness, DoubleCollection dashes)
+            {
+                var pl = new Polyline { Stroke = stroke, StrokeThickness = thickness, StrokeDashArray = dashes };
+                Point? first = null;
+                foreach (var p in pts)
+                {
+                    var m = Map(p);
+                    if (first == null) first = m;
+                    pl.Points.Add(m);
+                }
+                if (first.HasValue) pl.Points.Add(first.Value); // explicit closure
+                return pl;
+            }
+
+            canvas.Children.Add(MakeLoop(outline, _mode.LineColor ?? Brushes.Black, 2, null));
+            if (efd != null && efd.Count >= 3)
+                canvas.Children.Add(MakeLoop(efd, Brushes.DodgerBlue, 2.5, new DoubleCollection { 4, 2 }));
         }
 
         // Clears the pending session spreadsheet after confirming with the user.

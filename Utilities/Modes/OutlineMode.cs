@@ -2317,6 +2317,23 @@ namespace DinoLino.Utilities.Modes
             EFDPreviewReady?.Invoke(previewLine);
         }
 
+        // ── Accessors for the consolidated Elliptic Fourier Analysis window ──
+        // Both return CANVAS-space points (the frame the workspace draws in),
+        // so the pair can be rescaled together for the image-free Outline tab.
+        public List<Point> GetActiveOutlinePoints()
+        {
+            if (_activePolyline == null || _activePolyline.Points.Count < 3) return null;
+            return new List<Point>(_activePolyline.Points);
+        }
+
+        public List<Point> GetEfdReconstructionPoints()
+        {
+            if (_efd.RawCoefficients == null || _efd.RawCoefficients.Length == 0) return null;
+            int harmonics = Math.Min(EfdHarmonics, _efd.RawCoefficients.Length / 4);
+            if (harmonics < 1) return null;
+            return _efd.ReconstructCanonical(harmonics);
+        }
+
         public void ClearEFDPreview()
         {
             EFDPreviewClear?.Invoke();
