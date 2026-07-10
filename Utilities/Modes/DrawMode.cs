@@ -166,7 +166,7 @@ namespace DinoLino.Utilities.Modes
         private object _relativeAreaResult;
         private double _currentShapeArea = 0;
 
-        private string _shapeAreaScaledResult = "Scale to measure";
+        private string _shapeAreaScaledResult = "Unscaled";
         public string ShapeAreaScaledResult
         {
             get => _shapeAreaScaledResult;
@@ -311,7 +311,7 @@ namespace DinoLino.Utilities.Modes
         private Line _currentLine = null;
         private Vector2 _referenceLineDirection;
         private bool _hasReferenceLineDirection;
-        private string _lineLengthScaledResult = "Scale to measure";
+        private string _lineLengthScaledResult = "Unscaled";
         public string LineLengthScaledResult
         {
             get => _lineLengthScaledResult;
@@ -402,7 +402,7 @@ namespace DinoLino.Utilities.Modes
 
             LineLengthScaledResult = Scale != null && Scale.IsCalibrated
                 ? $"{Scale.ToUnits(length):F2} {Scale.Unit}"
-                : "Scale to measure";
+                : "Unscaled";
 
             var prev = FindPreviousLine(0);
             LineLengthRatioResult = GeometryCalculations.RelativeLength(length, prev?.LineLength ?? 0);
@@ -502,7 +502,7 @@ namespace DinoLino.Utilities.Modes
 
             ShapeAreaScaledResult = Scale != null && Scale.IsCalibrated
                 ? $"{Scale.ToUnitsArea(area):F2} {Scale.Unit}²"
-                : "Scale to measure";
+                : "Unscaled";
 
             var prev = UndoRedoManager.History
                 .OfType<ShapeOperation>()

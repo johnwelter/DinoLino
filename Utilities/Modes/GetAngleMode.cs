@@ -66,7 +66,7 @@ namespace DinoLino.Utilities.Modes
         private double _TriAspectRatioResult;
         private object _relativeAreaResult;
         private double _currentArea = 0;
-        private string _triAreaScaledResult = "Scale to measure";
+        private string _triAreaScaledResult = "Unscaled";
         public string TriAreaScaledResult
         {
             get => _triAreaScaledResult;

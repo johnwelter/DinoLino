@@ -1241,6 +1241,7 @@ namespace DinoLino.Utilities.Modes
                 Elements = new List<UIElement>(output)
             });
 
+            ResetHarmonicAutoDefault(); // new specimen → re-derive the 99% default
             OutlineReady?.Invoke(output);
 
             _hasPending = false;
@@ -1263,6 +1264,7 @@ namespace DinoLino.Utilities.Modes
                 Elements = new List<UIElement>(output)
             });
 
+            ResetHarmonicAutoDefault(); // new specimen → re-derive the 99% default
             OutlineReady?.Invoke(output);
         }
         #endregion
@@ -2105,14 +2107,14 @@ namespace DinoLino.Utilities.Modes
         // Visibility companion for NormalizationWarning (BooleanToVisibilityConverter needs a bool).
         public bool HasNormalizationWarning => !string.IsNullOrEmpty(_normalizationWarning);
 
-        private string _perimeterScaledResult = "Scale to measure";
+        private string _perimeterScaledResult = "Error: Unscaled";
         public string PerimeterScaledResult
         {
             get => _perimeterScaledResult;
             set => SetField(ref _perimeterScaledResult, value);
         }
 
-        private string _areaScaledResult = "Scale to measure";
+        private string _areaScaledResult = "Error: Unscaled";
         public string AreaScaledResult
         {
             get => _areaScaledResult;
@@ -2169,10 +2171,10 @@ namespace DinoLino.Utilities.Modes
             double canvasArea = GeometryCalculations.PolygonArea(pts);
             PerimeterScaledResult = Scale != null && Scale.IsCalibrated
                 ? $"{Scale.ToUnits(canvasPerimeter):F2} {Scale.Unit}"
-                : "Scale to measure";
+                : "Error: Unscaled";
             AreaScaledResult = Scale != null && Scale.IsCalibrated
                 ? $"{Scale.ToUnitsArea(canvasArea):F2} {Scale.Unit}²"
-                : "Scale to measure";
+                : "Error: Unscaled";
 
             double[] bbox = GeometryCalculations.BoundingBox(imagePts);
             double bboxW = bbox[2] - bbox[0];
@@ -2185,6 +2187,11 @@ namespace DinoLino.Utilities.Modes
             SolidityResult = GeometryCalculations.Solidity(area, convexHullArea);
             SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(imagePts);
             TurningAngleLengthResult = GeometryCalculations.TurningAnglePerLength(SumTurningAnglesResult, perimeter);
+
+            // First metadata pass for a freshly committed outline: adopt the
+            // harmonic count the 99% power analysis recommends as the default.
+            // Skipped once resolved, and never overrides a manual choice.
+            ApplyAutoHarmonicDefault();
 
             int harmonics = EfdHarmonics;
 
@@ -2225,7 +2232,7 @@ namespace DinoLino.Utilities.Modes
             sb.AppendLine($"Perim / Area:       {PerimeterAreaRatioResult:F4}");
             sb.AppendLine($"Circularity:        {CircularityResult:F4}");
             sb.AppendLine($"Solidity:           {SolidityResult:F4}");
-            sb.AppendLine($"Turn. Angles / Length: {TurningAngleLengthResult:F4}");
+            sb.AppendLine($"Turn/Length: {TurningAngleLengthResult:F4}");
             sb.AppendLine($"EFD harmonics ({harmonics}):");
             for (int h = 0; h < harmonics; h++)
             {
@@ -2267,16 +2274,71 @@ namespace DinoLino.Utilities.Modes
         // clearing the workspace within a session.
         public EfdCsvCollector EfdCsv { get; } = new EfdCsvCollector();
 
+        // Default harmonic count. Once an outline exists it is replaced, per
+        // outline, by the count the 99% Harmonic Power analysis recommends (see
+        // ApplyAutoHarmonicDefault) — so the default adapts to each specimen's
+        // complexity instead of a fixed guess. A manual edit to EfdHarmonics
+        // opts that outline out of further auto-setting.
+        private const double AutoHarmonicPowerThreshold = 0.99;
         private int efdHarmonics = 10;
+
+        // True once the 99% default has been applied for the CURRENT outline, or
+        // once the user has manually set the count for it. Reset when a new
+        // outline is committed (see ResetHarmonicAutoDefault), so the next
+        // specimen gets its own recommendation.
+        private bool _harmonicsResolvedForOutline;
+
+        // Distinguishes a user keystroke/slider change (which should stick) from
+        // the internal auto-default write (which should not count as manual).
+        private bool _settingHarmonicsInternally;
+
         public int EfdHarmonics
         {
             get => efdHarmonics;
             set
             {
                 int clamped = Math.Max(1, Math.Min(100, value));
+
+                // Any change that isn't our own auto-default write is a manual
+                // choice: lock it in for this outline.
+                if (!_settingHarmonicsInternally)
+                    _harmonicsResolvedForOutline = true;
+
                 if (SetField(ref efdHarmonics, clamped))
                     UpdateEFDPreview();
             }
+        }
+
+        // Called when a new outline is committed: forget the previous outline's
+        // resolved count so the next GenerateMetadata re-derives the 99% default.
+        private void ResetHarmonicAutoDefault()
+        {
+            _harmonicsResolvedForOutline = false;
+        }
+
+        // Sets EfdHarmonics to the harmonic count the 99% cumulative-power
+        // threshold recommends for the current outline, unless the count has
+        // already been resolved (auto-set once, or manually chosen) for this
+        // outline. Returns true if it applied a new default. Runs AFTER the EFD
+        // coefficients exist for the outline, so the power analysis has data.
+        private bool ApplyAutoHarmonicDefault()
+        {
+            if (_harmonicsResolvedForOutline) return false;
+
+            var profile = AnalyzeHarmonicPower(AutoHarmonicPowerThreshold);
+            if (profile == null) return false;
+
+            // SelectedHarmonics is the count reaching 99% power (or the ceiling
+            // if 99% isn't reached within the analyzed range). Clamp defensively.
+            int suggested = Math.Max(1, Math.Min(100, profile.SelectedHarmonics));
+
+            _harmonicsResolvedForOutline = true; // resolved even if unchanged, so we don't re-run every time
+            if (suggested == efdHarmonics) return false;
+
+            _settingHarmonicsInternally = true;
+            try { EfdHarmonics = suggested; }
+            finally { _settingHarmonicsInternally = false; }
+            return true;
         }
 
         // The blue EFD preview polyline shown in the workspace
@@ -2440,7 +2502,7 @@ namespace DinoLino.Utilities.Modes
                     "💡 Adjust the number of EFD Harmonics to control Fourier detail. The EF outline is overlaid in a blue, dashed line.",
                     "💡 A perfect circle has a circularity value of 1. Circularity, aka roundness, is calculated as ⁠4π × Area ÷ Perimeter squared⁠.",
                     "💡 Solidity is the ratio of the outlined area divided by the area of its convex hull. The convex hull is the smallest convex polygon enclosing the outline.",
-                    "💡 Sum of turning angles is the sum of all angular changes between consecutive edges, representing the total amount of turning around the outline.",
+                    "💡 Turn/Length (sum of turning angles divided by outline perimeter) measures how sharply the curve bends, on average, along its length.",
                     "💡 The user guide and software information can be found in the Help menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
                     "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",

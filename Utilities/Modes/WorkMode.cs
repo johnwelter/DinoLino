@@ -197,7 +197,7 @@ namespace DinoLino.Utilities.Modes
         // has no calibration yet, "N/A" once it has been scaled (the user must take a
         // fresh measurement to get a real value).
         protected string ScaledPlaceholder =>
-            Scale != null && Scale.IsCalibrated ? "N/A" : "Scale to measure";
+            Scale != null && Scale.IsCalibrated ? "N/A" : "Unscaled";
 
         // Resets scaled-measurement displays to ScaledPlaceholder. Modes with scaled
         // outputs override this; called whenever the calibration is set or cleared.

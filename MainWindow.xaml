@@ -137,7 +137,7 @@
                     <TabItem Header="Outline"/>
                 </TabControl>
                 <ContentControl x:Name="UI_ModePanel" Margin="0,0,0,10"/>
-                <StackPanel Margin="10,-10,10,-5">
+                <StackPanel Margin="10,0,10,-5">
                     <Button x:Name="UI_ScaleButton" Content="Scale Image"
                             MinHeight="32" Click="GlobalTools_ScaleImage"/>
                     <TextBlock x:Name="UI_ScaleStatus"

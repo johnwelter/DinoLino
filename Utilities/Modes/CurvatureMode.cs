@@ -691,7 +691,7 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        private string _splineLengthScaledResult = "Scale to measure";
+        private string _splineLengthScaledResult = "Unscaled";
         public string SplineLengthScaledResult
         {
             get => _splineLengthScaledResult;
@@ -800,7 +800,7 @@ namespace DinoLino.Utilities.Modes
             double splineLength = GeometryCalculations.ArcLength(splinePointsDense);
             SplineLengthScaledResult = Scale != null && Scale.IsCalibrated
                 ? $"{Scale.ToUnits(splineLength):F1} {Scale.Unit}"
-                : "Scale to measure";
+                : "Unscaled";
             TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 1);
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 1);
 
@@ -979,7 +979,7 @@ namespace DinoLino.Utilities.Modes
         }
 
         // Sum of turning angles over the window, per unit arc length — the SAME
-        // quantity as the committed "Turn.Angles/Length" metric
+        // quantity as the committed "Turn/Length" metric
         // (GeometryCalculations.TurningAnglePerUnitLength), restricted to the
         // probed span. Sums |angle between consecutive segments| at every
         // interior vertex of pts[i0..i1] and returns it together with the
@@ -1019,7 +1019,7 @@ namespace DinoLino.Utilities.Modes
         }
 
         // Formats the hover readout. Deliberately ALWAYS degrees-per-PIXEL:
-        // the committed "Turn.Angles/Length" column is also °/px — its angles
+        // the committed "Turn/Length" column is also °/px — its angles
         // come from Vector2.AngleBetween (degrees) and its length is raw
         // pixels; it just displays without a unit label — and this readout must
         // be directly comparable with it and with previously recorded data.
@@ -1234,8 +1234,7 @@ namespace DinoLino.Utilities.Modes
                     "💡 Catmull-Rom splines use local smoothing and must pass through every clicked point. This operation draws a centripetal Catmull-Rom spline.",
                     "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
                     "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
-                    "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
-                    "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
+                    "💡 Turn/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
                     "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
                     "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
@@ -1248,8 +1247,7 @@ namespace DinoLino.Utilities.Modes
                     "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
                     "💡 This operation uses Schneider's Bézier fitting to convert points into one or more smooth cubic Bézier segments.",
                     "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
-                    "💡 Turn.Angles/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
-                    "💡 Sum Turn. Angles measures the total amount of directional change along the spline. This is sensitive to scale.",
+                    "💡 Turn/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
                     "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
                     "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
