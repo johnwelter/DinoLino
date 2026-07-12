@@ -23,6 +23,17 @@ namespace DinoLino.Utilities.Modes
         public override UserControl CreateControlPanel() => new OutlineControlPanel(this);
         public override bool IsStartingNewOperation => true;
 
+        // Erase, smooth, and metadata clicks operate ON the existing outline —
+        // they return no new elements for the router to re-add, so the
+        // "starting a new operation" workspace clear must not fire for them or
+        // a single click wipes the very outline being edited (the erase-mode
+        // bug; smooth and metadata clicks had the same latent hazard). Drawing
+        // clicks are unaffected: they clear and then re-add the fresh outline.
+        // Hand-draw is deliberately NOT included — starting a hand stroke
+        // replaces the previous outline via its own clear in MainWindow.Input.
+        public override bool IsProbeInteraction =>
+            _eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode;
+
         #region setting outline mode
 
         private bool _handDrawMode = false;
@@ -1874,9 +1885,44 @@ namespace DinoLino.Utilities.Modes
             get => _smoothStrength;
             set
             {
-                if (SetField(ref _smoothStrength, value))
+                if (!SetField(ref _smoothStrength, value)) return;
+                // In LOCAL scope the slider only sets the sanding strength for
+                // the drag brush; it must not trigger a whole-perimeter pass.
+                if (!_localSmoothing)
                     ApplyGlobalSmooth();
             }
+        }
+
+        // ── Smoothing scope: Global (whole perimeter, live from the snapshot)
+        //    vs Local (a draggable sanding brush, progressive like Erase) ──
+        private bool _localSmoothing = false;
+        public bool IsGlobalSmoothSelected
+        {
+            get => !_localSmoothing;
+            set { if (value == !_localSmoothing) return; _localSmoothing = !value; OnSmoothScopeChanged(); }
+        }
+        public bool IsLocalSmoothSelected
+        {
+            get => _localSmoothing;
+            set { if (value == _localSmoothing) return; _localSmoothing = value; OnSmoothScopeChanged(); }
+        }
+        private void OnSmoothScopeChanged()
+        {
+            OnPropertyChanged(nameof(IsGlobalSmoothSelected));
+            OnPropertyChanged(nameof(IsLocalSmoothSelected));
+            // Entering LOCAL bakes whatever the global slider currently shows
+            // into the snapshot, so sanding starts from the shape on screen and
+            // a later return to Global doesn't stack passes on a stale base.
+            if (_localSmoothing) RefreshSmoothSnapshot();
+        }
+
+        // Brush size for local smoothing (canvas pixels), mirroring the erase
+        // brush so the tool stays screen-true at any zoom.
+        private double _smoothBrushRadius = 25;
+        public double SmoothBrushRadius
+        {
+            get => _smoothBrushRadius;
+            set => SetField(ref _smoothBrushRadius, value);
         }
 
         // Snapshot of the polyline points taken when smooth mode is entered,
@@ -1947,6 +1993,91 @@ namespace DinoLino.Utilities.Modes
                 if (dx * dx + dy * dy >= 1.0)
                     points.Add(first);
             }
+        }
+
+        // =====================
+        // LOCAL SMOOTHING (draggable sanding brush)
+        // =====================
+        // Called on mouse-drag when Smooth mode + Local scope are active.
+        // Applies SmoothStrength weighted-Laplacian passes to the vertices under
+        // the brush, with a quartic falloff to zero at the brush rim so the
+        // treated section blends into its surroundings without kinks. Vertices
+        // outside the brush are pinned exactly — no global ripple (the lesson
+        // the erase tool taught). Progressive like sanding: keep dragging to
+        // keep smoothing. Each event refreshes the smooth snapshot so a later
+        // Global pass builds on what is on screen, matching erase semantics.
+        private bool _localSmoothInProgress = false;
+        public void ProcessLocalSmoothDrag(Vector2 mousePos)
+        {
+            if (_activePolyline == null) return;
+            if (!_localSmoothing || _smoothStrength <= 0) return;
+            if (_localSmoothInProgress) return;
+            _localSmoothInProgress = true;
+            try
+            {
+                var pts = _activePolyline.Points;
+                if (pts.Count < 4) return;
+
+                // Distinct vertices; remember whether a closure duplicate exists.
+                int n = pts.Count;
+                bool hasClosure;
+                {
+                    Point f = pts[0], l = pts[n - 1];
+                    double dx = f.X - l.X, dy = f.Y - l.Y;
+                    hasClosure = dx * dx + dy * dy < 1.0;
+                }
+                int open = hasClosure ? n - 1 : n;
+                if (open < 3) return;
+
+                var work = new Point[open];
+                for (int i = 0; i < open; i++) work[i] = pts[i];
+
+                // Brush weights: canvas-space distance with a quartic falloff —
+                // w = (1 - (d/R)^2)^2 — 1 at the centre, 0 at the rim, smooth.
+                double r = Math.Max(2.0, _smoothBrushRadius);
+                double r2 = r * r;
+                var weight = new double[open];
+                int touched = 0;
+                for (int i = 0; i < open; i++)
+                {
+                    double dx = work[i].X - mousePos.X;
+                    double dy = work[i].Y - mousePos.Y;
+                    double d2 = dx * dx + dy * dy;
+                    if (d2 >= r2) continue;
+                    double t = 1.0 - d2 / r2;
+                    weight[i] = t * t;
+                    touched++;
+                }
+                if (touched == 0) return;
+
+                // SmoothStrength weighted passes of the same [1,2,1]/4 kernel the
+                // global tool uses, scaled per-vertex by the brush weight.
+                var next = new Point[open];
+                for (int pass = 0; pass < _smoothStrength; pass++)
+                {
+                    for (int i = 0; i < open; i++)
+                    {
+                        double w = weight[i];
+                        if (w <= 0) { next[i] = work[i]; continue; }
+                        Point a = work[(i - 1 + open) % open];
+                        Point b = work[i];
+                        Point c = work[(i + 1) % open];
+                        double tx = (a.X + 2 * b.X + c.X) / 4.0;
+                        double ty = (a.Y + 2 * b.Y + c.Y) / 4.0;
+                        next[i] = new Point(b.X + (tx - b.X) * w, b.Y + (ty - b.Y) * w);
+                    }
+                    var tmp = work; work = next; next = tmp;
+                }
+
+                pts.Clear();
+                foreach (var p in work) pts.Add(p);
+                if (hasClosure) pts.Add(work[0]);
+
+                // Bake the edit so a later Global pass starts from this shape
+                // (identical to how erase keeps the snapshot current).
+                RefreshSmoothSnapshot();
+            }
+            finally { _localSmoothInProgress = false; }
         }
 
         // Resamples a closed polyline to approximately uniform arc-length spacing.
@@ -2488,6 +2619,7 @@ namespace DinoLino.Utilities.Modes
                 return new[]
                 {
                     "💡 Adjust smooth strength for cleaner outlines. Too high may distort sharp features.",
+                    "💡 Global smooths the whole perimeter live from the slider; Local turns the cursor into a sanding brush — click and drag along the outline to smooth just that section.",
                     "💡 Outline mode performs best on unpatterned images with a solid background.",
                     "💡 The user guide and software information can be found in the Help menu.",
                     "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",

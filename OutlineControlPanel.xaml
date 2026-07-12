@@ -108,7 +108,21 @@
                      Margin="0,8,0,0"/>
 
         <StackPanel Visibility="{Binding SmoothOutlineMode, Converter={StaticResource BoolToVis}}">
-            <TextBlock Text="Smooth Strength:" FontWeight="Bold" Margin="0,8,0,0"/>
+            <!-- Scope: Global smooths the whole perimeter live from the slider;
+                 Local is a draggable sanding brush over a section. One shared
+                 Strength slider governs both. -->
+            <StackPanel Orientation="Horizontal" Margin="10,6,0,0">
+                <RadioButton Content="Global"
+                             GroupName="SmoothScope"
+                             IsChecked="{Binding IsGlobalSmoothSelected, Mode=TwoWay}"
+                             Margin="0,0,12,0"/>
+                <RadioButton Content="Local"
+                             GroupName="SmoothScope"
+                             IsChecked="{Binding IsLocalSmoothSelected, Mode=TwoWay}"
+                             ToolTip="Click and drag over a section of the outline to smooth it"/>
+            </StackPanel>
+
+            <TextBlock Text="Strength:" FontWeight="Bold" Margin="0,8,0,0"/>
             <Slider Minimum="0" Maximum="20"
                     Value="{Binding SmoothStrength, Mode=TwoWay}"
                     TickFrequency="1"
@@ -116,6 +130,17 @@
                     Margin="0,2,0,2"/>
             <TextBlock Text="{Binding SmoothStrength, StringFormat={}{0:F0} passes}"
                        Foreground="Gray" Margin="0,0,0,4"/>
+
+            <StackPanel Visibility="{Binding IsLocalSmoothSelected, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Brush Size:" FontWeight="Bold" Margin="0,4,0,0"/>
+                <Slider Minimum="5" Maximum="100"
+                        Value="{Binding SmoothBrushRadius, Mode=TwoWay}"
+                        TickFrequency="5"
+                        IsSnapToTickEnabled="True"
+                        Margin="0,2,0,2"/>
+                <TextBlock Text="{Binding SmoothBrushRadius, StringFormat={}{0:F0} px}"
+                           Foreground="Gray" Margin="0,0,0,4"/>
+            </StackPanel>
         </StackPanel>
 
         <!-- Generate Metadata -->

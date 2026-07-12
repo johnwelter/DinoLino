@@ -159,7 +159,10 @@ namespace DinoLino
             // inspects the existing spline and returns nothing to re-add —
             // clearing here erases the very shape being measured.
             bool probing = CurrentWorkMode.IsProbeInteraction
-                || (CurrentWorkMode is CurvatureMode probeGuardCm && probeGuardCm.FindTurningAngleMode);
+                || (CurrentWorkMode is CurvatureMode probeGuardCm && probeGuardCm.FindTurningAngleMode)
+                || (CurrentWorkMode is OutlineMode probeGuardOm
+                    && (probeGuardOm.EraseOutlineMode || probeGuardOm.SmoothOutlineMode
+                        || probeGuardOm.OutlineMetadataMode));
 
             if (!CurrentWorkMode.SeePreviousOperations
                 && CurrentWorkMode.IsStartingNewOperation
@@ -213,6 +216,8 @@ namespace DinoLino
             {
                 if (om.EraseOutlineMode)
                     om.ProcessEraseDrag(mousePos);
+                else if (om.SmoothOutlineMode && om.IsLocalSmoothSelected)
+                    om.ProcessLocalSmoothDrag(mousePos);
                 else if (om.HandDrawMode)
                     om.ProcessHandDrawDrag(mousePos);
             }
