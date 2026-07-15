@@ -59,14 +59,14 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
-    <Compile Include="CurvatureControlPanel.xaml.cs">
+    <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml.cs">
       <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="DataTypes\DataTypes.cs" />
     <Compile Include="DownSampleWindow.xaml.cs">
       <DependentUpon>DownSampleWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="DrawControlPanel.xaml.cs">
+    <Compile Include="Utilities\Modes\DrawModeFiles\DrawControlPanel.xaml.cs">
       <DependentUpon>DrawControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="FontWindow.xaml.cs">
@@ -87,50 +87,50 @@
     <Compile Include="MainWindow.Workspace.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="MeshLoader.cs" />
-    <Compile Include="MeshSimplifier.cs" />
-    <Compile Include="MLSegmenter.cs" />
-    <Compile Include="ModelPoseController.cs" />
-    <Compile Include="ObjLoader.cs" />
+    <Compile Include="Utilities\3DDataProcessing\MeshLoader.cs" />
+    <Compile Include="Utilities\3DDataProcessing\MeshSimplifier.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\MLSegmenter.cs" />
+    <Compile Include="Utilities\3DDataProcessing\ModelPoseController.cs" />
+    <Compile Include="Utilities\3DDataProcessing\ObjLoader.cs" />
     <Compile Include="PictureAdjustmentWindow.xaml.cs">
       <DependentUpon>PictureAdjustmentWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="PlyLoader.cs" />
+    <Compile Include="Utilities\3DDataProcessing\PlyLoader.cs" />
     <Compile Include="ScaleWindow.xaml.cs">
       <DependentUpon>ScaleWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="StlLoader.cs" />
-    <Compile Include="TriangleControlPanel.xaml.cs">
-      <DependentUpon>TriangleControlPanel.xaml</DependentUpon>
+    <Compile Include="Utilities\3DDataProcessing\StlLoader.cs" />
+    <Compile Include="Utilities\Modes\GetAngleModeFiles\GetAngleControlPanel.xaml.cs">
+      <DependentUpon>GetAngleControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="UserGuide.xaml.cs">
       <DependentUpon>UserGuide.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\CanvasUtils.cs" />
-    <Compile Include="Utilities\EfsCsvCollector.cs" />
-    <Compile Include="Utilities\EllipticFourierAnalysis.cs" />
-    <Compile Include="Utilities\Ellipticfourierpower.cs" />
+    <Compile Include="Utilities\EFAFiles\EfsCsvCollector.cs" />
+    <Compile Include="Utilities\EFAFiles\EllipticFourierAnalysis.cs" />
+    <Compile Include="Utilities\EFAFiles\Ellipticfourierpower.cs" />
     <Compile Include="Utilities\GeometryCalculations.cs" />
-    <Compile Include="Utilities\HistoryWindow.cs" />
+    <Compile Include="Utilities\HistoryFiles\GeomOpHistoryWindow.cs" />
     <Compile Include="Utilities\ImageAdjuster.cs" />
-    <Compile Include="Utilities\Modes\DrawMode.cs" />
-    <Compile Include="Utilities\Modes\GetAngleMode.cs" />
-    <Compile Include="Utilities\Modes\CurvatureMode.cs" />
-    <Compile Include="Utilities\Modes\OutlineMode.cs" />
+    <Compile Include="Utilities\Modes\DrawModeFiles\DrawMode.cs" />
+    <Compile Include="Utilities\Modes\GetAngleModeFiles\GetAngleMode.cs" />
+    <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureMode.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineMode.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
-    <Compile Include="OutlineControlPanel.xaml.cs">
+    <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineControlPanel.xaml.cs">
       <DependentUpon>OutlineControlPanel.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Utilities\OutlineProcessor.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineProcessor.cs" />
     <Compile Include="Utilities\ScaleCalibration.cs" />
-    <Compile Include="Utilities\SpecimenManager.cs" />
-    <Compile Include="Utilities\SplineFitting.cs" />
-    <Compile Include="About.xaml.cs">
+    <Compile Include="Utilities\HistoryFiles\SpecimenManager.cs" />
+    <Compile Include="Utilities\Modes\CurvatureModeFiles\SplineFitting.cs" />
+    <Compile Include="Utilities\HelpMenuFiles\About.xaml.cs">
       <DependentUpon>About.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\Operations.cs" />
-    <Compile Include="Utilities\UndoRedoManager.cs" />
-    <Page Include="CurvatureControlPanel.xaml">
+    <Compile Include="Utilities\HistoryFiles\UndoRedoManager.cs" />
+    <Page Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Dictionary1.xaml">
@@ -141,7 +141,7 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="DrawControlPanel.xaml">
+    <Page Include="Utilities\Modes\DrawModeFiles\DrawControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="FontWindow.xaml">
@@ -159,7 +159,7 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
-    <Page Include="About.xaml">
+    <Page Include="Utilities\HelpMenuFiles\About.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -170,14 +170,15 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="TriangleControlPanel.xaml">
+    <Page Include="Utilities\Modes\GetAngleModeFiles\GetAngleControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
     </Page>
     <Page Include="UserGuide.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="OutlineControlPanel.xaml">
+    <Page Include="Utilities\Modes\OutlineModeFiles\OutlineControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
   </ItemGroup>

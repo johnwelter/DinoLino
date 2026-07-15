@@ -70,7 +70,7 @@ namespace DinoLino
 
         private void Menu_SeeHistory(object sender, RoutedEventArgs e)
         {
-            var window = new HistoryWindow(UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration)
+            var window = new GeomOpHistoryWindow(UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration)
             {
                 Owner = this,
                 FontSize = _currentFontSize,
@@ -81,7 +81,7 @@ namespace DinoLino
 
         private void Menu_ExportHistory(object sender, RoutedEventArgs e)
         {
-            HistoryWindow.ExportAllOperationHistory(UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
+            GeomOpHistoryWindow.ExportAllOperationHistory(UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
         }
 
         // Tips visibility

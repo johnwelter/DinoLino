@@ -15,7 +15,7 @@ using System.Windows.Media;
 
 namespace DinoLino.Utilities
 {
-    public class HistoryWindow : Window
+    public class GeomOpHistoryWindow : Window
     {
         private readonly List<WorkbookSheet> _workbook = new();
         private TextBlock _workbookStatus;
@@ -40,7 +40,7 @@ namespace DinoLino.Utilities
             public event PropertyChangedEventHandler PropertyChanged;
         }
 
-        public HistoryWindow(UndoRedoManager undoRedo, string specimenName, ScaleCalibration scale)
+        public GeomOpHistoryWindow(UndoRedoManager undoRedo, string specimenName, ScaleCalibration scale)
         {
             Title = "History of operations";
             Width = 720;
