@@ -118,7 +118,7 @@ namespace DinoLino
             UI_WorkImage.Source = WorkingImage;
 
             if (registerAsNewSpecimen)
-                SpecimenManager.OnImageOpened(specimenName);
+                SpecimenManager.OnImageOpened(bmp, specimenName);
 
             ResetWorkSpaceZoom();
             ScaleCalibration.Clear();

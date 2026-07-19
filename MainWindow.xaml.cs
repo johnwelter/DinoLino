@@ -31,8 +31,14 @@ namespace DinoLino
 
         // Specimen Manager fields
         public SpecimenManager SpecimenManager = new SpecimenManager();
-        private void SpecimenCount_Up(object sender, RoutedEventArgs e) => SpecimenManager.Increment();
-        private void SpecimenCount_Down(object sender, RoutedEventArgs e) => SpecimenManager.Decrement();
+        private void SpecimenCount_Up(object sender, RoutedEventArgs e) => ReloadSpecimen(SpecimenManager.MoveNext());
+        private void SpecimenCount_Down(object sender, RoutedEventArgs e) => ReloadSpecimen(SpecimenManager.MovePrevious());
+
+        private void ReloadSpecimen(Specimen spec)
+        {
+            if (spec?.Image == null) return;
+            SetWorkspaceImage(spec.Image, spec.FileName, registerAsNewSpecimen: false);
+        }
 
         // store selected font type
         private FontFamily _currentFont = new FontFamily("Arial");

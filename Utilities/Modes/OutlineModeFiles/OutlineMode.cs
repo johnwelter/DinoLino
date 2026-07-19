@@ -218,6 +218,17 @@ namespace DinoLino.Utilities.Modes
         // supersedes the analysis exactly like _opCts supersedes clicks.
         private CancellationTokenSource _analysisCts;
 
+        // Debounce for the per-image analysis rebuild. Rapid SourceImage swaps
+        // (specimen ▲/▼ reloads, picture-adjustment updates) restart this
+        // timer, so the pixel copy and BuildImageAnalysis — including the 1–3 s
+        // SAM encode — run only for the image the user actually lands on;
+        // skimmed-past images never start any work. Runs on the UI thread
+        // (SourceImage is only ever set there), which also keeps CopyPixels
+        // legal on non-frozen bitmaps. 600 ms sits below toggle-then-aim-and-
+        // click time
+        private System.Windows.Threading.DispatcherTimer _analysisDebounce;
+        private const int AnalysisDebounceMs = 600;
+
         private void CacheSourcePixels()
         {
             _imageVersion++;
@@ -236,17 +247,50 @@ namespace DinoLino.Utilities.Modes
             // (and ProcessClick double-checks via _pendingImageVersion).
             ClearPendingState();
 
+            // Invalidate IMMEDIATELY, before the debounce: ProcessClick's
+            // (_cachedPixels == null || _analysisTask == null) guard and
+            // IOutlineToolContext.HasImage both read "no image" during the
+            // window, so clicks and tools no-op instead of racing an analysis
+            // that has not started yet.
+            _cachedPixels = null;
+            _analysisTask = null;
+
             if (_sourceImage == null)
             {
-                _cachedPixels = null;
-                _analysisTask = null;
+                _analysisDebounce?.Stop();
                 return;
             }
 
-            // Synchronous part: just the pixel copy (fast). The expensive analysis
-            // — background mask, Sobel gradient, distance transform — runs on a
-            // worker so loading a large photo no longer freezes the UI; the first
-            // click simply awaits the task inside its own background work.
+            if (_analysisDebounce == null)
+            {
+                _analysisDebounce = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(AnalysisDebounceMs)
+                };
+                _analysisDebounce.Tick += (s, e) =>
+                {
+                    _analysisDebounce.Stop();
+                    StartImageAnalysis();
+                };
+            }
+
+            // Restart the window: another swap before it elapses means this
+            // image is being skimmed past and should never pay for analysis.
+            _analysisDebounce.Stop();
+            _analysisDebounce.Start();
+        }
+
+        // The formerly-inline tail of CacheSourcePixels: the synchronous part
+        // is just the pixel copy (fast); the expensive analysis — background
+        // mask, Sobel gradient, distance transform, texture, retinex, SAM
+        // encode — runs on a worker so loading a large photo does not freeze
+        // the UI; the first click simply awaits the task inside its own
+        // background work. Fires once per settled image, AnalysisDebounceMs
+        // after the last SourceImage change.
+        private void StartImageAnalysis()
+        {
+            if (_sourceImage == null) return;
+
             var formatted = new FormatConvertedBitmap(_sourceImage, PixelFormats.Bgra32, null, 0);
             _cachedWidth = formatted.PixelWidth;
             _cachedHeight = formatted.PixelHeight;
