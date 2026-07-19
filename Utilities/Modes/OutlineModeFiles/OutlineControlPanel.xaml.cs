@@ -6,6 +6,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
@@ -212,7 +213,7 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        private OutlineMode _mode;
+        private readonly OutlineMode _mode;
         private readonly System.Windows.Threading.DispatcherTimer _harmonicsDebounce;
 
         // ── Consolidated Elliptic Fourier Analysis window state ──
@@ -227,11 +228,14 @@ namespace DinoLino.Utilities.Modes
             _mode = mode;
             DataContext = mode;
 
-            // Popup when metadata is requested on an unfinished hand-drawn outline.
-            _mode.HandOutlineUnfinished = () =>
-                MessageBox.Show("Please finish drawing outline",
-                                "Outline Incomplete",
-                                MessageBoxButton.OK, MessageBoxImage.Information);
+            // Popup when metadata is requested on an unfinished hand-drawn
+            // outline. HandOutlineUnfinished is now an EVENT (it was a public
+            // Action field assigned with '='), so subscribe/unsubscribe with
+            // the panel's lifetime: CreateControlPanel builds a fresh panel per
+            // activation, and without the Unloaded -= every panel ever created
+            // would show its own copy of the dialog.
+            Loaded += (s, e) => _mode.HandOutlineUnfinished += OnHandOutlineUnfinished;
+            Unloaded += (s, e) => _mode.HandOutlineUnfinished -= OnHandOutlineUnfinished;
 
             // Applies EFA settings ~1 second after the user stops typing in
             // the Elliptic Fourier Analysis window's boxes (the boxes attach
@@ -243,22 +247,59 @@ namespace DinoLino.Utilities.Modes
             _harmonicsDebounce.Tick += HarmonicsDebounce_Tick;
         }
 
-        // Veto selecting Generate Metadata while a hand-drawn stroke is still open.
+        // BUG FIX (unfinished-stroke veto): the old veto lived INSIDE
+        // MetadataRadio_Checked and was dead code — WPF's RadioButton
+        // unchecks the rest of the group (running the hand-draw radio's
+        // two-way binding, whose setter cancels the open stroke) BEFORE the
+        // newly-checked radio raises Checked, so by the time the handler ran
+        // the stroke was already destroyed and the guard could never trip.
+        // The veto now fires in PREVIEW input events, before any group state
+        // changes, and simply swallows the click/key. (Arrow-key navigation
+        // within the group bypasses these two handlers; that path ends in
+        // GenerateMetadata's own IsStrokeOpen guard, which shows the same
+        // dialog via HandOutlineUnfinished — the stroke is still lost there,
+        // which matches every other tool-switch away from hand-draw.)
+        private void MetadataRadio_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (TryVetoUnfinishedHandStroke())
+                e.Handled = true;
+        }
+
+        private void MetadataRadio_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if ((e.Key == Key.Space || e.Key == Key.Enter) && TryVetoUnfinishedHandStroke())
+                e.Handled = true;
+        }
+
+        private bool TryVetoUnfinishedHandStroke()
+        {
+            if (!_mode.HandDraw.IsStrokeOpen) return false;
+            MessageBox.Show("Please finish drawing outline",
+                            "Outline Incomplete",
+                            MessageBoxButton.OK, MessageBoxImage.Information);
+            return true;
+        }
+
         private void MetadataRadio_Checked(object sender, RoutedEventArgs e)
         {
-            if (_mode.HandDrawMode && !_mode.HasFinishedHandOutline)
-            {
-                MessageBox.Show("Please finish drawing outline",
-                                "Outline Incomplete",
-                                MessageBoxButton.OK, MessageBoxImage.Information);
-
-                // Bounce selection back to Draw by Hand so the metadata panel doesn't open.
-                _mode.OutlineMetadataMode = false;
-                _mode.HandDrawMode = true;
-                if (sender is RadioButton rb) rb.IsChecked = false;
-                e.Handled = true;
-            }
+            // Selecting the tool generates the metrics. This used to be a side
+            // effect of the OutlineMetadataMode SETTER, which meant a two-way
+            // radio binding launched heavyweight work whose ordering depended
+            // on binding timing; the transition now triggers it explicitly.
+            _mode.GenerateMetadata();
         }
+
+        // Leaving the metadata tool clears the blue EFD overlay (this, too, was
+        // previously a setter side effect).
+        private void MetadataRadio_Unchecked(object sender, RoutedEventArgs e)
+            => _mode.ClearEFDPreview();
+
+        // Shown when GenerateMetadata is invoked (from any path, including the
+        // EFA window) while a hand-drawn stroke is still open.
+        private void OnHandOutlineUnfinished()
+            => MessageBox.Show("Please finish drawing outline",
+                               "Outline Incomplete",
+                               MessageBoxButton.OK, MessageBoxImage.Information);
 
         private void EfaSettingsBox_TextChanged(object sender, TextChangedEventArgs e)
         {

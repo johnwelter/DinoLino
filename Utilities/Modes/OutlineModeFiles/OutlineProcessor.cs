@@ -18,6 +18,13 @@ namespace DinoLino.Utilities
     /// is produced once by the methods below, cached by the caller, and passed
     /// back in read-only; those arrays are safe to share across threads
     /// because nothing here writes to them after they are built.
+    ///
+    /// SNAPSHOT CONTRACT: an ImageSnapshot always carries REAL pixels for its
+    /// stated Width/Height/Stride. Mask-only operations (hole filling,
+    /// components, morphology cleanup, topology, boundary tracing) take the
+    /// mask plus explicit (w, h) instead — the old "dimensions-only snapshot
+    /// with null Pixels" convention is gone, so a stray ReadPixel can no
+    /// longer NRE on a fake snapshot.
     /// </summary>
     internal class OutlineProcessor
     {
@@ -165,6 +172,11 @@ namespace DinoLino.Utilities
         }
 
         internal double PerceptualDistance(byte r1, byte g1, byte b1, byte r2, byte g2, byte b2)
+            => PerceptualDistance((double)r1, g1, b1, r2, g2, b2);
+
+        /// Same weighted-RGB metric over doubles — the ONE copy of the
+        /// formula, shared with the background palette estimator below.
+        internal static double PerceptualDistance(double r1, double g1, double b1, double r2, double g2, double b2)
         {
             double dr = r1 - r2, dg = g1 - g2, db = b1 - b2;
             return Math.Sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db);
@@ -599,11 +611,189 @@ namespace DinoLino.Utilities
         }
 
         // =====================
+        // BACKGROUND PALETTE ESTIMATION
+        // =====================
+        // (Moved verbatim from OutlineMode — pure pixel statistics belong on
+        // the processor, and the mode's private PDist duplicate of
+        // PerceptualDistance is gone.)
+        private const int BgPatchesPerEdge = 5;              // corners shared between edges → 16 patches total
+        private const int BgMaxPaletteSize = 6;
+        private const double BgPaletteMergeThreshold = 30.0; // perceptual units, same family as the flood threshold
+
+        // Estimates the background as a PALETTE of up to BgMaxPaletteSize colors
+        // clustered from 16 median patches around the entire border — replacing
+        // the four-corner quadrant model, which assumed each quadrant of the
+        // background is a single color. Multi-region backgrounds (mat + ruler +
+        // label + shadow band) get one palette entry per region instead.
+        //
+        // Subject rejection: an entry supported by only ONE patch is dropped —
+        // a genuine background color along the border virtually always spans
+        // several of the 16 patches, while a subject touching the border in one
+        // place contributes one or two. (A subject spanning three or more
+        // border patches is genuinely ambiguous with a background region; the
+        // click rescue and candidate scoring handle that case downstream.)
+        //
+        // Returns: the palette; per-corner trust flags (TL, TR, BL, BR — true
+        // when that corner's median survived into the palette, which licenses
+        // the hard corner seeding in BuildBackgroundMask); and the adaptive
+        // flood threshold, computed from a robust (top-two-excluded) residual
+        // of the patches against the palette, so one or two subject-contaminated
+        // patches cannot inflate it — the failure mode the old max-corner-spread
+        // formula had.
+        internal ((double r, double g, double b)[] palette, bool[] hardSeedCorners, double threshold)
+            EstimateBackgroundPalette(byte[] pixels, int w, int h, int stride, int bpp)
+        {
+            int patch = Math.Max(4, Math.Min(20, Math.Min(w, h) / 10));
+            int inset = Math.Min(5, Math.Min(w, h) / 20);
+            int p = patch - 1;
+            int lo = inset;
+            int hiX = Math.Max(lo, w - patch - inset);
+            int hiY = Math.Max(lo, h - patch - inset);
+
+            (double r, double g, double b) SamplePatchMedian(int x0, int y0)
+            {
+                int x1 = Math.Min(w - 1, x0 + p), y1 = Math.Min(h - 1, y0 + p);
+                int cap = Math.Max(1, (x1 - x0 + 1) * (y1 - y0 + 1));
+                var rs = new List<double>(cap);
+                var gs = new List<double>(cap);
+                var bs = new List<double>(cap);
+                for (int y = y0; y <= y1; y++)
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        int i = y * stride + x * bpp;
+                        byte pr = bpp == 1 ? pixels[i] : pixels[i + 2];
+                        byte pg = bpp == 1 ? pixels[i] : pixels[i + 1];
+                        byte pb = bpp == 1 ? pixels[i] : pixels[i];
+                        rs.Add(pr); gs.Add(pg); bs.Add(pb);
+                    }
+                double Med(List<double> v)
+                {
+                    if (v.Count == 0) return 0;
+                    v.Sort();
+                    return v[v.Count / 2];
+                }
+                return (Med(rs), Med(gs), Med(bs));
+            }
+
+            static double PDist((double r, double g, double b) a, (double r, double g, double b) b2)
+                => PerceptualDistance(a.r, a.g, a.b, b2.r, b2.g, b2.b);
+
+            // 16 patch anchors: BgPatchesPerEdge along top and bottom (their
+            // end patches ARE the corners), interior points only on left/right.
+            var anchors = new List<(int x, int y)>();
+            int idxTL = -1, idxTR = -1, idxBL = -1, idxBR = -1;
+            for (int k = 0; k < BgPatchesPerEdge; k++)
+            {
+                double t = k / (double)(BgPatchesPerEdge - 1);
+                int ax = lo + (int)Math.Round(t * (hiX - lo));
+                if (k == 0) idxTL = anchors.Count;
+                else if (k == BgPatchesPerEdge - 1) idxTR = anchors.Count;
+                anchors.Add((ax, lo));
+                if (k == 0) idxBL = anchors.Count;
+                else if (k == BgPatchesPerEdge - 1) idxBR = anchors.Count;
+                anchors.Add((ax, hiY));
+            }
+            for (int k = 1; k < BgPatchesPerEdge - 1; k++)
+            {
+                double t = k / (double)(BgPatchesPerEdge - 1);
+                int ay = lo + (int)Math.Round(t * (hiY - lo));
+                anchors.Add((lo, ay));
+                anchors.Add((hiX, ay));
+            }
+
+            int m = anchors.Count;
+            var med = new (double r, double g, double b)[m];
+            for (int i = 0; i < m; i++)
+                med[i] = SamplePatchMedian(anchors[i].x, anchors[i].y);
+
+            // Greedy clustering into palette entries, then merge-down to the cap.
+            var er = new List<double>(); var eg = new List<double>();
+            var eb = new List<double>(); var ec = new List<int>();
+
+            void MergeInto(int k, double r, double g, double b, int count)
+            {
+                int total = ec[k] + count;
+                er[k] = (er[k] * ec[k] + r * count) / total;
+                eg[k] = (eg[k] * ec[k] + g * count) / total;
+                eb[k] = (eb[k] * ec[k] + b * count) / total;
+                ec[k] = total;
+            }
+
+            for (int i = 0; i < m; i++)
+            {
+                int nearest = -1; double nd = double.MaxValue;
+                for (int k = 0; k < er.Count; k++)
+                {
+                    double d = PDist(med[i], (er[k], eg[k], eb[k]));
+                    if (d < nd) { nd = d; nearest = k; }
+                }
+                if (nearest >= 0 && nd <= BgPaletteMergeThreshold)
+                    MergeInto(nearest, med[i].r, med[i].g, med[i].b, 1);
+                else
+                {
+                    er.Add(med[i].r); eg.Add(med[i].g); eb.Add(med[i].b); ec.Add(1);
+                }
+            }
+
+            while (er.Count > BgMaxPaletteSize)
+            {
+                int bi = 0, bj = 1; double bd = double.MaxValue;
+                for (int i2 = 0; i2 < er.Count; i2++)
+                    for (int j2 = i2 + 1; j2 < er.Count; j2++)
+                    {
+                        double d = PDist((er[i2], eg[i2], eb[i2]), (er[j2], eg[j2], eb[j2]));
+                        if (d < bd) { bd = d; bi = i2; bj = j2; }
+                    }
+                MergeInto(bi, er[bj], eg[bj], eb[bj], ec[bj]);
+                er.RemoveAt(bj); eg.RemoveAt(bj); eb.RemoveAt(bj); ec.RemoveAt(bj);
+            }
+
+            // Drop singleton entries (likely a subject touching the border) —
+            // but only when a multi-patch entry remains to stand on.
+            bool anyMulti = false;
+            for (int k = 0; k < ec.Count; k++) if (ec[k] >= 2) { anyMulti = true; break; }
+            if (m >= 8 && anyMulti)
+                for (int k = ec.Count - 1; k >= 0; k--)
+                    if (ec[k] < 2) { er.RemoveAt(k); eg.RemoveAt(k); eb.RemoveAt(k); ec.RemoveAt(k); }
+
+            var palette = new (double r, double g, double b)[er.Count];
+            for (int k = 0; k < er.Count; k++) palette[k] = (er[k], eg[k], eb[k]);
+
+            double MinDistToPalette((double r, double g, double b) c2)
+            {
+                double best = double.MaxValue;
+                for (int k = 0; k < palette.Length; k++)
+                {
+                    double d = PDist(c2, palette[k]);
+                    if (d < best) best = d;
+                }
+                return best;
+            }
+
+            // Adaptive flood threshold from robust patch residuals: sort the
+            // per-patch distances to the palette and ignore the top two, which
+            // may be subject-contaminated patches whose colors were dropped.
+            var residual = new double[m];
+            for (int i = 0; i < m; i++) residual[i] = MinDistToPalette(med[i]);
+            Array.Sort(residual);
+            double robust = residual[Math.Max(0, m - 3)];
+            double threshold = Math.Max(35, Math.Min(60, 35 + robust * 1.5));
+
+            var corners = new bool[4];
+            corners[0] = idxTL >= 0 && MinDistToPalette(med[idxTL]) <= BgPaletteMergeThreshold * 1.5;
+            corners[1] = idxTR >= 0 && MinDistToPalette(med[idxTR]) <= BgPaletteMergeThreshold * 1.5;
+            corners[2] = idxBL >= 0 && MinDistToPalette(med[idxBL]) <= BgPaletteMergeThreshold * 1.5;
+            corners[3] = idxBR >= 0 && MinDistToPalette(med[idxBR]) <= BgPaletteMergeThreshold * 1.5;
+
+            return (palette, corners, threshold);
+        }
+
+        // =====================
         // BACKGROUND MASK (border-palette model)
         // =====================
         // The background is modeled as a PALETTE of up to ~6 colors clustered
-        // from median patches around the entire border (see OutlineMode.
-        // EstimateBackgroundPalette), replacing the old four-quadrant corner
+        // from median patches around the entire border (see
+        // EstimateBackgroundPalette above), replacing the old four-quadrant corner
         // model. Specimen photos routinely have multi-region backgrounds —
         // mat + ruler + label + shadow band — and matching each border-flooded
         // pixel against the NEAREST palette entry handles those where a single
@@ -973,9 +1163,9 @@ namespace DinoLino.Utilities
         // =====================
         // FILL HOLES
         // =====================
-        internal bool[] FillHoles(bool[] mask, ImageSnapshot snap)
+        internal bool[] FillHoles(bool[] mask, int w, int h)
         {
-            int w = snap.Width, h = snap.Height, total = w * h;
+            int total = w * h;
             bool[] exterior = new bool[total];
             EnsureQueue(total);
             _qHead = 0; _qTail = 0;
@@ -1012,9 +1202,9 @@ namespace DinoLino.Utilities
         // NOTE: ExtractLargestComponent was removed — it was dead code (only
         // KeepLargestComponent, below, was ever called).
 
-        internal List<int> CollectComponent(bool[] mask, int seed, ImageSnapshot snap, bool[] visited = null)
+        internal List<int> CollectComponent(bool[] mask, int w, int h, int seed, bool[] visited = null)
         {
-            int w = snap.Width, h = snap.Height, total = w * h;
+            int total = w * h;
             var component = new List<int>();
             if (seed < 0 || seed >= total || !mask[seed]) return component;
             if (visited == null) visited = new bool[total];
@@ -1033,24 +1223,24 @@ namespace DinoLino.Utilities
             return component;
         }
 
-        internal bool[] KeepComponentContainingSeed(bool[] inside, int seed, ImageSnapshot snap)
+        internal bool[] KeepComponentContainingSeed(bool[] inside, int w, int h, int seed)
         {
-            int total = snap.Width * snap.Height;
+            int total = w * h;
             bool[] result = new bool[total];
-            foreach (int i in CollectComponent(inside, seed, snap))
+            foreach (int i in CollectComponent(inside, w, h, seed))
                 result[i] = true;
             return result;
         }
 
-        internal bool[] KeepLargestComponent(bool[] inside, ImageSnapshot snap)
+        internal bool[] KeepLargestComponent(bool[] inside, int w, int h)
         {
-            int total = snap.Width * snap.Height;
+            int total = w * h;
             bool[] visited = new bool[total], best = new bool[total];
             List<int> bestComponent = null;
             for (int start = 0; start < total; start++)
             {
                 if (!inside[start] || visited[start]) continue;
-                var component = CollectComponent(inside, start, snap, visited);
+                var component = CollectComponent(inside, w, h, start, visited);
                 if (bestComponent == null || component.Count > bestComponent.Count)
                     bestComponent = component;
             }
@@ -1059,12 +1249,12 @@ namespace DinoLino.Utilities
             return best;
         }
 
-        internal bool[] ExpandConnectedComponentToArea(bool[] mask, int seed, int minArea, ImageSnapshot snap)
+        internal bool[] ExpandConnectedComponentToArea(bool[] mask, int w, int h, int seed, int minArea)
         {
-            int w = snap.Width, h = snap.Height, total = w * h;
+            int total = w * h;
             bool[] current = (bool[])mask.Clone();
             if (seed < 0 || seed >= total) return current;
-            if (!current[seed]) current = KeepComponentContainingSeed(current, seed, snap);
+            if (!current[seed]) current = KeepComponentContainingSeed(current, w, h, seed);
             int currentArea = CountPixels(current);
             if (currentArea >= minArea) return current;
             EnsureQueue(total);
@@ -1087,16 +1277,15 @@ namespace DinoLino.Utilities
         // WITHOUT any component-selection. Caller decides whether to keep one or
         // many components, and chooses radii scaled to the object (see
         // CleanEachComponent and OutlineMode.CleanMaskFullSpace).
-        internal bool[] CleanComponentMorphology(bool[] mask, ImageSnapshot snap,
+        internal bool[] CleanComponentMorphology(bool[] mask, int w, int h,
             int openRadius = 2, int closeRadius = 1, int minCorridorWidth = 3)
         {
-            int w = snap.Width, h = snap.Height;
-            bool[] work = FillHoles(mask, snap);
+            bool[] work = FillHoles(mask, w, h);
             work = MorphOpen(work, w, h, openRadius);
             work = MorphClose(work, w, h, closeRadius);
-            EnforceMinimumCorridorWidth(work, snap, minCorridorWidth);
-            SmoothBorderTopology(work, snap);
-            PruneDeadEnds(work, snap);
+            EnforceMinimumCorridorWidth(work, w, h, minCorridorWidth);
+            SmoothBorderTopology(work, w, h);
+            PruneDeadEnds(work, w, h);
             return work;
         }
 
@@ -1111,10 +1300,10 @@ namespace DinoLino.Utilities
         // Cleanup radii are scaled per component from its own area, so a small
         // noisy blob is still cleaned aggressively while a large specimen keeps
         // thin features a fixed radius-2 opening would have deleted.
-        internal bool[] CleanEachComponent(bool[] mask, ImageSnapshot snap,
+        internal bool[] CleanEachComponent(bool[] mask, int w, int h,
             int minComponentArea, CancellationToken token = default)
         {
-            int w = snap.Width, h = snap.Height, total = w * h;
+            int total = w * h;
             bool[] result = new bool[total];
             bool[] visited = new bool[total];
 
@@ -1123,7 +1312,7 @@ namespace DinoLino.Utilities
                 if (!mask[start] || visited[start]) continue;
                 token.ThrowIfCancellationRequested();
 
-                var members = CollectComponent(mask, start, snap, visited);
+                var members = CollectComponent(mask, w, h, start, visited);
 
                 // Component bounding box
                 int minX = w, minY = h, maxX = 0, maxY = 0;
@@ -1156,11 +1345,7 @@ namespace DinoLino.Utilities
                     : (int)Math.Min(3, Math.Max(2, objScale / 64.0));
                 int corridorWidth = Math.Min(3, openRadius + 1);
 
-                // Mask-space snapshot: Width/Height describe the crop but
-                // Pixels/Stride are still full-image. Everything downstream is
-                // mask-only — do NOT ReadPixel through this snapshot.
-                var compSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
-                bool[] cleaned = CleanComponentMorphology(isolated, compSnap,
+                bool[] cleaned = CleanComponentMorphology(isolated, cw, ch,
                     openRadius, closeRadius, corridorWidth);
 
                 if (!HasMinimumPixels(cleaned, minComponentArea)) continue;
@@ -1179,9 +1364,9 @@ namespace DinoLino.Utilities
         // =====================
         // TOPOLOGY / SHAPE PROCESSING
         // =====================
-        internal void EnforceMinimumCorridorWidth(bool[] mask, ImageSnapshot snap, int minWidth = 3)
+        internal void EnforceMinimumCorridorWidth(bool[] mask, int w, int h, int minWidth = 3)
         {
-            int w = snap.Width, h = snap.Height, total = w * h;
+            int total = w * h;
             if (mask.Length != total) return;
             int minRadius = Math.Max(1, (minWidth + 1) / 2);
             EnsureBuffers(total);
@@ -1216,9 +1401,9 @@ namespace DinoLino.Utilities
             }
         }
 
-        internal void SmoothBorderTopology(bool[] mask, ImageSnapshot snap, int passes = 3)
+        internal void SmoothBorderTopology(bool[] mask, int w, int h, int passes = 3)
         {
-            int w = snap.Width, h = snap.Height, total = w * h;
+            int total = w * h;
             bool[] copy = new bool[total];
             for (int pass = 0; pass < passes; pass++)
             {
@@ -1252,9 +1437,9 @@ namespace DinoLino.Utilities
             }
         }
 
-        internal void PruneDeadEnds(bool[] mask, ImageSnapshot snap)
+        internal void PruneDeadEnds(bool[] mask, int w, int h)
         {
-            int w = snap.Width, h = snap.Height, total = w * h;
+            int total = w * h;
             EnsureQueue(total * 2);
             _qHead = 0; _qTail = 0;
             for (int y = 1; y < h - 1; y++)
@@ -1295,9 +1480,8 @@ namespace DinoLino.Utilities
         // Vertices are emitted at integer grid CORNERS (range 0..w, 0..h), so the outline
         // sits half a pixel out from the old center-based trace. That is sub-pixel and
         // actually hugs the true region boundary more tightly.
-        internal List<System.Windows.Point> TraceBoundary(bool[] inside, ImageSnapshot snap)
+        internal List<System.Windows.Point> TraceBoundary(bool[] inside, int w, int h)
         {
-            int w = snap.Width, h = snap.Height;
             bool Filled(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h && inside[y * w + x];
 
             // Topmost-leftmost filled cell; its north edge is guaranteed on the outer boundary.
@@ -1491,17 +1675,17 @@ namespace DinoLino.Utilities
         // TRACING PREPARATION
         // =====================
         internal bool[] PrepareMaskForTracing(bool[] pruned, bool[] raw,
-            int seedX, int seedY, int minArea, ImageSnapshot snap)
+            int w, int h, int seedX, int seedY, int minArea)
         {
             bool[] candidate = (bool[])pruned.Clone();
             int area = CountPixels(candidate);
             if (area >= minArea) return candidate;
-            int seed = seedY * snap.Width + seedX;
-            if (!candidate[seed]) { candidate = KeepComponentContainingSeed(raw, seed, snap); area = CountPixels(candidate); }
+            int seed = seedY * w + seedX;
+            if (!candidate[seed]) { candidate = KeepComponentContainingSeed(raw, w, h, seed); area = CountPixels(candidate); }
             if (area >= minArea) return candidate;
-            candidate = ExpandConnectedComponentToArea(candidate, seed, minArea, snap);
+            candidate = ExpandConnectedComponentToArea(candidate, w, h, seed, minArea);
             if (!HasMinimumPixels(candidate, minArea)) return candidate;
-            bool[] fallback = KeepComponentContainingSeed(raw, seed, snap);
+            bool[] fallback = KeepComponentContainingSeed(raw, w, h, seed);
             if (!HasMinimumPixels(fallback, minArea)) return fallback;
             return fallback;
         }
@@ -1659,7 +1843,7 @@ namespace DinoLino.Utilities
             int checkIndex = (peakIndex >= 0 && peakIndex < total && mask[peakIndex])
                 ? peakIndex : seedY * w + seedX;
             if (checkIndex >= 0 && checkIndex < total && mask[checkIndex])
-                return KeepComponentContainingSeed(mask, checkIndex, snap);
+                return KeepComponentContainingSeed(mask, w, h, checkIndex);
 
             return null;
         }
@@ -1771,8 +1955,7 @@ namespace DinoLino.Utilities
         // =====================
         /// Box-downsamples the image 2× (each output pixel averages a 2×2 source
         /// block; an odd trailing row/column is dropped) into a SELF-CONTAINED
-        /// Bgra32 snapshot — unlike the mask-space snapshots elsewhere, this
-        /// one's Pixels really are its own image. The background mask is
+        /// Bgra32 snapshot (its own pixel buffer, its own stride). The background mask is
         /// downsampled conservatively: an output pixel is background only when
         /// ALL FOUR source pixels are, so thin foreground structures survive and
         /// a foreground seed can never be swallowed into the low-res mask.
@@ -2087,9 +2270,6 @@ namespace DinoLino.Utilities
             if ((uint)sxr >= rw || (uint)syr >= rh) return initialMask; // no valid anchor
 
             var (roiMask, _, _) = CropMask(initialMask, w, rx0, ry0, rx1, ry1);
-            // Dimensions-only snapshot for the mask utilities (same pattern as
-            // the erase path) — Pixels/BgMask deliberately null.
-            var roiSnap = new ImageSnapshot(null, null, rw, rh, 0, 0);
 
             var fgColors = new float[GmmMaxSamples * 3];
             var bgColors = new float[GmmMaxSamples * 3];
@@ -2166,8 +2346,8 @@ namespace DinoLino.Utilities
                 // The user clicked THE object: keep its component, refill holes.
                 int seedIdx = syr * rw + sxr;
                 if (!next[seedIdx]) break; // bgMask claims the click — nothing valid to follow
-                next = KeepComponentContainingSeed(next, seedIdx, roiSnap);
-                next = FillHoles(next, roiSnap);
+                next = KeepComponentContainingSeed(next, rw, rh, seedIdx);
+                next = FillHoles(next, rw, rh);
 
                 if (!HasMinimumPixels(next, GmmMinSamples)) break; // degenerated — keep previous
                 current = next;

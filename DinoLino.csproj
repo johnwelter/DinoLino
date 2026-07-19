@@ -89,6 +89,8 @@
     </Compile>
     <Compile Include="Utilities\3DDataProcessing\MeshLoader.cs" />
     <Compile Include="Utilities\3DDataProcessing\MeshSimplifier.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\EraseTool.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\HandDrawTool.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\MLSegmenter.cs" />
     <Compile Include="Utilities\3DDataProcessing\ModelPoseController.cs" />
     <Compile Include="Utilities\3DDataProcessing\ObjLoader.cs" />
@@ -116,7 +118,12 @@
     <Compile Include="Utilities\Modes\DrawModeFiles\DrawMode.cs" />
     <Compile Include="Utilities\Modes\GetAngleModeFiles\GetAngleMode.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureMode.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineMetadataFormatter.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineMode.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineToolSupport.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\PolylineGeometry.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\SmoothTool.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\ViewTransform.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineControlPanel.xaml.cs">
       <DependentUpon>OutlineControlPanel.xaml</DependentUpon>

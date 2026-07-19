@@ -81,7 +81,9 @@
                Margin="0,6,0,4"/>
         </StackPanel>
 
-        <!-- Erase Outline tool -->
+        <!-- Erase Outline tool.
+             Tool PARAMETERS now live on the tool object: the mode is still the
+             DataContext, so paths go through the Erase property. -->
         <RadioButton Content="Erase Outline"
                      GroupName="OutlineTool"
                      IsChecked="{Binding EraseOutlineMode, Mode=TwoWay}"
@@ -92,11 +94,11 @@
         <StackPanel Visibility="{Binding EraseOutlineMode, Converter={StaticResource BoolToVis}}">
             <TextBlock Text="Erase Brush Size:" FontWeight="Bold" Margin="0,8,0,0"/>
             <Slider Minimum="5" Maximum="100"
-                    Value="{Binding EraseBrushRadius, Mode=TwoWay}"
+                    Value="{Binding Erase.BrushRadius, Mode=TwoWay}"
                     TickFrequency="5"
                     IsSnapToTickEnabled="True"
                     Margin="0,2,0,2"/>
-            <TextBlock Text="{Binding EraseBrushRadius, StringFormat={}{0:F0} px}"
+            <TextBlock Text="{Binding Erase.BrushRadius, StringFormat={}{0:F0} px}"
                        Foreground="Gray" Margin="0,0,0,4"/>
         </StackPanel>
 
@@ -108,47 +110,60 @@
                      Margin="0,8,0,0"/>
 
         <StackPanel Visibility="{Binding SmoothOutlineMode, Converter={StaticResource BoolToVis}}">
-            <!-- Scope: Global smooths the whole perimeter live from the slider;
-                 Local is a draggable sanding brush over a section. One shared
-                 Strength slider governs both. -->
-            <StackPanel Orientation="Horizontal" Margin="10,6,0,0">
+            <!-- NEW UI: the SmoothTool has supported Global vs Local scope in
+                 code for a while, but the panel never exposed the choice, so
+                 Local smoothing (the sanding brush) was unreachable from here. -->
+            <TextBlock Text="Scope:" FontWeight="Bold" Margin="0,8,0,0"/>
+            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                 <RadioButton Content="Global"
                              GroupName="SmoothScope"
-                             IsChecked="{Binding IsGlobalSmoothSelected, Mode=TwoWay}"
-                             Margin="0,0,12,0"/>
+                             IsChecked="{Binding Smooth.IsGlobalScope, Mode=TwoWay}"
+                             Margin="0,0,10,0"
+                             ToolTip="The slider smooths the whole perimeter live."/>
                 <RadioButton Content="Local"
                              GroupName="SmoothScope"
-                             IsChecked="{Binding IsLocalSmoothSelected, Mode=TwoWay}"
-                             ToolTip="Click and drag over a section of the outline to smooth it"/>
+                             IsChecked="{Binding Smooth.IsLocalScope, Mode=TwoWay}"
+                             ToolTip="The cursor becomes a sanding brush — click and drag along the outline to smooth just that section."/>
             </StackPanel>
 
-            <TextBlock Text="Strength:" FontWeight="Bold" Margin="0,8,0,0"/>
+            <TextBlock Text="Smooth Strength:" FontWeight="Bold" Margin="0,8,0,0"/>
             <Slider Minimum="0" Maximum="20"
-                    Value="{Binding SmoothStrength, Mode=TwoWay}"
+                    Value="{Binding Smooth.Strength, Mode=TwoWay}"
                     TickFrequency="1"
                     IsSnapToTickEnabled="True"
                     Margin="0,2,0,2"/>
-            <TextBlock Text="{Binding SmoothStrength, StringFormat={}{0:F0} passes}"
+            <TextBlock Text="{Binding Smooth.Strength, StringFormat={}{0:F0} passes}"
                        Foreground="Gray" Margin="0,0,0,4"/>
 
-            <StackPanel Visibility="{Binding IsLocalSmoothSelected, Converter={StaticResource BoolToVis}}">
+            <StackPanel Visibility="{Binding Smooth.IsLocalScope, Converter={StaticResource BoolToVis}}">
                 <TextBlock Text="Brush Size:" FontWeight="Bold" Margin="0,4,0,0"/>
                 <Slider Minimum="5" Maximum="100"
-                        Value="{Binding SmoothBrushRadius, Mode=TwoWay}"
+                        Value="{Binding Smooth.BrushRadius, Mode=TwoWay}"
                         TickFrequency="5"
                         IsSnapToTickEnabled="True"
                         Margin="0,2,0,2"/>
-                <TextBlock Text="{Binding SmoothBrushRadius, StringFormat={}{0:F0} px}"
+                <TextBlock Text="{Binding Smooth.BrushRadius, StringFormat={}{0:F0} px}"
                            Foreground="Gray" Margin="0,0,0,4"/>
             </StackPanel>
         </StackPanel>
 
-        <!-- Generate Metadata -->
+        <!-- Generate Metadata.
+             The Checked/Unchecked handlers trigger GenerateMetadata /
+             ClearEFDPreview — the OutlineMetadataMode SETTER no longer runs
+             work as a side effect of the two-way binding.
+             The Preview handlers veto selection while a hand-drawn stroke is
+             still open: WPF unchecks the rest of the radio group (destroying
+             the stroke via the hand-draw binding) BEFORE raising Checked, so
+             a veto inside Checked can never fire — it must intercept the
+             input before any group state changes. -->
         <RadioButton Content="Generate Metadata"
              x:Name="MetadataRadio"
              GroupName="OutlineTool"
              IsChecked="{Binding OutlineMetadataMode, Mode=TwoWay}"
              Checked="MetadataRadio_Checked"
+             Unchecked="MetadataRadio_Unchecked"
+             PreviewMouseLeftButtonDown="MetadataRadio_PreviewMouseDown"
+             PreviewKeyDown="MetadataRadio_PreviewKeyDown"
              MinHeight="26"
              Margin="0,8,0,0"/>
 
@@ -165,13 +180,27 @@
                 <TextBlock Grid.Column="1" Text="{Binding AspectRatioResult, StringFormat={}{0:F3}}" HorizontalAlignment="Right"/>
             </Grid>
 
+            <!-- The scaled rows bind NUMBERS + IsScaleCalibrated; the view owns
+                 the formatting and the uncalibrated wording (previously the
+                 mode baked "Error: Unscaled" into the value string). -->
             <Grid Margin="0,2,0,2">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Perimeter:" Foreground="Gray"/>
-                <TextBlock Grid.Column="1" Text="{Binding PerimeterScaledResult}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Column="1" HorizontalAlignment="Right"
+                           Visibility="{Binding IsScaleCalibrated, Converter={StaticResource BoolToVis}}">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}{0:F2} {1}">
+                            <Binding Path="PerimeterScaledValue"/>
+                            <Binding Path="ScaleUnit"/>
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <TextBlock Grid.Column="1" Text="Uncalibrated" Foreground="#C0392B" HorizontalAlignment="Right"
+                           ToolTip="Use the Scale tool to calibrate, then regenerate metadata."
+                           Visibility="{Binding IsScaleCalibrated, Converter={StaticResource InverseBoolToVis}}"/>
             </Grid>
 
             <Grid Margin="0,2,0,2">
@@ -180,7 +209,18 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Area:" Foreground="Gray"/>
-                <TextBlock Grid.Column="1" Text="{Binding AreaScaledResult}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Column="1" HorizontalAlignment="Right"
+                           Visibility="{Binding IsScaleCalibrated, Converter={StaticResource BoolToVis}}">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}{0:F2} {1}²">
+                            <Binding Path="AreaScaledValue"/>
+                            <Binding Path="ScaleUnit"/>
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <TextBlock Grid.Column="1" Text="Uncalibrated" Foreground="#C0392B" HorizontalAlignment="Right"
+                           ToolTip="Use the Scale tool to calibrate, then regenerate metadata."
+                           Visibility="{Binding IsScaleCalibrated, Converter={StaticResource InverseBoolToVis}}"/>
             </Grid>
 
             <Grid Margin="0,2,0,2">

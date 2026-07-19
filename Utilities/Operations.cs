@@ -124,10 +124,16 @@ namespace DinoLino.Utilities.Operations
         public double SumTurningAngles { get; set; }
         public double TurningAngleLength { get; set; }
         public double[] EFDCoefficients { get; set; } // flattened: [a1,b1,c1,d1, a2,b2,c2,d2, ...]
-        public double Perimeter { get; set; }
-        public double Area { get; set; }
+        public double Perimeter { get; set; }         // CANVAS-space, matching the scale calibration
+        public double Area { get; set; }              // CANVAS-space
 
         public bool HasMetadata { get; set; }
+
+        // Presentation strings captured at GenerateMetadata time so undo/redo
+        // restores exactly what the panel showed (rebuilding them would need
+        // the harmonic count and normalization status too).
+        public string MetadataSummary { get; set; } = "";
+        public string NormalizationWarning { get; set; } = "";
 
         public override void ApplyMetadataToMode() 
         {
@@ -140,6 +146,17 @@ namespace DinoLino.Utilities.Operations
                 mode.SumTurningAnglesResult = SumTurningAngles;
                 mode.TurningAngleLengthResult = TurningAngleLength;
                 mode.EFDCoefficientsResult = EFDCoefficients;
+
+                // BUG FIX: Perimeter/Area/HasMetadata were stamped onto the
+                // operation but never pushed back, so after undo/redo the
+                // scaled Perimeter/Area rows read 0 and the summary showed the
+                // PREVIOUS outline's text even though the numbers restored.
+                if (HasMetadata)
+                {
+                    mode.RestoreScaledMeasurements(Perimeter, Area);
+                    mode.MetadataSummary = MetadataSummary;
+                    mode.NormalizationWarning = NormalizationWarning;
+                }
             }
         }
     }

@@ -12,15 +12,18 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using ImageSnapshot = DinoLino.Utilities.OutlineProcessor.ImageSnapshot;
-using Microsoft.ML.OnnxRuntime;
 
 
 namespace DinoLino.Utilities.Modes
 {
-    public class OutlineMode : WorkMode
+    public class OutlineMode : WorkMode, IOutlineToolContext
     {
         public override string TabName => "Outline";
-        public override UserControl CreateControlPanel() => new OutlineControlPanel(this);
+        // Cached: recreating the panel on every tab switch discarded panel
+        // state and let the EFA window's per-panel single-instance guard leak
+        // duplicate windows (each one subscribed to PropertyChanged).
+        private OutlineControlPanel _cachedPanel;
+        public override UserControl CreateControlPanel() => _cachedPanel ??= new OutlineControlPanel(this);
         public override bool IsStartingNewOperation => true;
 
         // Erase, smooth, and metadata clicks operate ON the existing outline —
@@ -34,6 +37,63 @@ namespace DinoLino.Utilities.Modes
         public override bool IsProbeInteraction =>
             _eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode;
 
+        #region tools
+
+        // ── Tool objects ──
+        // Each tool is self-contained: it owns its parameters (bindable via
+        // {Binding Erase.BrushRadius} etc. — the panel's DataContext is this
+        // mode) and its drag handlers, and sees the mode only through
+        // IOutlineToolContext. Mode-SELECTION flags (which tool is active)
+        // stay on the mode below; tool PARAMETERS live on the tools.
+        public HandDrawTool HandDraw { get; }
+        public EraseTool Erase { get; }
+        public SmoothTool Smooth { get; }
+
+        public OutlineMode()
+        {
+            HandDraw = new HandDrawTool(this);
+            Erase = new EraseTool(this);
+            Smooth = new SmoothTool(this);
+
+            // The old hidden coupling — erase called RefreshSmoothSnapshot()
+            // directly so a later Global smooth builds on the erased shape —
+            // is now this one explicit wire.
+            Erase.OutlineEdited += Smooth.RefreshSnapshot;
+
+            // BUG FIX (EFA ran on the original outline after an edit): EFA
+            // prefers the cached dense contour (_activeDenseContourImage),
+            // which is captured ONCE during automatic detection and never
+            // updated by erase/smooth. Any tool that mutates the outline now
+            // raises OutlineEdited, and the mode invalidates the cache — so
+            // GenerateMetadata falls through to the live (edited) polyline.
+            // This is the general contract: editing tools raise OutlineEdited;
+            // the mode invalidates. A new editing tool wired the same way is
+            // covered automatically.
+            Erase.OutlineEdited += InvalidateDenseContour;
+            Smooth.OutlineEdited += InvalidateDenseContour;
+        }
+
+        // ── IOutlineToolContext (explicit: the tools' window into the mode) ──
+        Polyline IOutlineToolContext.ActivePolyline => _activePolyline;
+        ViewTransform IOutlineToolContext.Transform => _transform;
+        double IOutlineToolContext.SimplifyEpsilon => _simplifyEpsilon;
+        Brush IOutlineToolContext.LineColor => LineColor;
+        bool IOutlineToolContext.HasImage => _cachedPixels != null;
+        bool IOutlineToolContext.IsHandDrawActive => _handDrawMode;
+
+        void IOutlineToolContext.OnHandStrokeStarted()
+        {
+            // First press of a brand-new hand stroke: start an undo operation
+            // and clear any prior result (moved from the old BeginHandStroke).
+            BeginOperation();
+            ClearMetadata();
+            ClearEFDPreview();
+        }
+
+        void IOutlineToolContext.CommitOutline(Polyline outline) => CommitFinalOutline(outline);
+
+        #endregion
+
         #region setting outline mode
 
         private bool _handDrawMode = false;
@@ -45,12 +105,15 @@ namespace DinoLino.Utilities.Modes
                 if (!SetField(ref _handDrawMode, value)) return;
                 OnTipChanged?.Invoke();
                 // Leaving hand-draw with an unfinished stroke: discard it.
-                if (!_handDrawMode) CancelHandDraw();
+                if (!_handDrawMode) HandDraw.Cancel();
             }
         }
 
-        // Fired when metadata is requested but the hand-drawn stroke isn't closed yet.
-        public Action HandOutlineUnfinished;
+        // Fired when metadata is requested but the hand-drawn stroke isn't
+        // closed yet. WPF FIX: this was a public Action FIELD, so any
+        // subscriber could overwrite or null the whole invocation list with
+        // '='. As an event only += / -= are possible.
+        public event Action HandOutlineUnfinished;
 
         private bool _drawOutlineMode = true;
         public bool DrawOutlineMode
@@ -85,6 +148,12 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
+        // WPF FIX: the setter used to launch GenerateMetadata() /
+        // ClearEFDPreview() as side effects, so a two-way checkbox binding
+        // triggered heavyweight work whose ordering depended on binding
+        // timing. The setter is now cheap and idempotent; the control panel
+        // invokes GenerateMetadata / ClearEFDPreview from its Checked /
+        // Unchecked handlers instead (see OutlineControlPanel.xaml.cs).
         private bool _outlineMetadataMode = false;
         public bool OutlineMetadataMode
         {
@@ -93,8 +162,6 @@ namespace DinoLino.Utilities.Modes
             {
                 if (!SetField(ref _outlineMetadataMode, value)) return;
                 OnTipChanged?.Invoke();
-                if (_outlineMetadataMode) GenerateMetadata();
-                else ClearEFDPreview();
             }
         }
         #endregion
@@ -139,16 +206,35 @@ namespace DinoLino.Utilities.Modes
             public byte[] FlattenedPixels;     // illumination-normalized copy (poor-man's retinex), same stride/bpp
             public bool[] FlattenedBackgroundMask; // background model REBUILT on the flattened copy
             public SamImageState SamState;         // neural encoder output; null when no model is installed or encoding failed
-            public int Version;
         }
 
         private Task<ImageAnalysis> _analysisTask;
         private int _imageVersion;
 
+        // BUG FIX (wasted analysis): BuildImageAnalysis had no token, so
+        // loading image B while image A was still analyzing let A's full
+        // pipeline — palette, Sobel, distance transform, texture, retinex,
+        // and the 1–3 s SAM encode — run to completion for nothing. This CTS
+        // supersedes the analysis exactly like _opCts supersedes clicks.
+        private CancellationTokenSource _analysisCts;
+
         private void CacheSourcePixels()
         {
             _imageVersion++;
             _opCts?.Cancel();   // supersede any operation still running against the old image
+
+            var oldAnalysis = _analysisCts;
+            oldAnalysis?.Cancel();
+            oldAnalysis?.Dispose();  // tokens stay readable after disposal
+            _analysisCts = null;
+
+            // BUG FIX (stale pending outline): a pending multi-click outline
+            // belongs to the image it was floods from. The old code only
+            // dropped it when the pixel-buffer LENGTH changed, so loading a
+            // new image with identical dimensions kept a stale pending mask
+            // alive. Any image change now clears the pending state outright
+            // (and ProcessClick double-checks via _pendingImageVersion).
+            ClearPendingState();
 
             if (_sourceImage == null)
             {
@@ -171,11 +257,15 @@ namespace DinoLino.Utilities.Modes
 
             byte[] pixels = _cachedPixels;
             int w = _cachedWidth, h = _cachedHeight, stride = _cachedStride, bpp = _cachedBpp;
-            int version = _imageVersion;
-            _analysisTask = Task.Run(() => BuildImageAnalysis(pixels, w, h, stride, bpp, version));
+            _analysisCts = new CancellationTokenSource();
+            CancellationToken analysisToken = _analysisCts.Token;
+            // The token is ALSO passed to Task.Run so a pre-cancelled start
+            // yields a Canceled (not Faulted) task — awaiting click operations
+            // already treat OperationCanceledException as "superseded".
+            _analysisTask = Task.Run(() => BuildImageAnalysis(pixels, w, h, stride, bpp, analysisToken), analysisToken);
         }
 
-        private ImageAnalysis BuildImageAnalysis(byte[] pixels, int w, int h, int stride, int bpp, int version)
+        private ImageAnalysis BuildImageAnalysis(byte[] pixels, int w, int h, int stride, int bpp, CancellationToken token)
         {
             var proc = new OutlineProcessor();
 
@@ -188,24 +278,30 @@ namespace DinoLino.Utilities.Modes
             // silently falls back to the classical pipeline.
             Task<SamImageState> samTask = Task.Run(() =>
             {
-                try { return SamSegmenter.Shared?.EncodeImage(pixels, w, h, stride, bpp); }
+                try
+                {
+                    token.ThrowIfCancellationRequested();
+                    return SamSegmenter.Shared?.EncodeImage(pixels, w, h, stride, bpp);
+                }
+                catch (OperationCanceledException) { return null; }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[sam] encode failed: {ex.Message}");
                     return null;
                 }
-            });
+            }, token);
 
             // Border-palette background model (see EstimateBackgroundPalette):
             // up to ~6 clustered border colors matched by nearest entry, with
             // per-corner hard-seed trust flags and an adaptive threshold from
             // robust patch residuals.
             var (bgPalette, hardSeedCorners, adaptiveThreshold) =
-                EstimateBackgroundPalette(pixels, w, h, stride, bpp);
+                proc.EstimateBackgroundPalette(pixels, w, h, stride, bpp);
             bool[] bgMask = proc.BuildBackgroundMaskProgressive(
                 pixels, w, h, stride, bpp, bgPalette, hardSeedCorners,
                 tightThreshold: adaptiveThreshold * 0.6,
                 relaxedThreshold: adaptiveThreshold);
+            token.ThrowIfCancellationRequested();
 
             var snap = new ImageSnapshot(pixels, bgMask, w, h, stride, bpp);
             int[] gradient = proc.ComputeGradient(snap);
@@ -222,8 +318,10 @@ namespace DinoLino.Utilities.Modes
             // textured" as a match criterion and self-tune its tolerance from
             // the seed's own texture.
             float[] textureMap = proc.ComputeTextureMap(snap);
+            token.ThrowIfCancellationRequested();
 
             int[] distToBackground = proc.ComputeDistanceToBackground(w, h, bgMask);
+            token.ThrowIfCancellationRequested();
 
             // Illumination-flattened copy (poor-man's retinex, radius
             // ~min(w,h)/8) plus a background model REBUILT on it — that rebuild
@@ -234,11 +332,12 @@ namespace DinoLino.Utilities.Modes
             int flattenRadius = Math.Max(8, Math.Min(w, h) / 8);
             byte[] flattened = proc.ComputeIlluminationFlattened(snap, flattenRadius);
             var (flatPalette, flatCorners, flatThreshold) =
-                EstimateBackgroundPalette(flattened, w, h, stride, bpp);
+                proc.EstimateBackgroundPalette(flattened, w, h, stride, bpp);
             bool[] flatBgMask = proc.BuildBackgroundMaskProgressive(
                 flattened, w, h, stride, bpp, flatPalette, flatCorners,
                 tightThreshold: flatThreshold * 0.6,
                 relaxedThreshold: flatThreshold);
+            token.ThrowIfCancellationRequested();
 
             SamImageState samState = null;
             try { samState = samTask.Result; } catch { samState = null; }
@@ -261,197 +360,19 @@ namespace DinoLino.Utilities.Modes
                 TextureMap = textureMap,
                 FlattenedPixels = flattened,
                 FlattenedBackgroundMask = flatBgMask,
-                SamState = samState,
-                Version = version
+                SamState = samState
             };
         }
 
-        // =====================
-        // BACKGROUND PALETTE ESTIMATION
-        // =====================
-        private const int BgPatchesPerEdge = 5;              // corners shared between edges → 16 patches total
-        private const int BgMaxPaletteSize = 6;
-        private const double BgPaletteMergeThreshold = 30.0; // perceptual units, same family as the flood threshold
+        // Background palette estimation moved to OutlineProcessor
+        // (EstimateBackgroundPalette): it is pure pixel statistics with no
+        // mode state, so it lives beside the background-mask builders and
+        // shares the single PerceptualDistance formula.
 
-        // Estimates the background as a PALETTE of up to BgMaxPaletteSize colors
-        // clustered from 16 median patches around the entire border — replacing
-        // the four-corner quadrant model, which assumed each quadrant of the
-        // background is a single color. Multi-region backgrounds (mat + ruler +
-        // label + shadow band) get one palette entry per region instead.
-        //
-        // Subject rejection: an entry supported by only ONE patch is dropped —
-        // a genuine background color along the border virtually always spans
-        // several of the 16 patches, while a subject touching the border in one
-        // place contributes one or two. (A subject spanning three or more
-        // border patches is genuinely ambiguous with a background region; the
-        // click rescue and candidate scoring handle that case downstream.)
-        //
-        // Returns: the palette; per-corner trust flags (TL, TR, BL, BR — true
-        // when that corner's median survived into the palette, which licenses
-        // the hard corner seeding in BuildBackgroundMask); and the adaptive
-        // flood threshold, computed from a robust (top-two-excluded) residual
-        // of the patches against the palette, so one or two subject-contaminated
-        // patches cannot inflate it — the failure mode the old max-corner-spread
-        // formula had.
-        private ((double r, double g, double b)[] palette, bool[] hardSeedCorners, double threshold)
-            EstimateBackgroundPalette(byte[] pixels, int w, int h, int stride, int bpp)
-        {
-            int patch = Math.Max(4, Math.Min(20, Math.Min(w, h) / 10));
-            int inset = Math.Min(5, Math.Min(w, h) / 20);
-            int p = patch - 1;
-            int lo = inset;
-            int hiX = Math.Max(lo, w - patch - inset);
-            int hiY = Math.Max(lo, h - patch - inset);
-
-            (double r, double g, double b) SamplePatchMedian(int x0, int y0)
-            {
-                int x1 = Math.Min(w - 1, x0 + p), y1 = Math.Min(h - 1, y0 + p);
-                int cap = Math.Max(1, (x1 - x0 + 1) * (y1 - y0 + 1));
-                var rs = new List<double>(cap);
-                var gs = new List<double>(cap);
-                var bs = new List<double>(cap);
-                for (int y = y0; y <= y1; y++)
-                    for (int x = x0; x <= x1; x++)
-                    {
-                        int i = y * stride + x * bpp;
-                        byte pr = bpp == 1 ? pixels[i] : pixels[i + 2];
-                        byte pg = bpp == 1 ? pixels[i] : pixels[i + 1];
-                        byte pb = bpp == 1 ? pixels[i] : pixels[i];
-                        rs.Add(pr); gs.Add(pg); bs.Add(pb);
-                    }
-                double Med(List<double> v)
-                {
-                    if (v.Count == 0) return 0;
-                    v.Sort();
-                    return v[v.Count / 2];
-                }
-                return (Med(rs), Med(gs), Med(bs));
-            }
-
-            double PDist((double r, double g, double b) a, (double r, double g, double b) b2)
-            {
-                double dr = a.r - b2.r, dg = a.g - b2.g, db = a.b - b2.b;
-                return Math.Sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db);
-            }
-
-            // 16 patch anchors: BgPatchesPerEdge along top and bottom (their
-            // end patches ARE the corners), interior points only on left/right.
-            var anchors = new List<(int x, int y)>();
-            int idxTL = -1, idxTR = -1, idxBL = -1, idxBR = -1;
-            for (int k = 0; k < BgPatchesPerEdge; k++)
-            {
-                double t = k / (double)(BgPatchesPerEdge - 1);
-                int ax = lo + (int)Math.Round(t * (hiX - lo));
-                if (k == 0) idxTL = anchors.Count;
-                else if (k == BgPatchesPerEdge - 1) idxTR = anchors.Count;
-                anchors.Add((ax, lo));
-                if (k == 0) idxBL = anchors.Count;
-                else if (k == BgPatchesPerEdge - 1) idxBR = anchors.Count;
-                anchors.Add((ax, hiY));
-            }
-            for (int k = 1; k < BgPatchesPerEdge - 1; k++)
-            {
-                double t = k / (double)(BgPatchesPerEdge - 1);
-                int ay = lo + (int)Math.Round(t * (hiY - lo));
-                anchors.Add((lo, ay));
-                anchors.Add((hiX, ay));
-            }
-
-            int m = anchors.Count;
-            var med = new (double r, double g, double b)[m];
-            for (int i = 0; i < m; i++)
-                med[i] = SamplePatchMedian(anchors[i].x, anchors[i].y);
-
-            // Greedy clustering into palette entries, then merge-down to the cap.
-            var er = new List<double>(); var eg = new List<double>();
-            var eb = new List<double>(); var ec = new List<int>();
-
-            void MergeInto(int k, double r, double g, double b, int count)
-            {
-                int total = ec[k] + count;
-                er[k] = (er[k] * ec[k] + r * count) / total;
-                eg[k] = (eg[k] * ec[k] + g * count) / total;
-                eb[k] = (eb[k] * ec[k] + b * count) / total;
-                ec[k] = total;
-            }
-
-            for (int i = 0; i < m; i++)
-            {
-                int nearest = -1; double nd = double.MaxValue;
-                for (int k = 0; k < er.Count; k++)
-                {
-                    double d = PDist(med[i], (er[k], eg[k], eb[k]));
-                    if (d < nd) { nd = d; nearest = k; }
-                }
-                if (nearest >= 0 && nd <= BgPaletteMergeThreshold)
-                    MergeInto(nearest, med[i].r, med[i].g, med[i].b, 1);
-                else
-                {
-                    er.Add(med[i].r); eg.Add(med[i].g); eb.Add(med[i].b); ec.Add(1);
-                }
-            }
-
-            while (er.Count > BgMaxPaletteSize)
-            {
-                int bi = 0, bj = 1; double bd = double.MaxValue;
-                for (int i2 = 0; i2 < er.Count; i2++)
-                    for (int j2 = i2 + 1; j2 < er.Count; j2++)
-                    {
-                        double d = PDist((er[i2], eg[i2], eb[i2]), (er[j2], eg[j2], eb[j2]));
-                        if (d < bd) { bd = d; bi = i2; bj = j2; }
-                    }
-                MergeInto(bi, er[bj], eg[bj], eb[bj], ec[bj]);
-                er.RemoveAt(bj); eg.RemoveAt(bj); eb.RemoveAt(bj); ec.RemoveAt(bj);
-            }
-
-            // Drop singleton entries (likely a subject touching the border) —
-            // but only when a multi-patch entry remains to stand on.
-            bool anyMulti = false;
-            for (int k = 0; k < ec.Count; k++) if (ec[k] >= 2) { anyMulti = true; break; }
-            if (m >= 8 && anyMulti)
-                for (int k = ec.Count - 1; k >= 0; k--)
-                    if (ec[k] < 2) { er.RemoveAt(k); eg.RemoveAt(k); eb.RemoveAt(k); ec.RemoveAt(k); }
-
-            var palette = new (double r, double g, double b)[er.Count];
-            for (int k = 0; k < er.Count; k++) palette[k] = (er[k], eg[k], eb[k]);
-
-            double MinDistToPalette((double r, double g, double b) c2)
-            {
-                double best = double.MaxValue;
-                for (int k = 0; k < palette.Length; k++)
-                {
-                    double d = PDist(c2, palette[k]);
-                    if (d < best) best = d;
-                }
-                return best;
-            }
-
-            // Adaptive flood threshold from robust patch residuals: sort the
-            // per-patch distances to the palette and ignore the top two, which
-            // may be subject-contaminated patches whose colors were dropped.
-            var residual = new double[m];
-            for (int i = 0; i < m; i++) residual[i] = MinDistToPalette(med[i]);
-            Array.Sort(residual);
-            double robust = residual[Math.Max(0, m - 3)];
-            double threshold = Math.Max(35, Math.Min(60, 35 + robust * 1.5));
-
-            var corners = new bool[4];
-            corners[0] = idxTL >= 0 && MinDistToPalette(med[idxTL]) <= BgPaletteMergeThreshold * 1.5;
-            corners[1] = idxTR >= 0 && MinDistToPalette(med[idxTR]) <= BgPaletteMergeThreshold * 1.5;
-            corners[2] = idxBL >= 0 && MinDistToPalette(med[idxBL]) <= BgPaletteMergeThreshold * 1.5;
-            corners[3] = idxBR >= 0 && MinDistToPalette(med[idxBR]) <= BgPaletteMergeThreshold * 1.5;
-
-            return (palette, corners, threshold);
-        }
-
-        // Converts a canvas-space point back to image-space (pixel coordinates).
-        // Inverse of the transform applied when building the polyline from simplified boundary points.
-        private Point CanvasToImage(Point p)
-        {
-            return new Point(
-                (p.X - OffsetX) / ScaleX,
-                (p.Y - OffsetY) / ScaleY);
-        }
+        // Canvas → image mapping for the click math below. Delegates to the
+        // single Transform value (see the Transform property in the draw
+        // region) so there is exactly one definition of the mapping.
+        private Point CanvasToImage(Point p) => _transform.CanvasToImage(p);
         #endregion
 
         #region shared functions and variables
@@ -472,6 +393,7 @@ namespace DinoLino.Utilities.Modes
                 OnTipChanged?.Invoke();
             }
         }
+
         public override void ClearMetadata()
         {
             AspectRatioResult = 0;
@@ -481,14 +403,20 @@ namespace DinoLino.Utilities.Modes
             TurningAngleLengthResult = 0;
             EFDCoefficientsResult = null;
             MetadataSummary = "";
-            PerimeterScaledResult = ScaledPlaceholder;
-            AreaScaledResult = ScaledPlaceholder;
+            // WPF FIX: the scaled results were sentinel STRINGS ("Error:
+            // Unscaled" via ScaledPlaceholder). The mode now exposes numbers
+            // plus IsScaleCalibrated and the view owns the wording — see the
+            // metadata region.
+            _hasScaledMeasurements = false;
+            RecomputeScaledValues();
         }
 
         public override void RefreshScalePlaceholders()
         {
-            PerimeterScaledResult = ScaledPlaceholder;
-            AreaScaledResult = ScaledPlaceholder;
+            // Calibration changed (set, updated, or cleared): re-derive the
+            // scaled numbers from the stored canvas measurements and re-raise
+            // IsScaleCalibrated / ScaleUnit for the bindings.
+            RecomputeScaledValues();
         }
         #endregion
 
@@ -510,6 +438,10 @@ namespace DinoLino.Utilities.Modes
         private bool[] _pendingMask;          // full-image-space accumulated foreground mask
         private Polyline _pendingPolyline;    // the dashed preview currently shown
         private bool _hasPending = false;
+
+        // BUG FIX (stale pending): the image version this pending state was
+        // computed against. -1 = none. See SwapPending / ProcessClick.
+        private int _pendingImageVersion = -1;
 
         // Accumulated click coordinates for the CURRENT pending outline — fed
         // to the neural candidate as positive point prompts, so a second
@@ -565,14 +497,52 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _simplifyEpsilon, value);
         }
 
-        public double ScaleX { get; set; } = 1;
-        public double ScaleY { get; set; } = 1;
-        public double OffsetX { get; set; } = 0;
-        public double OffsetY { get; set; } = 0;
+        // ── View transform (zoom + pan) ──
+        // WPF FIX: ScaleX/ScaleY/OffsetX/OffsetY were four independent settable
+        // auto-properties with no change notification and no consistency
+        // guarantee — a reader could observe a new scale paired with an old
+        // offset mid-update. They are now views over ONE immutable
+        // ViewTransform value with a single PropertyChanged. The four scalar
+        // properties remain so existing MainWindow call sites compile
+        // unchanged; prefer assigning Transform once per zoom/pan.
+        private ViewTransform _transform = ViewTransform.Identity;
+        public ViewTransform Transform
+        {
+            get => _transform;
+            set
+            {
+                if (!SetField(ref _transform, value)) return;
+                OnPropertyChanged(nameof(ScaleX));
+                OnPropertyChanged(nameof(ScaleY));
+                OnPropertyChanged(nameof(OffsetX));
+                OnPropertyChanged(nameof(OffsetY));
+            }
+        }
+
+        public double ScaleX
+        {
+            get => _transform.ScaleX;
+            set => Transform = new ViewTransform(value, _transform.ScaleY, _transform.OffsetX, _transform.OffsetY);
+        }
+        public double ScaleY
+        {
+            get => _transform.ScaleY;
+            set => Transform = new ViewTransform(_transform.ScaleX, value, _transform.OffsetX, _transform.OffsetY);
+        }
+        public double OffsetX
+        {
+            get => _transform.OffsetX;
+            set => Transform = new ViewTransform(_transform.ScaleX, _transform.ScaleY, value, _transform.OffsetY);
+        }
+        public double OffsetY
+        {
+            get => _transform.OffsetY;
+            set => Transform = new ViewTransform(_transform.ScaleX, _transform.ScaleY, _transform.OffsetX, value);
+        }
 
         // Superseding cancellation for click operations: a new click cancels the
         // previous computation instead of racing it. (Operations also no longer
-        // share OutlineProcessor scratch buffers — see StartNewOutline.)
+        // share OutlineProcessor scratch buffers — see RunClickOperation.)
         private CancellationTokenSource _opCts;
 
         // Busy indicator: raised when a background click operation starts and
@@ -625,23 +595,127 @@ namespace DinoLino.Utilities.Modes
             base.Reset();
             _opCts?.Cancel();
             _activePolyline = null;
-            _pendingMask = null;
-            _pendingPolyline = null;
-            _hasPending = false;
-            _pendingClickPoints.Clear();
-            _efd.Clear();
-            CancelHandDraw();
-            _handOutlineCommitted = false;
+            ClearPendingState();
+            HandDraw.Reset();       // discards any open stroke AND the committed flag
+            Smooth.ClearSnapshot(); // the outline is gone; never smooth from a ghost
             ClearMetadata();
             ClearEFDPreview();
         }
 
-        // UI-THREAD-ONLY processor for synchronous helpers (erase re-trace).
-        // Background click operations create their OWN instance so scratch
-        // buffers are never shared across threads — two overlapping clicks used
-        // to mutate the same queue/distance buffers concurrently, which could
-        // corrupt both results.
-        private readonly OutlineProcessor _processor = new OutlineProcessor();
+        // Esc (and any other CancelCurrentOperation caller) also discards an
+        // open hand-drawn stroke, as HandDrawTool.Cancel's docs promise — the
+        // wiring was missing. Safe against every ProcessClick's
+        // BeginOperation: a stroke can only be open while hand-draw is the
+        // active tool, whose presses bypass ProcessClick, and
+        // OnHandStrokeStarted runs BEFORE the tool marks the stroke active.
+        public override void CancelCurrentOperation()
+        {
+            base.CancelCurrentOperation();
+            HandDraw?.Cancel();
+        }
+
+        // Drops all multi-click pending state. Called when the image changes
+        // (CacheSourcePixels), on Reset, after ConfirmPending, and from the
+        // ProcessClick version guard. Deliberately does NOT touch the canvas:
+        // the image-load / reset paths in MainWindow clear the workspace
+        // elements themselves.
+        private void ClearPendingState()
+        {
+            _pendingMask = null;
+            _pendingPolyline = null;
+            _hasPending = false;
+            _pendingImageVersion = -1;
+            _pendingClickPoints.Clear();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // SHARED CLICK-OPERATION SCAFFOLDING
+        // ─────────────────────────────────────────────────────────────────────
+        // StartNewOutline and ExpandPending used to duplicate ~40 lines of
+        // orchestration each: supersede-CTS, busy raise/lower, Task.Run,
+        // dispatcher marshal, error dialog. The scaffolding now lives here once
+        // and the two methods contain only their actual difference.
+        //
+        // BUG FIX (busy-counter leak): the old code called EnterBusy() and then
+        // Task.Run(async ..., token). If that token was already canceled when
+        // the task was scheduled, the delegate NEVER executed, so the
+        // finally { ExitBusy(); } inside it never ran and the busy indicator
+        // stuck on forever. Cancellation is cooperative inside the body anyway
+        // (ThrowIfCancellationRequested), so the token is deliberately NOT
+        // passed to Task.Run — the delegate always runs and busy stays
+        // balanced.
+        private void RunClickOperation(Func<ImageAnalysis, OutlineProcessor, CancellationToken, Task> body)
+        {
+            var analysisTask = _analysisTask;
+            if (analysisTask == null) return;
+
+            // Newest click wins: supersede any in-flight computation instead of
+            // racing it. Combined with per-operation processors, this removes
+            // the buffer data race between overlapping clicks and stops
+            // superseded work from burning CPU to completion.
+            var superseded = _opCts;
+            superseded?.Cancel();
+            _opCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+            var token = _opCts.Token;
+            superseded?.Dispose();   // tokens stay readable after disposal
+
+            EnterBusy();
+            Task.Run(async () =>
+            {
+                try
+                {
+                    ImageAnalysis a = await analysisTask.ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+
+                    // Per-operation processor: scratch buffers are never shared
+                    // across concurrent tasks.
+                    var proc = new OutlineProcessor();
+
+                    await body(a, proc, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    RaiseOperationFailed($"Outline detection failed:\n{ex.Message}");
+                }
+                finally { ExitBusy(); }
+            });
+        }
+
+        // Marshals a computed result back to the UI thread, dropping it when
+        // the operation was superseded or the image changed while computing.
+        // WPF FIX: the old success path used Application.Current.Dispatcher
+        // with no null check (NRE if the app is tearing down) while the error
+        // path checked; both now share this null-safe access.
+        private void PostResultToUi(int version, CancellationToken token, Action apply)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return; // application shutting down
+            // BeginInvoke, not Invoke: the worker never needs to wait for the
+            // apply, and an async post can never deadlock against a blocked
+            // UI thread. The stale-guard runs ON the UI thread either way.
+            dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (token.IsCancellationRequested || version != _imageVersion) return;
+                apply();
+            }));
+        }
+
+        // WPF FIX: a mode object should not summon MessageBoxes — that is a
+        // view decision. The mode RAISES this event (on the UI thread) and the
+        // view presents it; MainWindow subscribes and shows the dialog (see
+        // the migration notes). The Debug line keeps failures visible even if
+        // nothing is subscribed.
+        public event Action<string> OperationFailed;
+
+        private void RaiseOperationFailed(string message)
+        {
+            System.Diagnostics.Debug.WriteLine($"[outline] {message}");
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+            if (dispatcher.CheckAccess()) OperationFailed?.Invoke(message);
+            else dispatcher.BeginInvoke(new Action(() => OperationFailed?.Invoke(message)));
+        }
 
         // =====================
         // PROCESS CLICK
@@ -685,9 +759,6 @@ namespace DinoLino.Utilities.Modes
 
             var (bx0, by0, bx1, by1) = proc.GetMaskBounds(rawFull, sw, sh, margin: 4);
             var (cropped, cw, ch) = proc.CropMask(rawFull, sw, bx0, by0, bx1, by1);
-            // Mask-space snapshot: Width/Height describe the crop but Pixels/Stride
-            // are full-image; everything downstream is mask-only.
-            var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
             // Seed in crop space, clamped: with the conditional strip the seed can
             // in principle sit just outside the surviving bounds.
@@ -700,7 +771,7 @@ namespace DinoLino.Utilities.Modes
                 // Clean every component independently (each in its own crop, with
                 // per-component scaled radii) and keep all that survive.
                 // No single-component collapse, no trace-seed dependence.
-                bool[] work = proc.CleanEachComponent(cropped, croppedSnap, MinAreaPixels, token);
+                bool[] work = proc.CleanEachComponent(cropped, cw, ch, MinAreaPixels, token);
                 traced = proc.HasMinimumPixels(work, MinAreaPixels) ? work : cropped;
             }
             else
@@ -718,7 +789,7 @@ namespace DinoLino.Utilities.Modes
                     : (int)Math.Min(3, Math.Max(2, objScale / 64.0));
                 int corridorWidth = Math.Min(3, openRadius + 1);
 
-                bool[] work = proc.CleanComponentMorphology(cropped, croppedSnap,
+                bool[] work = proc.CleanComponentMorphology(cropped, cw, ch,
                     openRadius, closeRadius: 1, minCorridorWidth: corridorWidth);
 
                 token.ThrowIfCancellationRequested();
@@ -729,10 +800,10 @@ namespace DinoLino.Utilities.Modes
                 // is not necessarily the one under the cursor.
                 int cseed = cpy * cw + cpx;
                 work = work[cseed]
-                    ? proc.KeepComponentContainingSeed(work, cseed, croppedSnap)
-                    : proc.KeepLargestComponent(work, croppedSnap);
+                    ? proc.KeepComponentContainingSeed(work, cw, ch, cseed)
+                    : proc.KeepLargestComponent(work, cw, ch);
 
-                traced = proc.PrepareMaskForTracing(work, cropped, cpx, cpy, MinAreaPixels, croppedSnap);
+                traced = proc.PrepareMaskForTracing(work, cropped, cw, ch, cpx, cpy, MinAreaPixels);
             }
 
             // Paste cropped result back into full-image space
@@ -748,9 +819,8 @@ namespace DinoLino.Utilities.Modes
         {
             var (bx0, by0, bx1, by1) = proc.GetMaskBounds(full, snap.Width, snap.Height, margin: 2);
             var (cropped, cw, ch) = proc.CropMask(full, snap.Width, bx0, by0, bx1, by1);
-            var croppedSnap = new ImageSnapshot(snap.Pixels, snap.BgMask, cw, ch, snap.Stride, snap.Bpp);
 
-            var boundary = proc.TraceBoundary(cropped, croppedSnap);
+            var boundary = proc.TraceBoundary(cropped, cw, ch);
             if (boundary.Count < 8) return null;
 
             // Boundary snap post-pass (conservative — see SnapBoundaryToGradient).
@@ -768,13 +838,13 @@ namespace DinoLino.Utilities.Modes
                 gradient, snap.Width, snap.Height, edgeGradThreshold);
 
             var simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
-            bool simAfterDP = simplified.Count >= 3 && !PolylineHasSelfIntersection(simplified);
+            bool simAfterDP = simplified.Count >= 3 && !PolylineGeometry.HasSelfIntersection(simplified);
             if (!simAfterDP)
             {
                 boundary = rawBoundary;
                 simplified = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
                 if (simplified.Count < 3) return null;
-                if (PolylineHasSelfIntersection(simplified))
+                if (PolylineGeometry.HasSelfIntersection(simplified))
                     simplified = new List<Point>(boundary);
             }
 
@@ -794,11 +864,14 @@ namespace DinoLino.Utilities.Modes
 
             var poly = new Polyline
             {
-                Stroke = dashed ? Brushes.OrangeRed : this.LineColor,
+                // LineColor for BOTH states: the pending preview hardcoded
+                // OrangeRed and stopped matching once the user changed the
+                // line color — the dashes alone mark it as pending.
+                Stroke = this.LineColor,
                 StrokeThickness = 2,
                 FillRule = FillRule.EvenOdd
             };
-            if (dashed) poly.StrokeDashArray = new DoubleCollection { 4, 2 };
+            if (dashed) poly.StrokeDashArray = OutlineVisuals.PreviewDashes;
 
             // (p.X + bx0, p.Y + by0) maps cropped coords back to full-image coords — the
             // clamp loop used to apply this offset, so it must stay now that it's gone.
@@ -808,16 +881,15 @@ namespace DinoLino.Utilities.Modes
 
             // Confirmation: with the simple tracer, the DP fallback, and no clamp, the
             // finished polyline should always be simple. Log only if it somehow isn't.
-            if (PolylineHasSelfIntersection(poly.Points))
+            if (PolylineGeometry.HasSelfIntersection(poly.Points))
             {
-                bool simRaw = !PolylineHasSelfIntersection(boundary);
+                bool simRaw = !PolylineGeometry.HasSelfIntersection(boundary);
                 System.Diagnostics.Debug.WriteLine(
                     $"[outline build] FINAL self-intersects! simRaw={simRaw} simAfterDP={simAfterDP} pts={boundary.Count}");
             }
 
             return poly;
         }
-
         public override List<UIElement> ProcessClick(Vector2 mousePos)
         {
             BeginOperation();
@@ -826,18 +898,22 @@ namespace DinoLino.Utilities.Modes
                 return new List<UIElement>();
             if (_cachedPixels == null || _analysisTask == null) return new List<UIElement>();
 
-            int px = (int)((mousePos.X - OffsetX) / ScaleX);
-            int py = (int)((mousePos.Y - OffsetY) / ScaleY);
+            // Math.Floor, not a bare cast: truncation toward zero mapped a
+            // click up to one canvas pixel LEFT/ABOVE the image onto column/
+            // row 0 instead of failing the bounds check below.
+            int px = (int)Math.Floor((mousePos.X - OffsetX) / ScaleX);
+            int py = (int)Math.Floor((mousePos.Y - OffsetY) / ScaleY);
             if ((uint)px >= _cachedWidth || (uint)py >= _cachedHeight)
                 return new List<UIElement>();
 
-            // Drop pending state that belongs to a previous image (dimension change).
-            if (_pendingMask != null && _pendingMask.Length != _cachedWidth * _cachedHeight)
-            {
-                _pendingMask = null;
-                _pendingPolyline = null;
-                _hasPending = false;
-            }
+            // BUG FIX (stale pending): pending state is stamped with the image
+            // version it was computed against (see SwapPending) and dropped on
+            // any mismatch. The old length-only test missed a NEW image with
+            // IDENTICAL dimensions, leaving a stale mask live. CacheSourcePixels
+            // also clears pending outright on image change, so this guard is
+            // belt-and-braces.
+            if (_hasPending && (_pendingMask == null || _pendingImageVersion != _imageVersion))
+                ClearPendingState();
 
             // ── Multi-click: a pending outline already exists ──
             if (_multiClickOutline && _hasPending && _pendingMask != null)
@@ -1093,19 +1169,10 @@ namespace DinoLino.Utilities.Modes
             if (best == null || bestScore <= 0) best = classicFlood;
             return Finish(best);
         }
-
         private void StartNewOutline(int px, int py)
         {
-            var analysisTask = _analysisTask;
-            if (analysisTask == null) return;
+            if (_analysisTask == null) return;
 
-            // Newest click wins: supersede any in-flight computation instead of
-            // racing it. Combined with per-operation processors below, this
-            // removes the buffer data race between overlapping clicks and stops
-            // superseded work from burning CPU to completion.
-            _opCts?.Cancel();
-            _opCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
-            var token = _opCts.Token;
             int version = _imageVersion;
 
             // SAM prompt bookkeeping: a NEW outline resets the accumulated
@@ -1114,113 +1181,66 @@ namespace DinoLino.Utilities.Modes
             _pendingClickPoints.Add((px, py));
             var samPrompts = _pendingClickPoints.ToArray();
 
-            EnterBusy();
-            Task.Run(async () =>
+            RunClickOperation((a, proc, token) =>
             {
-                try
+                var (raw, usedX, usedY, snap) = SegmentAtClick(px, py, a, proc, token, samPrompts);
+                if (raw == null) return Task.CompletedTask;
+
+                bool[] cleaned = CleanMaskFullSpace(raw, snap, usedX, usedY, proc, token);
+                if (cleaned == null || !proc.HasMinimumPixels(cleaned, MinAreaPixels)) return Task.CompletedTask;
+                token.ThrowIfCancellationRequested();
+
+                PostResultToUi(version, token, () =>
                 {
-                    ImageAnalysis a = await analysisTask.ConfigureAwait(false);
-                    token.ThrowIfCancellationRequested();
-
-                    // Per-operation processor: scratch buffers are never shared
-                    // across concurrent tasks.
-                    var proc = new OutlineProcessor();
-
-                    var (raw, usedX, usedY, snap) = SegmentAtClick(px, py, a, proc, token, samPrompts);
-                    if (raw == null) return;
-
-                    bool[] cleaned = CleanMaskFullSpace(raw, snap, usedX, usedY, proc, token);
-                    if (cleaned == null || !proc.HasMinimumPixels(cleaned, MinAreaPixels)) return;
-                    token.ThrowIfCancellationRequested();
-
-                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        if (token.IsCancellationRequested || version != _imageVersion) return;
-
-                        if (_multiClickOutline)
-                        {
-                            var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true, proc, a.Gradient, a.GradientEdgeThreshold);
-                            if (poly == null) return;
-                            SwapPending(cleaned, poly);   // store mask + show dashed preview
-                        }
-                        else
-                        {
-                            var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: false, proc, a.Gradient, a.GradientEdgeThreshold);
-                            if (poly == null) return;
-                            CommitFinalOutline(poly);     // existing commit path
-                        }
-                    });
-                }
-                catch (OperationCanceledException) { }
-                catch (Exception ex)
-                {
-                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
-                        MessageBox.Show($"Outline detection failed:\n{ex.Message}",
-                            "Outline", MessageBoxButton.OK, MessageBoxImage.Warning)));
-                }
-                finally { ExitBusy(); }
-            }, token);
+                    bool dashed = _multiClickOutline;
+                    var poly = BuildPolylineFromFullMask(cleaned, snap, dashed, proc, a.Gradient, a.GradientEdgeThreshold);
+                    if (poly == null) return;
+                    if (dashed) SwapPending(cleaned, poly);   // store mask + show dashed preview
+                    else CommitFinalOutline(poly);            // existing commit path
+                });
+                return Task.CompletedTask;
+            });
         }
 
         private void ExpandPending(int px, int py)
         {
-            var analysisTask = _analysisTask;
-            if (analysisTask == null) return;
+            if (_analysisTask == null || _pendingMask == null) return;
 
-            _opCts?.Cancel();
-            _opCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
-            var token = _opCts.Token;
             int version = _imageVersion;
             bool[] accumulated = (bool[])_pendingMask.Clone();
 
             _pendingClickPoints.Add((px, py));
             var samPrompts = _pendingClickPoints.ToArray();
 
-            EnterBusy();
-            Task.Run(async () =>
+            RunClickOperation((a, proc, token) =>
             {
-                try
+                var (newFlood, usedX, usedY, snap) = SegmentAtClick(px, py, a, proc, token, samPrompts);
+                if (newFlood == null) return Task.CompletedTask;
+
+                // Union the new seed's region with the accumulated outline
+                for (int i = 0; i < accumulated.Length; i++)
+                    if (newFlood[i]) accumulated[i] = true;
+
+                const int bridgeRadius = 6; // tune to the largest gap you want to span
+                // Cropped close: the old full-frame MorphClose ran two
+                // full-image distance transforms per added click.
+                accumulated = proc.MorphCloseCropped(accumulated, a.Width, a.Height, bridgeRadius);
+
+                // Re-clean the union. Use the new click as the trace seed so
+                // PrepareMaskForTracing keeps the component the user just added.
+                bool[] cleaned = CleanMaskFullSpace(accumulated, snap, usedX, usedY, proc, token,
+                    preserveMultipleComponents: true);
+                if (cleaned == null) return Task.CompletedTask;
+                token.ThrowIfCancellationRequested();
+
+                PostResultToUi(version, token, () =>
                 {
-                    ImageAnalysis a = await analysisTask.ConfigureAwait(false);
-                    token.ThrowIfCancellationRequested();
-                    var proc = new OutlineProcessor();
-
-                    var (newFlood, usedX, usedY, snap) = SegmentAtClick(px, py, a, proc, token, samPrompts);
-                    if (newFlood == null) return;
-
-                    // Union the new seed's region with the accumulated outline
-                    for (int i = 0; i < accumulated.Length; i++)
-                        if (newFlood[i]) accumulated[i] = true;
-
-                    const int bridgeRadius = 6; // tune to the largest gap you want to span
-                    // Cropped close: the old full-frame MorphClose ran two
-                    // full-image distance transforms per added click.
-                    accumulated = proc.MorphCloseCropped(accumulated, a.Width, a.Height, bridgeRadius);
-
-                    // Re-clean the union. Use the new click as the trace seed so
-                    // PrepareMaskForTracing keeps the component the user just added.
-                    bool[] cleaned = CleanMaskFullSpace(accumulated, snap, usedX, usedY, proc, token,
-                        preserveMultipleComponents: true);
-                    if (cleaned == null) return;
-                    token.ThrowIfCancellationRequested();
-
-                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        if (token.IsCancellationRequested || version != _imageVersion) return;
-                        var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true, proc, a.Gradient, a.GradientEdgeThreshold);
-                        if (poly == null) return;
-                        SwapPending(cleaned, poly);
-                    });
-                }
-                catch (OperationCanceledException) { }
-                catch (Exception ex)
-                {
-                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
-                        MessageBox.Show($"Outline detection failed:\n{ex.Message}",
-                            "Outline", MessageBoxButton.OK, MessageBoxImage.Warning)));
-                }
-                finally { ExitBusy(); }
-            }, token);
+                    var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true, proc, a.Gradient, a.GradientEdgeThreshold);
+                    if (poly == null) return;
+                    SwapPending(cleaned, poly);
+                });
+                return Task.CompletedTask;
+            });
         }
 
         private void SwapPending(bool[] mask, Polyline newPoly)
@@ -1230,6 +1250,7 @@ namespace DinoLino.Utilities.Modes
             _pendingPolyline = newPoly;
             _activePolyline = newPoly;   // so smooth/erase/metadata operate on it if confirmed
             _hasPending = true;
+            _pendingImageVersion = _imageVersion; // BUG FIX: stamp the owning image
             PendingOutlineReady?.Invoke(newPoly, old);
         }
 
@@ -1243,7 +1264,7 @@ namespace DinoLino.Utilities.Modes
 
             var output = new List<UIElement> { _pendingPolyline };
             _activePolyline = _pendingPolyline;
-            _preSmoothSnapshot = new List<Point>(_pendingPolyline.Points);
+            Smooth.SetSnapshot(_pendingPolyline.Points); // smoothing baseline = the committed shape
 
             CommitOperation(new OutlineOperation
             {
@@ -1255,16 +1276,13 @@ namespace DinoLino.Utilities.Modes
             ResetHarmonicAutoDefault(); // new specimen → re-derive the 99% default
             OutlineReady?.Invoke(output);
 
-            _hasPending = false;
-            _pendingMask = null;
-            _pendingPolyline = null;
-            _pendingClickPoints.Clear();
+            ClearPendingState();
         }
 
         private void CommitFinalOutline(Polyline poly)
         {
             _activePolyline = poly;
-            _preSmoothSnapshot = new List<Point>(poly.Points);
+            Smooth.SetSnapshot(poly.Points); // smoothing baseline = the committed shape
 
             var output = new List<UIElement> { poly };
 
@@ -1280,871 +1298,66 @@ namespace DinoLino.Utilities.Modes
         }
         #endregion
 
-        #region hand draw
+        #region MainWindow compatibility forwarders
 
-        // =====================
-        // FREE-HAND OUTLINE
-        // =====================
-        // The user holds the left button and drags to lay down a stroke. Releasing pauses
-        // the stroke (a subsequent press continues appending from the cursor). As soon as
-        // the stroke crosses itself, the loop is closed at the crossing point and any
-        // dangling tails before/after the loop are discarded — so a "p" or a loop with
-        // two tails collapses to just the enclosed object.
+        // The erase / smooth / hand-draw implementations moved to the tool
+        // objects (Erase, Smooth, HandDraw above). These thin forwarders keep
+        // every existing MainWindow.Input call site compiling unchanged; new
+        // code should talk to the tools directly, and once MainWindow is
+        // updated these can simply be deleted.
+        public void BeginHandStroke(Vector2 canvasPos) => HandDraw.BeginStroke(canvasPos);
+        public void ProcessHandDrawDrag(Vector2 canvasPos) => HandDraw.ProcessDrag(canvasPos);
+        public void EndHandStroke() => HandDraw.EndStroke();
+        public void CancelHandDraw() => HandDraw.Cancel();
+        public bool HasFinishedHandOutline => HandDraw.HasCommittedOutline;
 
-        // Raw stroke points in CANVAS space, accumulated across press/drag/release until
-        // the loop closes. Stored densely; simplified only at closure.
-        private readonly List<Point> _handStroke = new List<Point>();
-
-        // The live, in-progress (open) preview polyline shown while drawing.
-        private Polyline _handPreviewPolyline = null;
-
-        // True between the first press and final closure of a hand-drawn outline.
-        private bool _handDrawingActive = false;
-
-        // MainWindow wires these: add/remove the live preview line on the canvas.
-        public event Action<Polyline> HandPreviewReady;     // show/replace the open preview
-        public event Action<Polyline> HandPreviewClear;     // remove the given preview line
-
-        // Minimum canvas distance between consecutive accepted stroke points. Keeps the
-        // point list manageable and avoids degenerate zero-length segments that would
-        // confuse the self-intersection test.
-        private const double HandMinPointSpacing = 2.0;
-
-        // True when an outline has been committed in this mode (used by the panel to gate
-        // "Generate Metadata"). Distinct from _handDrawingActive, which means "mid-stroke".
-        private bool _handOutlineCommitted = false;
-        public bool HasFinishedHandOutline => _handOutlineCommitted;
-
-        // Called from MainWindow on left-button DOWN while HandDrawMode is active.
-        public void BeginHandStroke(Vector2 canvasPos)
+        public event Action<Polyline> HandPreviewReady
         {
-            if (!_handDrawMode) return;
-            if (_cachedPixels == null) return;
-
-            // First press of a brand-new outline: start fresh and clear any prior result.
-            if (!_handDrawingActive)
-            {
-                BeginOperation();
-                _handDrawingActive = true;
-                _handOutlineCommitted = false;
-                _handStroke.Clear();
-                ClearHandPreview();
-                ClearMetadata();
-                ClearEFDPreview();
-            }
-
-            AppendHandPoint(new Point(canvasPos.X, canvasPos.Y));
+            add => HandDraw.PreviewReady += value;
+            remove => HandDraw.PreviewReady -= value;
+        }
+        public event Action<Polyline> HandPreviewClear
+        {
+            add => HandDraw.PreviewClear += value;
+            remove => HandDraw.PreviewClear -= value;
         }
 
-        // Called from MainWindow on mouse MOVE while the left button is held in HandDrawMode.
-        public void ProcessHandDrawDrag(Vector2 canvasPos)
-        {
-            if (!_handDrawMode || !_handDrawingActive) return;
-            AppendHandPoint(new Point(canvasPos.X, canvasPos.Y));
-        }
+        public void ProcessEraseDrag(Vector2 mousePos) => Erase.ProcessDrag(mousePos);
+        public void TakePreSmoothSnapshot() => Smooth.TakeSnapshot();
+        public void ProcessLocalSmoothDrag(Vector2 mousePos) => Smooth.ProcessLocalDrag(mousePos);
 
-        // Called from MainWindow on left-button UP while HandDrawMode is active.
-        // Releasing simply pauses — the stroke stays open and can be continued.
-        public void EndHandStroke()
-        {
-            // Intentionally does nothing beyond leaving the stroke open: a paused stroke
-            // is resumed by the next BeginHandStroke, which keeps _handDrawingActive true
-            // and so does NOT reset _handStroke.
-        }
-
-        // Discards any in-progress stroke (mode switch, reset, escape).
-        public void CancelHandDraw()
-        {
-            _handDrawingActive = false;
-            _handStroke.Clear();
-            ClearHandPreview();
-        }
-
-        // Adds a point to the stroke (respecting min spacing), refreshes the live preview,
-        // and tests whether the newly added segment closes the loop.
-        private void AppendHandPoint(Point p)
-        {
-            if (_handStroke.Count > 0)
-            {
-                Point last = _handStroke[_handStroke.Count - 1];
-                double dx = p.X - last.X, dy = p.Y - last.Y;
-                if (dx * dx + dy * dy < HandMinPointSpacing * HandMinPointSpacing)
-                    return; // too close to previous point; skip
-            }
-
-            _handStroke.Add(p);
-
-            // Check whether the most recent segment crosses any earlier, non-adjacent segment.
-            if (TryCloseHandLoop()) return;
-
-            RefreshHandPreview();
-        }
-
-        // Builds/updates the open preview polyline from the current stroke.
-        private void RefreshHandPreview()
-        {
-            if (_handStroke.Count < 2) { ClearHandPreview(); return; }
-
-            var line = new Polyline
-            {
-                Stroke = this.LineColor,
-                StrokeThickness = 2,
-                StrokeDashArray = new DoubleCollection { 4, 2 }, // dashed = not yet closed
-                FillRule = FillRule.EvenOdd
-            };
-            foreach (var sp in _handStroke)
-                line.Points.Add(sp);
-
-            var old = _handPreviewPolyline;
-            _handPreviewPolyline = line;
-            HandPreviewReady?.Invoke(line);
-            if (old != null) HandPreviewClear?.Invoke(old);
-        }
-
-        private void ClearHandPreview()
-        {
-            if (_handPreviewPolyline != null)
-            {
-                HandPreviewClear?.Invoke(_handPreviewPolyline);
-                _handPreviewPolyline = null;
-            }
-        }
-
-        // Tests whether the LAST segment of the stroke intersects any earlier non-adjacent
-        // segment. If it does, the closed loop is extracted (the polygon between the two
-        // crossing segments, joined at the intersection point), tails are discarded, and
-        // the outline is committed exactly like an auto-generated one.
-        //
-        // Returns true if the loop was closed (and the stroke consumed), false otherwise.
-        private bool TryCloseHandLoop()
-        {
-            int n = _handStroke.Count;
-            if (n < 4) return false; // need at least a few segments to self-cross
-
-            int lastSeg = n - 2;                     // segment (n-2 -> n-1)
-            Point a1 = _handStroke[lastSeg];
-            Point a2 = _handStroke[lastSeg + 1];
-
-            // Compare against every earlier segment except the one directly adjacent
-            // (which shares endpoint a1 and can't "cross" in a meaningful way).
-            for (int j = 0; j <= lastSeg - 2; j++)
-            {
-                Point b1 = _handStroke[j];
-                Point b2 = _handStroke[j + 1];
-
-                if (TryGetSegmentIntersection(a1, a2, b1, b2, out Point hit))
-                {
-                    // The enclosed loop runs from the intersection point, along the stroke
-                    // through indices j+1 .. lastSeg, and back to the intersection point.
-                    // Everything before segment j (the leading tail) and after the last
-                    // point (the trailing tail) is discarded.
-                    var loop = new List<Point> { hit };
-                    for (int k = j + 1; k <= lastSeg; k++)
-                        loop.Add(_handStroke[k]);
-                    // loop implicitly closes back to 'hit'
-
-                    CommitHandLoop(loop);
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        // Finalizes a closed hand-drawn loop: simplify, validate, convert to a committed
-        // outline, and route it through the SAME commit path as an auto outline so all
-        // metadata / EFD / smooth / erase behavior is shared.
-        private void CommitHandLoop(List<Point> loopCanvas)
-        {
-            // De-dup consecutive coincident points.
-            var cleaned = new List<Point>(loopCanvas.Count);
-            foreach (var p in loopCanvas)
-            {
-                if (cleaned.Count == 0) { cleaned.Add(p); continue; }
-                Point l = cleaned[cleaned.Count - 1];
-                double dx = p.X - l.X, dy = p.Y - l.Y;
-                if (dx * dx + dy * dy >= 0.25) cleaned.Add(p);
-            }
-
-            if (cleaned.Count < 3) { CancelHandDraw(); return; }
-
-            // Light simplification to remove hand-jitter, matching the auto outline feel.
-            var simplified = GeometryCalculations.DouglasPeucker(cleaned, _simplifyEpsilon);
-            if (simplified.Count < 3) simplified = cleaned;
-
-            // Guard: if simplification somehow self-intersected, fall back to the dense loop.
-            if (PolylineHasSelfIntersection(simplified))
-                simplified = cleaned;
-
-            var poly = new Polyline
-            {
-                Stroke = this.LineColor,
-                StrokeThickness = 2,
-                FillRule = FillRule.EvenOdd
-            };
-            foreach (var p in simplified)
-                poly.Points.Add(p);
-            poly.Points.Add(simplified[0]); // explicit closure
-
-            // Tear down the in-progress drawing state and the dashed preview.
-            ClearHandPreview();
-            _handDrawingActive = false;
-            _handStroke.Clear();
-            _handOutlineCommitted = true;
-
-            // Reuse the existing commit path: sets _activePolyline, snapshots for smoothing,
-            // commits an OutlineOperation, and fires OutlineReady so MainWindow draws it.
-            CommitFinalOutline(poly);
-        }
-
-        // Segment/segment intersection returning the crossing point. Treats proper crossings
-        // only (no collinear-overlap handling needed for a freehand stroke). Mirrors the sign
-        // logic in SegmentsIntersect but also computes the intersection coordinate.
-        private static bool TryGetSegmentIntersection(Point p1, Point p2, Point p3, Point p4, out Point hit)
-        {
-            hit = default;
-
-            double d1x = p2.X - p1.X, d1y = p2.Y - p1.Y;
-            double d2x = p4.X - p3.X, d2y = p4.Y - p3.Y;
-            double denom = d1x * d2y - d1y * d2x;
-            if (Math.Abs(denom) < 1e-9) return false; // parallel / degenerate
-
-            double t = ((p3.X - p1.X) * d2y - (p3.Y - p1.Y) * d2x) / denom;
-            double u = ((p3.X - p1.X) * d1y - (p3.Y - p1.Y) * d1x) / denom;
-
-            if (t < 0.0 || t > 1.0 || u < 0.0 || u > 1.0) return false;
-
-            hit = new Point(p1.X + t * d1x, p1.Y + t * d1y);
-            return true;
-        }
-
-        #endregion
-
-        #region erase function   
-        private double _eraseBrushRadius = 20;
+        // Tool-PARAMETER forwarders (same rationale as the method forwarders
+        // above): MainWindow.Input routes local-smooth drags via
+        // IsLocalSmoothSelected, and other partials may touch the rest. The
+        // updated panel binds the tool paths (Smooth.Strength, Erase.BrushRadius,
+        // ...) directly. NOTE: these wrappers do not raise MODE-level
+        // PropertyChanged — bind through the tool properties, not these names.
         public double EraseBrushRadius
         {
-            get => _eraseBrushRadius;
-            set => SetField(ref _eraseBrushRadius, value);
+            get => Erase.BrushRadius;
+            set => Erase.BrushRadius = value;
         }
-
-        // =====================
-        // ERASE / SHRINK OUTLINE
-        // =====================
-        // Called on mouse-drag when EraseOutlineMode is active.
-        // Finds all polyline vertices within EraseBrushRadius of the cursor
-        // and moves them toward the centroid of the full polyline,
-        // shrinking that portion of the outline inward.
-        private bool _eraseInProgress = false;
-        public void ProcessEraseDrag(Vector2 mousePos)
-        {
-            if (_activePolyline == null) return;
-            if (_eraseInProgress) return;
-            if (ScaleX <= 0 || ScaleY <= 0) return;
-            _eraseInProgress = true;
-            try
-            {
-                var srcPoints = _activePolyline.Points;
-                if (srcPoints.Count < 3) return;
-
-                // Work in IMAGE space so mask resolution is independent of zoom.
-                var img = new List<Point>(srcPoints.Count);
-                foreach (var cp in srcPoints)
-                    img.Add(new Point((cp.X - OffsetX) / ScaleX, (cp.Y - OffsetY) / ScaleY));
-                if (img.Count >= 2)
-                {
-                    Point f = img[0], l = img[img.Count - 1];
-                    if ((f.X - l.X) * (f.X - l.X) + (f.Y - l.Y) * (f.Y - l.Y) < 1.0)
-                        img.RemoveAt(img.Count - 1);
-                }
-                if (img.Count < 3) return;
-
-                double rImgX = EraseBrushRadius / ScaleX;
-                double rImgY = EraseBrushRadius / ScaleY;
-                int pad = (int)Math.Ceiling(Math.Max(rImgX, rImgY)) + 2;
-
-                double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
-                foreach (var p in img)
-                {
-                    if (p.X < minX) minX = p.X; if (p.X > maxX) maxX = p.X;
-                    if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y;
-                }
-
-                int ox = (int)Math.Floor(minX) - pad;
-                int oy = (int)Math.Floor(minY) - pad;
-                int w = (int)Math.Ceiling(maxX) - ox + pad;
-                int h = (int)Math.Ceiling(maxY) - oy + pad;
-                if (w < 3 || h < 3 || (long)w * h > 16_000_000) return;
-
-                var local = new List<Point>(img.Count);
-                foreach (var p in img) local.Add(new Point(p.X - ox, p.Y - oy));
-
-                // 1) Rasterize the outline to a filled mask (even-odd fill).
-                bool[] mask = RasterizePolygon(local, w, h);
-
-                // 2) Carve the brush disc. Test each pixel's CANVAS distance so the brush
-                //    stays a true on-screen circle even under non-uniform scale. Clearing
-                //    pixels can only ever REMOVE area — no cursor-side dependence.
-                double rCanvas2 = EraseBrushRadius * EraseBrushRadius;
-                double cImgX = (mousePos.X - OffsetX) / ScaleX - ox;
-                double cImgY = (mousePos.Y - OffsetY) / ScaleY - oy;
-                int bx0 = Math.Max(0, (int)Math.Floor(cImgX - rImgX) - 1);
-                int bx1 = Math.Min(w - 1, (int)Math.Ceiling(cImgX + rImgX) + 1);
-                int by0 = Math.Max(0, (int)Math.Floor(cImgY - rImgY) - 1);
-                int by1 = Math.Min(h - 1, (int)Math.Ceiling(cImgY + rImgY) + 1);
-                bool anyCleared = false;
-                for (int y = by0; y <= by1; y++)
-                    for (int x = bx0; x <= bx1; x++)
-                    {
-                        if (!mask[y * w + x]) continue;
-                        double canX = (x + ox + 0.5) * ScaleX + OffsetX;
-                        double canY = (y + oy + 0.5) * ScaleY + OffsetY;
-                        double dx = canX - mousePos.X, dy = canY - mousePos.Y;
-                        if (dx * dx + dy * dy <= rCanvas2) { mask[y * w + x] = false; anyCleared = true; }
-                    }
-                if (!anyCleared) return;
-
-                // 3) Re-fill enclosed holes (so an interior-only stroke does nothing rather
-                //    than punching a hole), then keep the single largest blob.
-                var snap = new ImageSnapshot(null, null, w, h, 0, 0);
-                mask = _processor.FillHoles(mask, snap);
-                mask = _processor.KeepLargestComponent(mask, snap);
-                if (!_processor.HasMinimumPixels(mask, 9)) return;
-
-                // 4) Re-trace the carved mask as a guaranteed-simple dense boundary.
-                var boundary = _processor.TraceBoundary(mask, snap);
-                if (boundary.Count < 8) return;
-
-                // 5) Update ONLY the stretch of outline the brush actually overlapped,
-                //    leaving every other vertex exactly where it was. This removes the
-                //    "ripple": Douglas-Peucker reselects its vertices globally, so
-                //    re-simplifying the WHOLE boundary on every drag shifts vertices in
-                //    regions the brush never reached. Splicing just the affected arc keeps
-                //    untouched vertices pinned (they re-project to the same canvas coords).
-                List<Point> newLocal = SpliceErasedArc(local, boundary, mousePos, ox, oy);
-                if (newLocal == null)
-                {
-                    // Couldn't isolate a single affected arc (e.g. the stroke pinched the
-                    // shape into separate pieces). Fall back to re-simplifying the whole
-                    // boundary — this can ripple, but only in these rare cases.
-                    newLocal = GeometryCalculations.DouglasPeucker(boundary, _simplifyEpsilon);
-                }
-                if (newLocal == null || newLocal.Count < 3) return;
-
-                srcPoints.Clear();
-                foreach (var p in newLocal)
-                    srcPoints.Add(new Point((p.X + ox) * ScaleX + OffsetX, (p.Y + oy) * ScaleY + OffsetY));
-                srcPoints.Add(new Point((newLocal[0].X + ox) * ScaleX + OffsetX, (newLocal[0].Y + oy) * ScaleY + OffsetY));
-
-                RefreshSmoothSnapshot();
-            }
-            finally { _eraseInProgress = false; }
-        }
-
-        // Even-odd scanline fill. pts are in local mask coordinates, closure dup removed.
-        private static bool[] RasterizePolygon(List<Point> pts, int w, int h)
-        {
-            var mask = new bool[w * h];
-            int n = pts.Count;
-            if (n < 3) return mask;
-            var xs = new List<double>(8);
-            for (int y = 0; y < h; y++)
-            {
-                double scanY = y + 0.5;
-                xs.Clear();
-                for (int i = 0; i < n; i++)
-                {
-                    Point a = pts[i], b = pts[(i + 1) % n];
-                    double ay = a.Y, by = b.Y;
-                    if ((ay <= scanY && by > scanY) || (by <= scanY && ay > scanY))
-                    {
-                        double t = (scanY - ay) / (by - ay);
-                        xs.Add(a.X + t * (b.X - a.X));
-                    }
-                }
-                if (xs.Count < 2) continue;
-                xs.Sort();
-                for (int k = 0; k + 1 < xs.Count; k += 2)
-                {
-                    int xStart = (int)Math.Ceiling(xs[k] - 0.5);
-                    int xEnd = (int)Math.Floor(xs[k + 1] - 0.5);
-                    if (xStart < 0) xStart = 0;
-                    if (xEnd > w - 1) xEnd = w - 1;
-                    int row = y * w;
-                    for (int x = xStart; x <= xEnd; x++) mask[row + x] = true;
-                }
-            }
-            return mask;
-        }
-
-        // ─────────────────────────────────────────────────────────────────────────
-        // ERASE: LOCAL SPLICE (anti-ripple)
-        // ─────────────────────────────────────────────────────────────────────────
-        // Replaces ONLY the contiguous arc the brush overlapped. Every other vertex is
-        // reused as-is, so untouched regions re-project to the exact same canvas
-        // coordinate and cannot drift.
-        //
-        //   oldLocal    : current outline vertices, local mask frame, no closure dup
-        //   dense       : freshly traced boundary of the carved mask, same frame
-        //   mouseCanvas : brush centre, canvas space
-        //   ox, oy      : local-frame origin (local = image - (ox, oy))
-        //
-        // Returns the new vertex list (local frame, no closure dup), or null when the
-        // affected region can't be isolated as a single arc (caller falls back).
-        private List<Point> SpliceErasedArc(List<Point> oldLocal, List<Point> dense,
-            Vector2 mouseCanvas, int ox, int oy)
-        {
-            int n = oldLocal.Count;
-            if (n < 3 || dense.Count < 3) return null;
-
-            // Seam slightly outside the brush so the join lands on unmodified geometry.
-            double rTest = EraseBrushRadius + 2.0;
-            double rTest2 = rTest * rTest;
-
-            bool UnderBrush(Point pLocal)
-            {
-                double canX = (pLocal.X + ox) * ScaleX + OffsetX;
-                double canY = (pLocal.Y + oy) * ScaleY + OffsetY;
-                double dx = canX - mouseCanvas.X, dy = canY - mouseCanvas.Y;
-                return dx * dx + dy * dy <= rTest2;
-            }
-
-            // 1) Find the vertices A and B flanking the affected span on oldLocal.
-            var under = new bool[n];
-            int underCount = 0;
-            for (int i = 0; i < n; i++)
-            {
-                under[i] = UnderBrush(oldLocal[i]);
-                if (under[i]) underCount++;
-            }
-            if (underCount == n) return null; // nothing stable left to anchor to
-
-            int aIdx, bIdx;
-            if (underCount > 0)
-            {
-                // Require the under-brush vertices to form exactly ONE contiguous run on
-                // the cyclic outline; more than one means the brush touched the shape in
-                // separate places and a single splice isn't valid.
-                int runs = 0, runStart = -1;
-                for (int i = 0; i < n; i++)
-                    if (under[i] && !under[(i - 1 + n) % n]) { runs++; runStart = i; }
-                if (runs != 1) return null;
-
-                int runEnd = runStart;
-                while (under[(runEnd + 1) % n]) runEnd = (runEnd + 1) % n;
-
-                aIdx = (runStart - 1 + n) % n; // last kept vertex before the run
-                bIdx = (runEnd + 1) % n;       // first kept vertex after the run
-            }
-            else
-            {
-                // Brush bit into an edge without covering a vertex: anchor to the edge
-                // whose segment passes closest to the brush centre.
-                int bestEdge = -1;
-                double bestDist = double.MaxValue;
-                for (int i = 0; i < n; i++)
-                {
-                    double d = PointToSegmentCanvasDist2(oldLocal[i], oldLocal[(i + 1) % n],
-                                                         mouseCanvas, ox, oy);
-                    if (d < bestDist) { bestDist = d; bestEdge = i; }
-                }
-                if (bestEdge < 0) return null;
-                aIdx = bestEdge;
-                bIdx = (bestEdge + 1) % n;
-            }
-
-            Point A = oldLocal[aIdx];
-            Point B = oldLocal[bIdx];
-
-            // 2) Extract the carved arc of the dense boundary from (near A) to (near B)
-            //    and simplify just that arc.
-            int aJ = NearestIndex(dense, A);
-            int bJ = NearestIndex(dense, B);
-            if (aJ < 0 || bJ < 0 || aJ == bJ) return null;
-
-            List<Point> arc = ChooseUnderBrushArc(
-                ExtractArc(dense, aJ, bJ, true),
-                ExtractArc(dense, aJ, bJ, false),
-                UnderBrush);
-            if (arc == null) return null;
-
-            var arcSimpl = GeometryCalculations.DouglasPeucker(arc, _simplifyEpsilon);
-            if (arcSimpl.Count < 2) return null;
-
-            // 3) Kept vertices (walk B → … → A), then the new arc interior (A → B).
-            var result = new List<Point>(n + arcSimpl.Count);
-            for (int i = bIdx; ; i = (i + 1) % n)
-            {
-                result.Add(oldLocal[i]);
-                if (i == aIdx) break;
-            }
-            for (int k = 1; k < arcSimpl.Count - 1; k++)
-                result.Add(arcSimpl[k]);
-
-            if (result.Count < 3) return null;
-            if (PolylineHasSelfIntersection(result)) return null; // never return a tangled outline
-
-            return result;
-        }
-
-        // Squared canvas-space distance from the brush centre to segment p0–p1 (local frame).
-        private double PointToSegmentCanvasDist2(Point p0, Point p1, Vector2 mouseCanvas, int ox, int oy)
-        {
-            double ax = (p0.X + ox) * ScaleX + OffsetX, ay = (p0.Y + oy) * ScaleY + OffsetY;
-            double bx = (p1.X + ox) * ScaleX + OffsetX, by = (p1.Y + oy) * ScaleY + OffsetY;
-            double vx = bx - ax, vy = by - ay;
-            double wx = mouseCanvas.X - ax, wy = mouseCanvas.Y - ay;
-            double len2 = vx * vx + vy * vy;
-            double t = len2 > 1e-9 ? (wx * vx + wy * vy) / len2 : 0.0;
-            if (t < 0.0) t = 0.0; else if (t > 1.0) t = 1.0;
-            double cx = ax + t * vx, cy = ay + t * vy;
-            double dx = mouseCanvas.X - cx, dy = mouseCanvas.Y - cy;
-            return dx * dx + dy * dy;
-        }
-
-        // Index of the point in pts closest to target.
-        private static int NearestIndex(List<Point> pts, Point target)
-        {
-            int best = -1;
-            double bestD = double.MaxValue;
-            for (int i = 0; i < pts.Count; i++)
-            {
-                double dx = pts[i].X - target.X, dy = pts[i].Y - target.Y;
-                double d = dx * dx + dy * dy;
-                if (d < bestD) { bestD = d; best = i; }
-            }
-            return best;
-        }
-
-        // Sub-path of the cyclic list from index i to index j (endpoints included).
-        // forward = true walks i → i+1 → … → j; forward = false walks i → i-1 → … → j.
-        private static List<Point> ExtractArc(List<Point> pts, int i, int j, bool forward)
-        {
-            int n = pts.Count;
-            var arc = new List<Point> { pts[i] };
-            int idx = i, guard = n + 1;
-            while (idx != j && guard-- > 0)
-            {
-                idx = forward ? (idx + 1) % n : (idx - 1 + n) % n;
-                arc.Add(pts[idx]);
-            }
-            return arc;
-        }
-
-        // Of the two candidate arcs, returns the one whose interior lies under the brush
-        // (the carved notch), or null if neither does.
-        private static List<Point> ChooseUnderBrushArc(List<Point> a, List<Point> b, Func<Point, bool> underBrush)
-        {
-            double FracUnder(List<Point> arc)
-            {
-                int under = 0, total = 0;
-                for (int k = 1; k < arc.Count - 1; k++) { total++; if (underBrush(arc[k])) under++; }
-                return total == 0 ? 0.0 : (double)under / total;
-            }
-            double fa = FracUnder(a), fb = FracUnder(b);
-            if (Math.Max(fa, fb) <= 0.0) return null;
-            return fa >= fb ? a : b;
-        }
-
-        private static bool PolylineHasSelfIntersection(IList<Point> pts)
-        {
-            int n = pts.Count;
-            if (n < 4) return false;
-            for (int i = 0; i < n; i++)
-            {
-                Point a1 = pts[i], a2 = pts[(i + 1) % n];
-                for (int j = i + 1; j < n; j++)
-                {
-                    if (j == i) continue;
-                    if ((i + 1) % n == j || (j + 1) % n == i) continue;
-                    Point b1 = pts[j], b2 = pts[(j + 1) % n];
-                    if (SegmentsIntersect(a1, a2, b1, b2)) return true;
-                }
-            }
-            return false;
-        }
-
-        private static bool SegmentsIntersect(Point p1, Point p2, Point p3, Point p4)
-        {
-            double d1 = Cross(p3, p4, p1);
-            double d2 = Cross(p3, p4, p2);
-            double d3 = Cross(p1, p2, p3);
-            double d4 = Cross(p1, p2, p4);
-            return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
-                   ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
-        }
-
-        private static double Cross(Point a, Point b, Point c)
-            => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
-        #endregion
-
-        #region smooth mode
-        private int _smoothStrength = 0;
         public int SmoothStrength
         {
-            get => _smoothStrength;
-            set
-            {
-                if (!SetField(ref _smoothStrength, value)) return;
-                // In LOCAL scope the slider only sets the sanding strength for
-                // the drag brush; it must not trigger a whole-perimeter pass.
-                if (!_localSmoothing)
-                    ApplyGlobalSmooth();
-            }
+            get => Smooth.Strength;
+            set => Smooth.Strength = value;
         }
-
-        // ── Smoothing scope: Global (whole perimeter, live from the snapshot)
-        //    vs Local (a draggable sanding brush, progressive like Erase) ──
-        private bool _localSmoothing = false;
+        public double SmoothBrushRadius
+        {
+            get => Smooth.BrushRadius;
+            set => Smooth.BrushRadius = value;
+        }
         public bool IsGlobalSmoothSelected
         {
-            get => !_localSmoothing;
-            set { if (value == !_localSmoothing) return; _localSmoothing = !value; OnSmoothScopeChanged(); }
+            get => Smooth.IsGlobalScope;
+            set => Smooth.IsGlobalScope = value;
         }
         public bool IsLocalSmoothSelected
         {
-            get => _localSmoothing;
-            set { if (value == _localSmoothing) return; _localSmoothing = value; OnSmoothScopeChanged(); }
-        }
-        private void OnSmoothScopeChanged()
-        {
-            OnPropertyChanged(nameof(IsGlobalSmoothSelected));
-            OnPropertyChanged(nameof(IsLocalSmoothSelected));
-            // Entering LOCAL bakes whatever the global slider currently shows
-            // into the snapshot, so sanding starts from the shape on screen and
-            // a later return to Global doesn't stack passes on a stale base.
-            if (_localSmoothing) RefreshSmoothSnapshot();
+            get => Smooth.IsLocalScope;
+            set => Smooth.IsLocalScope = value;
         }
 
-        // Brush size for local smoothing (canvas pixels), mirroring the erase
-        // brush so the tool stays screen-true at any zoom.
-        private double _smoothBrushRadius = 25;
-        public double SmoothBrushRadius
-        {
-            get => _smoothBrushRadius;
-            set => SetField(ref _smoothBrushRadius, value);
-        }
-
-        // Snapshot of the polyline points taken when smooth mode is entered,
-        // so that smoothing always applies to the original shape rather than
-        // compounding on each slider change.
-        private List<Point> _preSmoothSnapshot = null;
-
-        public void TakePreSmoothSnapshot()
-        {
-            if (_activePolyline == null) { _preSmoothSnapshot = null; return; }
-            _preSmoothSnapshot = new List<Point>(_activePolyline.Points);
-        }
-
-        private void RefreshSmoothSnapshot()
-        {
-            if (_activePolyline == null) return;
-            _preSmoothSnapshot = new List<Point>(_activePolyline.Points);
-        }
-
-        // Applies Laplacian smoothing to the entire polyline.
-        // Runs SmoothStrength passes of neighbor-averaging over all points.
-        // Always works from the pre-smooth snapshot so slider changes are
-        // non-destructive and the original shape is recoverable by setting
-        // the slider back to 0.
-        private void ApplyGlobalSmooth()
-        {
-            if (_activePolyline == null) return;
-            if (_preSmoothSnapshot == null || _preSmoothSnapshot.Count < 3) return;
-
-            // Resample to uniform arc-length spacing before smoothing so that
-            // Laplacian pressure is even around the whole outline. Without this,
-            // dense regions (tight curves) smooth faster than sparse ones (straight runs),
-            // causing corners to drift unpredictably.
-            var working = ResampleUniform(new List<Point>(_preSmoothSnapshot), targetSpacing: 4.0);
-
-            for (int pass = 0; pass < _smoothStrength; pass++)
-            {
-                int n = working.Count;
-                var smoothed = new Point[n];
-
-                for (int i = 0; i < n; i++)
-                {
-                    int prev = (i - 1 + n) % n;
-                    int next = (i + 1) % n;
-
-                    smoothed[i] = new Point(
-                        (working[prev].X + working[i].X * 2 + working[next].X) / 4.0,
-                        (working[prev].Y + working[i].Y * 2 + working[next].Y) / 4.0);
-                }
-
-                for (int i = 0; i < n; i++)
-                    working[i] = smoothed[i];
-            }
-
-            // Write result back into the live polyline
-            var points = _activePolyline.Points;
-            points.Clear();
-            foreach (var p in working)
-                points.Add(p);
-
-            // Ensure closed
-            if (points.Count >= 2)
-            {
-                Point first = points[0];
-                Point last = points[points.Count - 1];
-                double dx = first.X - last.X;
-                double dy = first.Y - last.Y;
-                if (dx * dx + dy * dy >= 1.0)
-                    points.Add(first);
-            }
-        }
-
-        // =====================
-        // LOCAL SMOOTHING (draggable sanding brush)
-        // =====================
-        // Called on mouse-drag when Smooth mode + Local scope are active.
-        // Applies SmoothStrength weighted-Laplacian passes to the vertices under
-        // the brush, with a quartic falloff to zero at the brush rim so the
-        // treated section blends into its surroundings without kinks. Vertices
-        // outside the brush are pinned exactly — no global ripple (the lesson
-        // the erase tool taught). Progressive like sanding: keep dragging to
-        // keep smoothing. Each event refreshes the smooth snapshot so a later
-        // Global pass builds on what is on screen, matching erase semantics.
-        private bool _localSmoothInProgress = false;
-        public void ProcessLocalSmoothDrag(Vector2 mousePos)
-        {
-            if (_activePolyline == null) return;
-            if (!_localSmoothing || _smoothStrength <= 0) return;
-            if (_localSmoothInProgress) return;
-            _localSmoothInProgress = true;
-            try
-            {
-                var pts = _activePolyline.Points;
-                if (pts.Count < 4) return;
-
-                // Distinct vertices; remember whether a closure duplicate exists.
-                int n = pts.Count;
-                bool hasClosure;
-                {
-                    Point f = pts[0], l = pts[n - 1];
-                    double dx = f.X - l.X, dy = f.Y - l.Y;
-                    hasClosure = dx * dx + dy * dy < 1.0;
-                }
-                int open = hasClosure ? n - 1 : n;
-                if (open < 3) return;
-
-                var work = new Point[open];
-                for (int i = 0; i < open; i++) work[i] = pts[i];
-
-                // Brush weights: canvas-space distance with a quartic falloff —
-                // w = (1 - (d/R)^2)^2 — 1 at the centre, 0 at the rim, smooth.
-                double r = Math.Max(2.0, _smoothBrushRadius);
-                double r2 = r * r;
-                var weight = new double[open];
-                int touched = 0;
-                for (int i = 0; i < open; i++)
-                {
-                    double dx = work[i].X - mousePos.X;
-                    double dy = work[i].Y - mousePos.Y;
-                    double d2 = dx * dx + dy * dy;
-                    if (d2 >= r2) continue;
-                    double t = 1.0 - d2 / r2;
-                    weight[i] = t * t;
-                    touched++;
-                }
-                if (touched == 0) return;
-
-                // SmoothStrength weighted passes of the same [1,2,1]/4 kernel the
-                // global tool uses, scaled per-vertex by the brush weight.
-                var next = new Point[open];
-                for (int pass = 0; pass < _smoothStrength; pass++)
-                {
-                    for (int i = 0; i < open; i++)
-                    {
-                        double w = weight[i];
-                        if (w <= 0) { next[i] = work[i]; continue; }
-                        Point a = work[(i - 1 + open) % open];
-                        Point b = work[i];
-                        Point c = work[(i + 1) % open];
-                        double tx = (a.X + 2 * b.X + c.X) / 4.0;
-                        double ty = (a.Y + 2 * b.Y + c.Y) / 4.0;
-                        next[i] = new Point(b.X + (tx - b.X) * w, b.Y + (ty - b.Y) * w);
-                    }
-                    var tmp = work; work = next; next = tmp;
-                }
-
-                pts.Clear();
-                foreach (var p in work) pts.Add(p);
-                if (hasClosure) pts.Add(work[0]);
-
-                // Bake the edit so a later Global pass starts from this shape
-                // (identical to how erase keeps the snapshot current).
-                RefreshSmoothSnapshot();
-            }
-            finally { _localSmoothInProgress = false; }
-        }
-
-        // Resamples a closed polyline to approximately uniform arc-length spacing.
-        // This ensures Laplacian smoothing applies equal pressure at every vertex,
-        // preventing corners from drifting based on local point density.
-        // The last point is assumed to be a closure duplicate of the first and is
-        // preserved as such after resampling.
-        private List<Point> ResampleUniform(List<Point> points, double targetSpacing)
-        {
-            if (points == null || points.Count < 3) return points;
-
-            // Build cumulative arc-length table (excluding the closure duplicate)
-            int n = points.Count;
-            bool hasClosure = false;
-            {
-                Point f = points[0], l = points[n - 1];
-                double dx = f.X - l.X, dy = f.Y - l.Y;
-                hasClosure = (dx * dx + dy * dy) < 1.0;
-            }
-            int open = hasClosure ? n - 1 : n; // number of distinct vertices
-
-            var lengths = new double[open];
-            lengths[0] = 0;
-            for (int i = 1; i < open; i++)
-            {
-                double dx = points[i].X - points[i - 1].X;
-                double dy = points[i].Y - points[i - 1].Y;
-                lengths[i] = lengths[i - 1] + Math.Sqrt(dx * dx + dy * dy);
-            }
-            // Close the loop: distance from last distinct vertex back to first
-            {
-                double dx = points[0].X - points[open - 1].X;
-                double dy = points[0].Y - points[open - 1].Y;
-                double totalLength = lengths[open - 1] + Math.Sqrt(dx * dx + dy * dy);
-
-                if (totalLength < 1e-6) return points;
-
-                // How many evenly-spaced samples fit around the perimeter?
-                int count = Math.Max(3, (int)Math.Round(totalLength / targetSpacing));
-                double step = totalLength / count;
-
-                var result = new List<Point>(count + 1);
-                int seg = 0;
-                for (int k = 0; k < count; k++)
-                {
-                    double target = k * step;
-                    // Advance segment pointer
-                    while (seg < open - 1 && lengths[seg + 1] < target) seg++;
-
-                    // Interpolate within the current segment (wraps: last->first)
-                    double segStart = lengths[seg];
-                    double segEnd = seg < open - 1 ? lengths[seg + 1]
-                                                   : lengths[open - 1] + Math.Sqrt(
-                                                       (points[0].X - points[open - 1].X) * (points[0].X - points[open - 1].X) +
-                                                       (points[0].Y - points[open - 1].Y) * (points[0].Y - points[open - 1].Y));
-                    double t = (segEnd > segStart) ? (target - segStart) / (segEnd - segStart) : 0;
-
-                    Point a = points[seg];
-                    Point b = seg < open - 1 ? points[seg + 1] : points[0];
-                    result.Add(new Point(a.X + t * (b.X - a.X), a.Y + t * (b.Y - a.Y)));
-                }
-
-                // Re-add closure point
-                if (hasClosure) result.Add(result[0]);
-                return result;
-            }
-        }
         #endregion
 
         #region metadata
@@ -2185,6 +1398,13 @@ namespace DinoLino.Utilities.Modes
         // to ContourSampleCount points — so the harmonic spectrum reflects the true outline
         // detail rather than the thinned display polyline. 
         private List<Point> _activeDenseContourImage;
+
+        // Clears the cached dense EFA contour. Called (via the tools'
+        // OutlineEdited events) whenever erase or smooth changes the outline,
+        // so the NEXT GenerateMetadata analyzes the live edited polyline
+        // instead of the original auto-detected boundary. Cheap and
+        // idempotent; safe to fire on every drag event.
+        private void InvalidateDenseContour() => _activeDenseContourImage = null;
 
         // How many equally-spaced points the dense contour is resampled to before computing 
         // coefficients. Higher = more faithful, slower.
@@ -2238,19 +1458,65 @@ namespace DinoLino.Utilities.Modes
         // Visibility companion for NormalizationWarning (BooleanToVisibilityConverter needs a bool).
         public bool HasNormalizationWarning => !string.IsNullOrEmpty(_normalizationWarning);
 
-        private string _perimeterScaledResult = "Error: Unscaled";
-        public string PerimeterScaledResult
+        // ── Scaled measurements ──
+        // WPF FIX: PerimeterScaledResult / AreaScaledResult were STRINGS with
+        // "Error: Unscaled" baked in as a sentinel VALUE — presentation mixed
+        // into the model. The mode now exposes the numbers plus a calibration
+        // flag; the panel formats them ("{0:F2} {1}" via MultiBinding) and owns
+        // the uncalibrated wording. Canvas-space measurements are stored so a
+        // calibration change re-derives the values without regenerating.
+        private double _lastCanvasPerimeter;
+        private double _lastCanvasArea;
+        private bool _hasScaledMeasurements;
+
+        public bool IsScaleCalibrated => Scale != null && Scale.IsCalibrated;
+        public string ScaleUnit => Scale?.Unit ?? "";
+
+        private double _perimeterScaledValue;
+        public double PerimeterScaledValue
         {
-            get => _perimeterScaledResult;
-            set => SetField(ref _perimeterScaledResult, value);
+            get => _perimeterScaledValue;
+            private set => SetField(ref _perimeterScaledValue, value);
         }
 
-        private string _areaScaledResult = "Error: Unscaled";
-        public string AreaScaledResult
+        private double _areaScaledValue;
+        public double AreaScaledValue
         {
-            get => _areaScaledResult;
-            set => SetField(ref _areaScaledResult, value);
+            get => _areaScaledValue;
+            private set => SetField(ref _areaScaledValue, value);
         }
+
+        private void RecomputeScaledValues()
+        {
+            if (IsScaleCalibrated && _hasScaledMeasurements)
+            {
+                PerimeterScaledValue = Scale.ToUnits(_lastCanvasPerimeter);
+                AreaScaledValue = Scale.ToUnitsArea(_lastCanvasArea);
+            }
+            else
+            {
+                PerimeterScaledValue = 0;
+                AreaScaledValue = 0;
+            }
+            OnPropertyChanged(nameof(IsScaleCalibrated));
+            OnPropertyChanged(nameof(ScaleUnit));
+        }
+
+        // Called by OutlineOperation.ApplyMetadataToMode on undo/redo so the
+        // scaled Perimeter/Area rows restore along with the ratio metrics —
+        // they were stamped onto the operation but never pushed back, leaving
+        // the panel at 0 / showing the previous outline's summary.
+        public void RestoreScaledMeasurements(double canvasPerimeter, double canvasArea)
+        {
+            _lastCanvasPerimeter = canvasPerimeter;
+            _lastCanvasArea = canvasArea;
+            _hasScaledMeasurements = true;
+            RecomputeScaledValues();
+        }
+
+        // Dash pattern for the dashed polylines this mode creates (pending
+        // multi-click preview, blue EFD reconstruction): the shared frozen
+        // instance in OutlineVisuals.
 
         // Fired after metadata is generated and stamped onto the committed outline.
         // MainWindow wires this to refresh the on-image operation counter: setting
@@ -2259,11 +1525,17 @@ namespace DinoLino.Utilities.Modes
         public event Action MetadataGenerated;
 
 
-        // Called when the user clicks Generate Metadata
+        // Called when the user selects Generate Metadata (the control panel's
+        // Checked handler — no longer a property-setter side effect) and by the
+        // EFA window when settings change.
         public void GenerateMetadata()
         {
-            // Refuse while a hand-drawn stroke is still open (not yet self-closed).
-            if (_handDrawMode && _handDrawingActive)
+            // Refuse while a hand-drawn stroke is still open (not yet
+            // self-closed). Checked WITHOUT _handDrawMode: WPF unchecks the
+            // hand-draw radio (flipping the flag and auto-cancelling) BEFORE a
+            // sibling's Checked handler can run, and the EFA window can call
+            // in from any tool — the open stroke is the only reliable signal.
+            if (HandDraw.IsStrokeOpen)
             {
                 HandOutlineUnfinished?.Invoke();
                 return;
@@ -2272,8 +1544,8 @@ namespace DinoLino.Utilities.Modes
             if (_activePolyline == null || _activePolyline.Points.Count < 3)
             {
                 MetadataSummary = "No outline available.";
-                PerimeterScaledResult = ScaledPlaceholder;
-                AreaScaledResult = ScaledPlaceholder;
+                _hasScaledMeasurements = false;
+                RecomputeScaledValues();
                 UpdateEFDPreview();
                 return;
             }
@@ -2281,12 +1553,7 @@ namespace DinoLino.Utilities.Modes
             var pts = new List<Point>(_activePolyline.Points);
 
             // Remove duplicate closing point if present
-            if (pts.Count > 1)
-            {
-                Point f = pts[0], l = pts[pts.Count - 1];
-                if ((f.X - l.X) * (f.X - l.X) + (f.Y - l.Y) * (f.Y - l.Y) < 1.0)
-                    pts.RemoveAt(pts.Count - 1);
-            }
+            PolylineGeometry.StripClosureDuplicate(pts);
 
             // Convert from canvas space to image space for scale-invariant metric computation.
             // All GeometryCalculations calls below use image-space coordinates.
@@ -2300,12 +1567,10 @@ namespace DinoLino.Utilities.Modes
             // so the ratio metrics remain zoom-independent).
             double canvasPerimeter = GeometryCalculations.Perimeter(pts);
             double canvasArea = GeometryCalculations.PolygonArea(pts);
-            PerimeterScaledResult = Scale != null && Scale.IsCalibrated
-                ? $"{Scale.ToUnits(canvasPerimeter):F2} {Scale.Unit}"
-                : "Error: Unscaled";
-            AreaScaledResult = Scale != null && Scale.IsCalibrated
-                ? $"{Scale.ToUnitsArea(canvasArea):F2} {Scale.Unit}²"
-                : "Error: Unscaled";
+            _lastCanvasPerimeter = canvasPerimeter;
+            _lastCanvasArea = canvasArea;
+            _hasScaledMeasurements = true;
+            RecomputeScaledValues();
 
             double[] bbox = GeometryCalculations.BoundingBox(imagePts);
             double bboxW = bbox[2] - bbox[0];
@@ -2328,7 +1593,15 @@ namespace DinoLino.Utilities.Modes
 
             // Run EFA on the dense contour resampled to ContourSampleCount equally-spaced points,
             // not the Douglas-Peucker display polyline (which drops the low-amplitude detail
-            // the higher harmonics are meant to capture). 
+            // the higher harmonics are meant to capture).
+            //
+            // The dense contour is captured during AUTOMATIC detection and is
+            // cleared by InvalidateDenseContour the moment erase or smooth edits
+            // the outline (see the tool wiring in the constructor). So after an
+            // edit — and for hand-drawn outlines, which never populate it — this
+            // falls through to the live polyline, which IS the edited shape.
+            // Both branches resample to ContourSampleCount so harmonic precision
+            // is the same either way.
             List<Point> efaSource;
             if (_activeDenseContourImage != null && _activeDenseContourImage.Count >= 3)
             {
@@ -2339,38 +1612,32 @@ namespace DinoLino.Utilities.Modes
             }
             else
             {
-                efaSource = pts; // simplified polyline fallback
+                // Live (possibly edited) polyline, in canvas space with the
+                // closure duplicate already stripped above — resampled the same
+                // way the dense path is, rather than fed in raw.
+                efaSource = pts.Count >= 3
+                    ? GeometryCalculations.ResampleClosed(pts, ContourSampleCount)
+                    : pts;
             }
             EFDCoefficientsResult = _efd.ComputeNormalized(efaSource, harmonics);
 
-            // Build display string
-            var sb = new System.Text.StringBuilder();
+            // Presentation strings are built by the formatter — the mode
+            // computes numbers, the formatter owns the text (WPF FIX: the
+            // StringBuilder with alignment spaces and glyphs was presentation
+            // logic living inside the model).
+            NormalizationWarning = OutlineMetadataFormatter.BuildNormalizationWarning(
+                _efd.NormalizationStatus, _efd.FirstHarmonicAxisRatio);
 
-            NormalizationWarning = _efd.NormalizationStatus switch
-            {
-                EfdNormalizationStatus.NearlyCircular =>
-                    $"⚠ Near-circular first harmonic (axis ratio {_efd.FirstHarmonicAxisRatio:F2}); " +
-                    "rotation/start-point alignment is unstable — normalized coefficients may not be comparable across specimens.",
-                EfdNormalizationStatus.Degenerate =>
-                    "⚠ First harmonic ~0; orientation and scale can't be defined for this outline.",
-                _ => ""
-            };
-
-            if (_efd.NormalizationStatus != EfdNormalizationStatus.Ok)
-                sb.AppendLine($"  ⚠ Orientation ambiguous (1st-harmonic axis ratio {_efd.FirstHarmonicAxisRatio:F2}); normalized rotation may be unstable.");
-
-            sb.AppendLine($"Aspect Ratio:       {AspectRatioResult:F3}");
-            sb.AppendLine($"Perim / Area:       {PerimeterAreaRatioResult:F4}");
-            sb.AppendLine($"Circularity:        {CircularityResult:F4}");
-            sb.AppendLine($"Solidity:           {SolidityResult:F4}");
-            sb.AppendLine($"Turn/Length: {TurningAngleLengthResult:F4}");
-            sb.AppendLine($"EFD harmonics ({harmonics}):");
-            for (int h = 0; h < harmonics; h++)
-            {
-                int k = h * 4;
-                sb.AppendLine($"  n={h + 1}: a={EFDCoefficientsResult[k]:F4} b={EFDCoefficientsResult[k + 1]:F4} c={EFDCoefficientsResult[k + 2]:F4} d={EFDCoefficientsResult[k + 3]:F4}");
-            }
-            MetadataSummary = sb.ToString();
+            MetadataSummary = OutlineMetadataFormatter.BuildSummary(
+                AspectRatioResult,
+                PerimeterAreaRatioResult,
+                CircularityResult,
+                SolidityResult,
+                TurningAngleLengthResult,
+                harmonics,
+                EFDCoefficientsResult,
+                _efd.NormalizationStatus,
+                _efd.FirstHarmonicAxisRatio);
 
             // Stamp the result onto the committed operation so it persists with undo/redo
             if (UndoRedoManager?.CurrentOperation is OutlineOperation op)
@@ -2384,6 +1651,8 @@ namespace DinoLino.Utilities.Modes
                 op.TurningAngleLength = TurningAngleLengthResult;
                 op.Perimeter = canvasPerimeter;
                 op.Area = canvasArea;
+                op.MetadataSummary = MetadataSummary;
+                op.NormalizationWarning = NormalizationWarning;
                 op.HasMetadata = true;
 
                 // HasMetadata just flipped on an operation already sitting in history.
@@ -2394,6 +1663,7 @@ namespace DinoLino.Utilities.Modes
 
             UpdateEFDPreview();
         }
+
 
         // =====================
         // ELLIPTIC FOURIER DESCRIPTORS
@@ -2500,7 +1770,7 @@ namespace DinoLino.Utilities.Modes
             {
                 Stroke = Brushes.DodgerBlue,
                 StrokeThickness = 2.5,
-                StrokeDashArray = new DoubleCollection { 4, 2 },
+                StrokeDashArray = OutlineVisuals.PreviewDashes,
                 FillRule = FillRule.EvenOdd
             };
             foreach (var p in reconstructed)
@@ -2549,12 +1819,7 @@ namespace DinoLino.Utilities.Modes
             var pts = new List<Point>(_activePolyline.Points);
 
             // Drop a closing duplicate vertex if present (same prep as GenerateMetadata).
-            if (pts.Count > 1)
-            {
-                Point f = pts[0], l = pts[pts.Count - 1];
-                if ((f.X - l.X) * (f.X - l.X) + (f.Y - l.Y) * (f.Y - l.Y) < 1.0)
-                    pts.RemoveAt(pts.Count - 1);
-            }
+            PolylineGeometry.StripClosureDuplicate(pts);
             if (pts.Count < 3) return null;
 
             // Never request more harmonics than the vertex count can support (~Nyquist): a coarse,
@@ -2568,93 +1833,134 @@ namespace DinoLino.Utilities.Modes
         // and refreshes the blue preview).
         public void ApplyHarmonicCount(int harmonics) => EfdHarmonics = harmonics;
 
+        // ── Tips ──
+        // The five near-identical arrays used to be rebuilt inline on every
+        // GetTips call, duplicating each shared line up to six times. The
+        // shared lines are now single constants, the per-tool arrays are
+        // built once, and GetTips just returns the cached array.
+        private const string TipDecimate =
+            "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.";
+        private const string TipMultiClick =
+            "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.";
+        private const string TipSolidBackground =
+            "💡 Outline mode performs best on unpatterned images with a solid background.";
+        private const string TipHelp =
+            "💡 The user guide and software information can be found in the Help menu.";
+        private const string TipUndo =
+            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.";
+        private const string TipRedo =
+            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.";
+        private const string TipClear =
+            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.";
+        private const string TipOpenImage =
+            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.";
+        private const string TipZoom =
+            "💡 Zoom in or out using the scroll wheel.";
+        private const string TipPan =
+            "💡 Press 'Ctrl' and left click to drag the image.";
+        private const string TipToggleTips =
+            "💡 Toggle tip visibility in the View menu.";
+
+        // Automated Outline, legacy forced-watershed variant.
+        private static readonly string[] DrawWatershedTips =
+        {
+            "💡 Use Watershed to generate more accurate outlines on complex images, at the cost of reduced speed.",
+            TipDecimate,
+            TipMultiClick,
+            TipSolidBackground,
+            TipHelp,
+            TipUndo,
+            TipRedo,
+            TipClear,
+            TipOpenImage,
+            TipZoom,
+            TipPan,
+            TipToggleTips
+        };
+
+        // Automated Outline, default (portfolio) variant.
+        private static readonly string[] DrawFloodTips =
+        {
+            "💡 Set fill sensitivity to maximum values for images on a solid background.",
+            TipMultiClick,
+            TipDecimate,
+            "💡 Having trouble with the outline? Watershed mode may improve accuracy for complex or textured images.",
+            TipSolidBackground,
+            TipHelp,
+            TipUndo,
+            TipRedo,
+            TipClear,
+            TipOpenImage,
+            TipZoom,
+            TipPan,
+            TipToggleTips
+        };
+
+        // Erase tool.
+        private static readonly string[] EraseTips =
+        {
+            "💡 Click and drag over the outline to erase. Adjust brush size for precision.",
+            TipSolidBackground,
+            TipHelp,
+            TipClear,
+            TipOpenImage,
+            TipZoom,
+            TipPan,
+            TipToggleTips
+        };
+
+        // Smooth tool.
+        private static readonly string[] SmoothTips =
+        {
+            "💡 Adjust smooth strength for cleaner outlines. Too high may distort sharp features.",
+            "💡 Global smooths the whole perimeter live from the slider; Local turns the cursor into a sanding brush — click and drag along the outline to smooth just that section.",
+            TipSolidBackground,
+            TipHelp,
+            TipClear,
+            TipOpenImage,
+            TipZoom,
+            TipPan,
+            TipToggleTips
+        };
+
+        // Generate Metadata tool.
+        private static readonly string[] MetadataTips =
+        {
+            "💡 Adjust the number of EFD Harmonics to control Fourier detail. The EF outline is overlaid in a blue, dashed line.",
+            "💡 A perfect circle has a circularity value of 1. Circularity, aka roundness, is calculated as ⁠4π × Area ÷ Perimeter squared⁠.",
+            "💡 Solidity is the ratio of the outlined area divided by the area of its convex hull. The convex hull is the smallest convex polygon enclosing the outline.",
+            "💡 Turn/Length (sum of turning angles divided by outline perimeter) measures how sharply the curve bends, on average, along its length.",
+            TipHelp,
+            TipClear,
+            TipOpenImage,
+            TipZoom,
+            TipPan,
+            TipToggleTips
+        };
+
+        // Draw by Hand tool.
+        private static readonly string[] HandDrawTips =
+        {
+            "💡 Hold the left mouse button and drag to draw an outline by hand.",
+            "💡 The outline closes automatically as soon as your line crosses itself. Any leftover tails are removed.",
+            "💡 Release to pause; press and drag again to continue the same line.",
+            "💡 Once closed, switch to Generate Metadata to measure the shape.",
+            TipClear,
+            TipZoom,
+            TipPan,
+            TipToggleTips
+        };
+
+        private static readonly string[] NoTips = { string.Empty };
+
         public override string[] GetTips()
         {
-            if (DrawOutlineMode)
-                return UseWatershed
-                    ? new[]
-                    {
-                        "💡 Use Watershed to generate more accurate outlines on complex images, at the cost of reduced speed.",
-                        "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
-                        "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.",
-                        "💡 Outline mode performs best on unpatterned images with a solid background.",
-                        "💡 The user guide and software information can be found in the Help menu.",
-                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-                        "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                        "💡 Zoom in or out using the scroll wheel.",
-                        "💡 Press 'Ctrl' and left click to drag the image.",
-                        "💡 Toggle tip visibility in the View menu."
-                    }
-                    : new[]
-                    {
-                        "💡 Set fill sensitivity to maximum values for images on a solid background.",
-                        "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.",
-                        "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.",
-                        "💡 Having trouble with the outline? Watershed mode may improve accuracy for complex or textured images.",
-                        "💡 Outline mode performs best on unpatterned images with a solid background.",
-                        "💡 The user guide and software information can be found in the Help menu.",
-                        "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-                        "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-                        "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                        "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                        "💡 Zoom in or out using the scroll wheel.",
-                        "💡 Press 'Ctrl' and left click to drag the image.",
-                        "💡 Toggle tip visibility in the View menu."
-                    };
-            if (EraseOutlineMode)
-                return new[]
-                {
-                    "💡 Click and drag over the outline to erase. Adjust brush size for precision.",
-                    "💡 Outline mode performs best on unpatterned images with a solid background.",
-                    "💡 The user guide and software information can be found in the Help menu.",
-                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                    "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Press 'Ctrl' and left click to drag the image.",
-                    "💡 Toggle tip visibility in the View menu."
-                };
-            if (SmoothOutlineMode)
-                return new[]
-                {
-                    "💡 Adjust smooth strength for cleaner outlines. Too high may distort sharp features.",
-                    "💡 Global smooths the whole perimeter live from the slider; Local turns the cursor into a sanding brush — click and drag along the outline to smooth just that section.",
-                    "💡 Outline mode performs best on unpatterned images with a solid background.",
-                    "💡 The user guide and software information can be found in the Help menu.",
-                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                    "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Press 'Ctrl' and left click to drag the image.",
-                    "💡 Toggle tip visibility in the View menu."
-                };
-            if (OutlineMetadataMode)
-                return new[]
-                {
-                    "💡 Adjust the number of EFD Harmonics to control Fourier detail. The EF outline is overlaid in a blue, dashed line.",
-                    "💡 A perfect circle has a circularity value of 1. Circularity, aka roundness, is calculated as ⁠4π × Area ÷ Perimeter squared⁠.",
-                    "💡 Solidity is the ratio of the outlined area divided by the area of its convex hull. The convex hull is the smallest convex polygon enclosing the outline.",
-                    "💡 Turn/Length (sum of turning angles divided by outline perimeter) measures how sharply the curve bends, on average, along its length.",
-                    "💡 The user guide and software information can be found in the Help menu.",
-                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                    "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Press 'Ctrl' and left click to drag the image.",
-                    "💡 Toggle tip visibility in the View menu."
-                };
-            if (HandDrawMode)
-                return new[]
-                {
-                    "💡 Hold the left mouse button and drag to draw an outline by hand.",
-                    "💡 The outline closes automatically as soon as your line crosses itself. Any leftover tails are removed.",
-                    "💡 Release to pause; press and drag again to continue the same line.",
-                    "💡 Once closed, switch to Generate Metadata to measure the shape.",
-                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Press 'Ctrl' and left click to drag the image.",
-                    "💡 Toggle tip visibility in the View menu."
-                };
-            return new[] { string.Empty };
+            if (DrawOutlineMode) return UseWatershed ? DrawWatershedTips : DrawFloodTips;
+            if (EraseOutlineMode) return EraseTips;
+            if (SmoothOutlineMode) return SmoothTips;
+            if (OutlineMetadataMode) return MetadataTips;
+            if (HandDrawMode) return HandDrawTips;
+            return NoTips;
         }
         #endregion
     }
