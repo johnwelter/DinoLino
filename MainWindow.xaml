@@ -34,7 +34,8 @@
                 <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"  InputGestureText="Ctrl+Y"/>
             </MenuItem>
             <MenuItem Header="_Tools" MouseLeave="Menu_MouseLeave">
-                <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"/>
+                <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"
+                          ToolTip="Adjust picture properties such as brightness, contrast, and saturation."/>
                 <MenuItem Header="_Decimate" Click="Menu_DownSample"/>
                 <MenuItem Header="_Flip">
                     <MenuItem Header="_Horizontal"  Click="Menu_FlipHorizontal"/>
@@ -47,11 +48,17 @@
                 <MenuItem Header="Reposition 3D _Object" x:Name="UI_MenuReposition3D"
                           Click="Menu_Reposition3DModel" IsEnabled="False"
                           ToolTip="Re-open the 3D model to rotate it and capture a new view. Available only for 3D objects."/>
+                <MenuItem Header="_Clear Image Cache" Click="Menu_ClearImageCache"
+                          ToolTip="Remove all cached specimen images from the cache. Names and measurements are kept."/>
+                <MenuItem Header="Edit _Image Cache" Click="Menu_EditImageCache"
+                          ToolTip="Review cached specimen images and remove them one at a time."/>
             </MenuItem>
             <MenuItem Header="_View" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_See Tips" x:Name="UI_SeeTips" IsCheckable="True" IsChecked="True" Click="Menu_SeeTips"/>
-                <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="False" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave"/>
-                <MenuItem Header="_See Operation Count" x:Name="UI_SeeAttempts" IsCheckable="True" IsChecked="True" Click="Menu_SeeAttempts"/>
+                <MenuItem Header="_See Previous Operations" x:Name="UI_SeePrevOps" IsCheckable="True" IsChecked="False" Click="Menu_SeePrevOps" MouseLeave="Menu_MouseLeave"
+                          ToolTip="Keep all previously drawn operations on screen until cleared."/>
+                <MenuItem Header="_See Operation Count" x:Name="UI_SeeAttempts" IsCheckable="True" IsChecked="True" Click="Menu_SeeAttempts"
+                          ToolTip="Display the number of operations performed for each specimen."/>
                 <MenuItem Header="See _History" Click="Menu_SeeHistory"  InputGestureText="Ctrl+H"/>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>

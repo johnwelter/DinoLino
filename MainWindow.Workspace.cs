@@ -94,7 +94,7 @@ namespace DinoLino
                 return;
 
             if (SpecimenManager.HasOpenedImage)
-                UndoRedoManager.ArchiveAndReset(SpecimenManager.DisplayName);
+                UndoRedoManager.StashActiveSpecimen(SpecimenManager.CurrentSpecimen, SpecimenManager.DisplayName);
 
             BitmapImage bmp = new BitmapImage(
                 new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));

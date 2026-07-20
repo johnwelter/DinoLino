@@ -31,13 +31,27 @@ namespace DinoLino
 
         // Specimen Manager fields
         public SpecimenManager SpecimenManager = new SpecimenManager();
-        private void SpecimenCount_Up(object sender, RoutedEventArgs e) => ReloadSpecimen(SpecimenManager.MoveNext());
-        private void SpecimenCount_Down(object sender, RoutedEventArgs e) => ReloadSpecimen(SpecimenManager.MovePrevious());
-
-        private void ReloadSpecimen(Specimen spec)
+        private void SpecimenCount_Up(object sender, RoutedEventArgs e)
         {
-            if (spec?.Image == null) return;
-            SetWorkspaceImage(spec.Image, spec.FileName, registerAsNewSpecimen: false);
+            var departing = SpecimenManager.CurrentSpecimen;
+            ReloadSpecimen(departing, SpecimenManager.MoveNext());
+        }
+
+        private void SpecimenCount_Down(object sender, RoutedEventArgs e)
+        {
+            var departing = SpecimenManager.CurrentSpecimen;
+            ReloadSpecimen(departing, SpecimenManager.MovePrevious());
+        }
+
+        // Reloads a navigated-to specimen's image AND its operation history. Order
+        // matters: SetWorkspaceImage -> ClearWorkspace -> Reset() blanks the active
+        // mode's result panel, so the history switch — which re-applies the arriving
+        // specimen's metadata to the panels — must run AFTER SetWorkspaceImage.
+        private void ReloadSpecimen(Specimen departing, Specimen arriving)
+        {
+            if (arriving?.Image == null) return;   // no move happened (edge of the list)
+            SetWorkspaceImage(arriving.Image, arriving.FileName, registerAsNewSpecimen: false);
+            UndoRedoManager.SwitchActiveSpecimen(departing, SpecimenManager.NameOf(departing), arriving);
         }
 
         // store selected font type

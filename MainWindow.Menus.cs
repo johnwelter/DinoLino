@@ -89,6 +89,42 @@ namespace DinoLino
         private DispatcherTimer _tipCycleTimer;
         private int _tipIndex = 0;
 
+        // Tools > Clear Image Cache: releases every cached specimen bitmap in one
+        // sweep. Only Specimen.Image refs are dropped — names, file names, live
+        // history, and the archive are untouched, so exports are unaffected.
+        private void Menu_ClearImageCache(object sender, RoutedEventArgs e)
+        {
+            int n = SpecimenManager.CachedImageCount;
+            if (n == 0)
+            {
+                MessageBox.Show(this, "There are no cached images to clear.",
+                    "Clear Image Cache", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var confirm = MessageBox.Show(this,
+                $"Release all {n} cached image(s)?\n\n" +
+                "The specimen \u25b2/\u25bc arrows will no longer cycle through past images, " +
+                "and released images cannot be brought back without re-opening their files.\n\n" +
+                "Specimen names and all measurements are kept — the History window and " +
+                "exported tables are unaffected.",
+                "Clear Image Cache", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (confirm != MessageBoxResult.Yes) return;
+
+            SpecimenManager.ClearAllImages();
+        }
+
+        // Tools > Edit Image Cache: per-image release via a pop-up roster.
+        private void Menu_EditImageCache(object sender, RoutedEventArgs e)
+        {
+            var window = new EditImageCacheWindow(SpecimenManager)
+            {
+                Owner = this,
+                FontSize = _currentFontSize,
+                FontFamily = _currentFont
+            };
+            window.ShowDialog();
+        }
         private void Menu_SeeTips(object sender, RoutedEventArgs e)
         {
             _tipsVisible = UI_SeeTips.IsChecked;

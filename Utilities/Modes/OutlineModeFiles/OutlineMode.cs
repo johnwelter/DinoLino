@@ -60,7 +60,7 @@ namespace DinoLino.Utilities.Modes
             // is now this one explicit wire.
             Erase.OutlineEdited += Smooth.RefreshSnapshot;
 
-            // BUG FIX (EFA ran on the original outline after an edit): EFA
+            // EFA
             // prefers the cached dense contour (_activeDenseContourImage),
             // which is captured ONCE during automatic detection and never
             // updated by erase/smooth. Any tool that mutates the outline now
@@ -110,9 +110,7 @@ namespace DinoLino.Utilities.Modes
         }
 
         // Fired when metadata is requested but the hand-drawn stroke isn't
-        // closed yet. WPF FIX: this was a public Action FIELD, so any
-        // subscriber could overwrite or null the whole invocation list with
-        // '='. As an event only += / -= are possible.
+        // closed yet. As an event only += / -= are possible.
         public event Action HandOutlineUnfinished;
 
         private bool _drawOutlineMode = true;
@@ -148,10 +146,7 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // WPF FIX: the setter used to launch GenerateMetadata() /
-        // ClearEFDPreview() as side effects, so a two-way checkbox binding
-        // triggered heavyweight work whose ordering depended on binding
-        // timing. The setter is now cheap and idempotent; the control panel
+        // The setter is now cheap and idempotent; the control panel
         // invokes GenerateMetadata / ClearEFDPreview from its Checked /
         // Unchecked handlers instead (see OutlineControlPanel.xaml.cs).
         private bool _outlineMetadataMode = false;
@@ -211,10 +206,7 @@ namespace DinoLino.Utilities.Modes
         private Task<ImageAnalysis> _analysisTask;
         private int _imageVersion;
 
-        // BUG FIX (wasted analysis): BuildImageAnalysis had no token, so
-        // loading image B while image A was still analyzing let A's full
-        // pipeline — palette, Sobel, distance transform, texture, retinex,
-        // and the 1–3 s SAM encode — run to completion for nothing. This CTS
+        // This CTS
         // supersedes the analysis exactly like _opCts supersedes clicks.
         private CancellationTokenSource _analysisCts;
 
@@ -239,11 +231,8 @@ namespace DinoLino.Utilities.Modes
             oldAnalysis?.Dispose();  // tokens stay readable after disposal
             _analysisCts = null;
 
-            // BUG FIX (stale pending outline): a pending multi-click outline
-            // belongs to the image it was floods from. The old code only
-            // dropped it when the pixel-buffer LENGTH changed, so loading a
-            // new image with identical dimensions kept a stale pending mask
-            // alive. Any image change now clears the pending state outright
+            // a pending multi-click outline
+            // belongs to the image it was floods from. Any image change now clears the pending state outright
             // (and ProcessClick double-checks via _pendingImageVersion).
             ClearPendingState();
 
@@ -447,10 +436,6 @@ namespace DinoLino.Utilities.Modes
             TurningAngleLengthResult = 0;
             EFDCoefficientsResult = null;
             MetadataSummary = "";
-            // WPF FIX: the scaled results were sentinel STRINGS ("Error:
-            // Unscaled" via ScaledPlaceholder). The mode now exposes numbers
-            // plus IsScaleCalibrated and the view owns the wording — see the
-            // metadata region.
             _hasScaledMeasurements = false;
             RecomputeScaledValues();
         }
@@ -483,8 +468,6 @@ namespace DinoLino.Utilities.Modes
         private Polyline _pendingPolyline;    // the dashed preview currently shown
         private bool _hasPending = false;
 
-        // BUG FIX (stale pending): the image version this pending state was
-        // computed against. -1 = none. See SwapPending / ProcessClick.
         private int _pendingImageVersion = -1;
 
         // Accumulated click coordinates for the CURRENT pending outline — fed
@@ -542,10 +525,7 @@ namespace DinoLino.Utilities.Modes
         }
 
         // ── View transform (zoom + pan) ──
-        // WPF FIX: ScaleX/ScaleY/OffsetX/OffsetY were four independent settable
-        // auto-properties with no change notification and no consistency
-        // guarantee — a reader could observe a new scale paired with an old
-        // offset mid-update. They are now views over ONE immutable
+        // ScaleX/ScaleY/OffsetX/OffsetY are now views over ONE immutable
         // ViewTransform value with a single PropertyChanged. The four scalar
         // properties remain so existing MainWindow call sites compile
         // unchanged; prefer assigning Transform once per zoom/pan.
@@ -675,16 +655,8 @@ namespace DinoLino.Utilities.Modes
         // ─────────────────────────────────────────────────────────────────────
         // SHARED CLICK-OPERATION SCAFFOLDING
         // ─────────────────────────────────────────────────────────────────────
-        // StartNewOutline and ExpandPending used to duplicate ~40 lines of
-        // orchestration each: supersede-CTS, busy raise/lower, Task.Run,
-        // dispatcher marshal, error dialog. The scaffolding now lives here once
-        // and the two methods contain only their actual difference.
-        //
-        // BUG FIX (busy-counter leak): the old code called EnterBusy() and then
-        // Task.Run(async ..., token). If that token was already canceled when
-        // the task was scheduled, the delegate NEVER executed, so the
-        // finally { ExitBusy(); } inside it never ran and the busy indicator
-        // stuck on forever. Cancellation is cooperative inside the body anyway
+
+        // Cancellation is cooperative inside the body 
         // (ThrowIfCancellationRequested), so the token is deliberately NOT
         // passed to Task.Run — the delegate always runs and busy stays
         // balanced.
@@ -728,9 +700,7 @@ namespace DinoLino.Utilities.Modes
 
         // Marshals a computed result back to the UI thread, dropping it when
         // the operation was superseded or the image changed while computing.
-        // WPF FIX: the old success path used Application.Current.Dispatcher
-        // with no null check (NRE if the app is tearing down) while the error
-        // path checked; both now share this null-safe access.
+
         private void PostResultToUi(int version, CancellationToken token, Action apply)
         {
             var dispatcher = Application.Current?.Dispatcher;
@@ -745,11 +715,6 @@ namespace DinoLino.Utilities.Modes
             }));
         }
 
-        // WPF FIX: a mode object should not summon MessageBoxes — that is a
-        // view decision. The mode RAISES this event (on the UI thread) and the
-        // view presents it; MainWindow subscribes and shows the dialog (see
-        // the migration notes). The Debug line keeps failures visible even if
-        // nothing is subscribed.
         public event Action<string> OperationFailed;
 
         private void RaiseOperationFailed(string message)
@@ -950,10 +915,9 @@ namespace DinoLino.Utilities.Modes
             if ((uint)px >= _cachedWidth || (uint)py >= _cachedHeight)
                 return new List<UIElement>();
 
-            // BUG FIX (stale pending): pending state is stamped with the image
+            // pending state is stamped with the image
             // version it was computed against (see SwapPending) and dropped on
-            // any mismatch. The old length-only test missed a NEW image with
-            // IDENTICAL dimensions, leaving a stale mask live. CacheSourcePixels
+            // any mismatch. CacheSourcePixels
             // also clears pending outright on image change, so this guard is
             // belt-and-braces.
             if (_hasPending && (_pendingMask == null || _pendingImageVersion != _imageVersion))
@@ -1294,7 +1258,7 @@ namespace DinoLino.Utilities.Modes
             _pendingPolyline = newPoly;
             _activePolyline = newPoly;   // so smooth/erase/metadata operate on it if confirmed
             _hasPending = true;
-            _pendingImageVersion = _imageVersion; // BUG FIX: stamp the owning image
+            _pendingImageVersion = _imageVersion; // stamp the owning image
             PendingOutlineReady?.Invoke(newPoly, old);
         }
 
@@ -1501,14 +1465,6 @@ namespace DinoLino.Utilities.Modes
 
         // Visibility companion for NormalizationWarning (BooleanToVisibilityConverter needs a bool).
         public bool HasNormalizationWarning => !string.IsNullOrEmpty(_normalizationWarning);
-
-        // ── Scaled measurements ──
-        // WPF FIX: PerimeterScaledResult / AreaScaledResult were STRINGS with
-        // "Error: Unscaled" baked in as a sentinel VALUE — presentation mixed
-        // into the model. The mode now exposes the numbers plus a calibration
-        // flag; the panel formats them ("{0:F2} {1}" via MultiBinding) and owns
-        // the uncalibrated wording. Canvas-space measurements are stored so a
-        // calibration change re-derives the values without regenerating.
         private double _lastCanvasPerimeter;
         private double _lastCanvasArea;
         private bool _hasScaledMeasurements;
@@ -1666,9 +1622,7 @@ namespace DinoLino.Utilities.Modes
             EFDCoefficientsResult = _efd.ComputeNormalized(efaSource, harmonics);
 
             // Presentation strings are built by the formatter — the mode
-            // computes numbers, the formatter owns the text (WPF FIX: the
-            // StringBuilder with alignment spaces and glyphs was presentation
-            // logic living inside the model).
+            // computes numbers, the formatter owns the text 
             NormalizationWarning = OutlineMetadataFormatter.BuildNormalizationWarning(
                 _efd.NormalizationStatus, _efd.FirstHarmonicAxisRatio);
 
