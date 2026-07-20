@@ -1,25 +1,34 @@
-﻿// Utilities/Operations/Operations.cs
-using DinoLino.Utilities.Modes;
+﻿using DinoLino.Utilities.Modes;
 using System.Collections.Generic;
 using System.Windows;
 
 namespace DinoLino.Utilities.Operations
 {
+    /// <summary>
+    /// Base type for an operation stored in undo/redo history.
+    /// Each operation keeps the visuals it created and any metadata needed to restore the mode state.
+    /// </summary>
     public abstract class WorkOperation
     {
         public string OperationKind { get; set; }
         public List<UIElement> Elements { get; set; } = new List<UIElement>();
         public WorkMode SourceMode { get; set; }
 
-        // Each concrete operation implements how to restore its metadata
+        /// <summary>
+        /// Restores the mode-specific metadata saved with this operation.
+        /// </summary>
         public abstract void ApplyMetadataToMode();
     }
-    
+
+    /// <summary>
+    /// History entry for a circular-arc measurement.
+    /// </summary>
     public class CircularArcOperation : WorkOperation
     {
         public double CentralAngle { get; set; }
         public double AspectRatio { get; set; }
         public double ChordArcRatio { get; set; }
+
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is CurvatureMode mode)
@@ -31,12 +40,16 @@ namespace DinoLino.Utilities.Operations
         }
     }
 
+    /// <summary>
+    /// History entry for a parabola measurement.
+    /// </summary>
     public class ParabolaOperation : WorkOperation
     {
         public string XYFunction { get; set; }
         public double RiseSpanRatio { get; set; }
         public double PChordArcRatio { get; set; }
         public double VertexCurvature { get; set; }
+
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is CurvatureMode mode)
@@ -49,7 +62,9 @@ namespace DinoLino.Utilities.Operations
         }
     }
 
-    // Stores metadata for n-point spline operations in CurvatureMode
+    /// <summary>
+    /// History entry for an n-point spline measurement.
+    /// </summary>
     public class SplineOperation : WorkOperation
     {
         public double TurningAngleArcRatio { get; set; }
@@ -66,6 +81,9 @@ namespace DinoLino.Utilities.Operations
         }
     }
 
+    /// <summary>
+    /// History entry for a triangle angle measurement.
+    /// </summary>
     public class GetAngleOperation : WorkOperation
     {
         public double AngleA { get; set; }
@@ -74,6 +92,7 @@ namespace DinoLino.Utilities.Operations
         public double TriAspectRatio { get; set; }
         public double TriArea { get; set; }
         public object RelativeArea { get; set; }
+
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is GetAngleMode mode)
@@ -87,11 +106,15 @@ namespace DinoLino.Utilities.Operations
         }
     }
 
+    /// <summary>
+    /// History entry for a drawn shape measurement.
+    /// </summary>
     public class ShapeOperation : WorkOperation
     {
         public double DrawAspectRatio { get; set; }
         public object RelativeArea { get; set; }
         public double ShapeArea { get; set; }
+
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is DrawMode mode)
@@ -102,10 +125,14 @@ namespace DinoLino.Utilities.Operations
         }
     }
 
+    /// <summary>
+    /// History entry for a line measurement.
+    /// </summary>
     public class LineOperation : WorkOperation
     {
         public double LineLength { get; set; }
         public object LineLengthRatio { get; set; }
+
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is DrawMode mode)
@@ -115,6 +142,9 @@ namespace DinoLino.Utilities.Operations
         }
     }
 
+    /// <summary>
+    /// History entry for outline analysis metadata.
+    /// </summary>
     public class OutlineOperation : WorkOperation
     {
         public double AspectRatio { get; set; }
@@ -123,19 +153,21 @@ namespace DinoLino.Utilities.Operations
         public double Solidity { get; set; }
         public double SumTurningAngles { get; set; }
         public double TurningAngleLength { get; set; }
-        public double[] EFDCoefficients { get; set; } // flattened: [a1,b1,c1,d1, a2,b2,c2,d2, ...]
-        public double Perimeter { get; set; }         // CANVAS-space, matching the scale calibration
-        public double Area { get; set; }              // CANVAS-space
+
+        // Flattened coefficient array: [a1, b1, c1, d1, a2, b2, c2, d2, ...].
+        public double[] EFDCoefficients { get; set; }
+
+        // Measured in canvas coordinates so the values stay aligned with scale calibration.
+        public double Perimeter { get; set; }
+        public double Area { get; set; }
 
         public bool HasMetadata { get; set; }
 
-        // Presentation strings captured at GenerateMetadata time so undo/redo
-        // restores exactly what the panel showed (rebuilding them would need
-        // the harmonic count and normalization status too).
+        // Stored text shown by the outline panel so undo/redo can restore the exact UI state.
         public string MetadataSummary { get; set; } = "";
         public string NormalizationWarning { get; set; } = "";
 
-        public override void ApplyMetadataToMode() 
+        public override void ApplyMetadataToMode()
         {
             if (SourceMode is OutlineMode mode)
             {
@@ -147,10 +179,7 @@ namespace DinoLino.Utilities.Operations
                 mode.TurningAngleLengthResult = TurningAngleLength;
                 mode.EFDCoefficientsResult = EFDCoefficients;
 
-                // BUG FIX: Perimeter/Area/HasMetadata were stamped onto the
-                // operation but never pushed back, so after undo/redo the
-                // scaled Perimeter/Area rows read 0 and the summary showed the
-                // PREVIOUS outline's text even though the numbers restored.
+                // Restore the scaled measurements and summary text only when metadata exists.
                 if (HasMetadata)
                 {
                     mode.RestoreScaledMeasurements(Perimeter, Area);

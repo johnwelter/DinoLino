@@ -1,18 +1,21 @@
 ﻿using System;
-using System.Collections.Generic;   // List<int>
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Windows.Media;          // Int32Collection
-using System.Windows.Media.Media3D;  // Point3D, Point3DCollection, MeshGeometry3D
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
 
 namespace DinoLino
 {
-    /// Minimal Wavefront OBJ mesh reader. Reads 'v' vertex positions and 'f' faces
-    /// (fan-triangulated). Texture/normal indices, materials, groups, smoothing, and
-    /// free-form geometry are ignored. Face indices may be 1-based positive or negative
-    /// (relative to the vertices seen so far), per the OBJ spec.
+    /// <summary>
+    /// Minimal Wavefront OBJ reader for WPF meshes.
+    /// Supports vertex positions and polygon faces; other OBJ features are ignored.
+    /// </summary>
     public static class ObjLoader
     {
+        /// <summary>
+        /// Loads an OBJ file into a frozen MeshGeometry3D.
+        /// </summary>
         public static MeshGeometry3D Load(string path)
         {
             var positions = new Point3DCollection();
@@ -24,7 +27,7 @@ namespace DinoLino
             while ((line = sr.ReadLine()) != null)
             {
                 int hash = line.IndexOf('#');
-                if (hash >= 0) line = line.Substring(0, hash); // strip comment
+                if (hash >= 0) line = line.Substring(0, hash);
 
                 var t = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
                 if (t.Length == 0) continue;
@@ -50,23 +53,27 @@ namespace DinoLino
             return mesh;
         }
 
-        // Parses the vertex-position index from a face token like "12", "12/3", "12//5",
-        // or "12/3/5". OBJ indices are 1-based; negative values count back from the current
-        // vertex total. Returns a 0-based index, or -1 if it can't be parsed.
+        /// <summary>
+        /// Parses the vertex index from an OBJ face token.
+        /// </summary>
         private static int ParseFaceIndex(string token, int vertexCount)
         {
             int slash = token.IndexOf('/');
             string posPart = slash >= 0 ? token.Substring(0, slash) : token;
+
             if (!int.TryParse(posPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out int idx))
                 return -1;
-            if (idx > 0) return idx - 1;           // 1-based -> 0-based
-            if (idx < 0) return vertexCount + idx; // negative = relative to end
-            return -1;                             // 0 is invalid in OBJ
+
+            if (idx > 0) return idx - 1;
+            if (idx < 0) return vertexCount + idx;
+            return -1;
         }
 
+        /// <summary>
+        /// Triangulates a polygon face using a fan from the first vertex.
+        /// </summary>
         private static void AddFace(List<int> face, Int32Collection indices)
         {
-            // Fan-triangulate polygons; triangles pass straight through.
             for (int i = 1; i + 1 < face.Count; i++)
             {
                 indices.Add(face[0]);

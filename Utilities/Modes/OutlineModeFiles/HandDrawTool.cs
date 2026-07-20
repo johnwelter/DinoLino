@@ -8,65 +8,70 @@ using DinoLino.DataTypes;
 namespace DinoLino.Utilities.Modes
 {
     /// <summary>
-    /// FREE-HAND OUTLINE tool.
-    ///
-    /// The user holds the left button and drags to lay down a stroke.
-    /// Releasing pauses the stroke (a subsequent press continues appending
-    /// from the cursor). As soon as the stroke crosses itself, the loop is
-    /// closed at the crossing point and any dangling tails before/after the
-    /// loop are discarded — so a "p" or a loop with two tails collapses to
-    /// just the enclosed object.
-    ///
-    /// Extracted verbatim from OutlineMode's hand-draw region; the tool sees
-    /// the mode only through <see cref="IOutlineToolContext"/>.
+    /// Free-hand outline tool.
     /// </summary>
     public sealed class HandDrawTool : ObservableToolBase
     {
         private readonly IOutlineToolContext _context;
+
+        /// <summary>
+        /// Stores raw stroke points in canvas space until the outline closes.
+        /// </summary>
+        private readonly List<Point> _stroke = new List<Point>();
+
+        /// <summary>
+        /// Live preview polyline shown while the stroke is open.
+        /// </summary>
+        private Polyline _previewPolyline = null;
+
+        /// <summary>
+        /// True between the first press and the final self-closing intersection.
+        /// </summary>
+        private bool _drawingActive = false;
+
+        /// <summary>
+        /// Raised when the live preview should be shown or replaced.
+        /// </summary>
+        public event Action<Polyline> PreviewReady;
+
+        /// <summary>
+        /// Raised when the live preview should be removed.
+        /// </summary>
+        public event Action<Polyline> PreviewClear;
+
+        /// <summary>
+        /// Minimum distance between accepted stroke points, in canvas pixels.
+        /// </summary>
+        private const double MinPointSpacing = 2.0;
+
+        /// <summary>
+        /// True after this tool has committed a closed outline.
+        /// </summary>
+        private bool _outlineCommitted = false;
+
+        public bool HasCommittedOutline => _outlineCommitted;
+
+        /// <summary>True while a hand-drawn stroke is open.</summary>
+        public bool IsStrokeOpen => _drawingActive;
 
         public HandDrawTool(IOutlineToolContext context)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
         }
 
-        // Raw stroke points in CANVAS space, accumulated across press/drag/release
-        // until the loop closes. Stored densely; simplified only at closure.
-        private readonly List<Point> _stroke = new List<Point>();
+        // =====================
+        // Stroke lifecycle
+        // =====================
 
-        // The live, in-progress (open) preview polyline shown while drawing.
-        private Polyline _previewPolyline = null;
-
-        // True between the first press and final closure of a hand-drawn outline.
-        private bool _drawingActive = false;
-
-        // MainWindow wires these (via the mode's forwarding events): add/remove
-        // the live preview line on the canvas.
-        public event Action<Polyline> PreviewReady;     // show/replace the open preview
-        public event Action<Polyline> PreviewClear;     // remove the given preview line
-
-        // Minimum canvas distance between consecutive accepted stroke points. Keeps the
-        // point list manageable and avoids degenerate zero-length segments that would
-        // confuse the self-intersection test.
-        private const double MinPointSpacing = 2.0;
-
-        // Dash pattern for the open (not-yet-closed) preview: the shared
-        // frozen instance in OutlineVisuals (one copy for mode + tools).
-
-        // True when an outline has been committed by this tool (used by the panel to gate
-        // "Generate Metadata"). Distinct from _drawingActive, which means "mid-stroke".
-        private bool _outlineCommitted = false;
-        public bool HasCommittedOutline => _outlineCommitted;
-
-        /// <summary>True while a stroke is open (started but not yet self-closed).</summary>
-        public bool IsStrokeOpen => _drawingActive;
-
-        /// <summary>Called on left-button DOWN while hand-draw is the active tool.</summary>
+        /// <summary>
+        /// Starts or continues a stroke on mouse down.
+        /// </summary>
         public void BeginStroke(Vector2 canvasPos)
         {
             if (!_context.IsHandDrawActive) return;
             if (!_context.HasImage) return;
 
-            // First press of a brand-new outline: start fresh and clear any prior result.
+            // First press starts a new outline session.
             if (!_drawingActive)
             {
                 _context.OnHandStrokeStarted();
@@ -79,7 +84,9 @@ namespace DinoLino.Utilities.Modes
             AppendPoint(new Point(canvasPos.X, canvasPos.Y));
         }
 
-        /// <summary>Called on mouse MOVE while the left button is held in hand-draw.</summary>
+        /// <summary>
+        /// Appends points while the left button is held down.
+        /// </summary>
         public void ProcessDrag(Vector2 canvasPos)
         {
             if (!_context.IsHandDrawActive || !_drawingActive) return;
@@ -87,16 +94,15 @@ namespace DinoLino.Utilities.Modes
         }
 
         /// <summary>
-        /// Called on left-button UP while hand-draw is active. Intentionally
-        /// does nothing beyond leaving the stroke open: a paused stroke is
-        /// resumed by the next BeginStroke, which keeps _drawingActive true
-        /// and so does NOT reset the stroke.
+        /// Leaves the stroke open so drawing can resume on the next press.
         /// </summary>
         public void EndStroke()
         {
         }
 
-        /// <summary>Discards any in-progress stroke (mode switch, reset, escape).</summary>
+        /// <summary>
+        /// Discards the current in-progress stroke.
+        /// </summary>
         public void Cancel()
         {
             _drawingActive = false;
@@ -104,15 +110,22 @@ namespace DinoLino.Utilities.Modes
             ClearPreview();
         }
 
-        /// <summary>Cancels the stroke and forgets the committed flag (mode Reset).</summary>
+        /// <summary>
+        /// Resets the tool and clears the committed-outline flag.
+        /// </summary>
         public void Reset()
         {
             Cancel();
             _outlineCommitted = false;
         }
 
-        // Adds a point to the stroke (respecting min spacing), refreshes the live preview,
-        // and tests whether the newly added segment closes the loop.
+        // =====================
+        // Point handling
+        // =====================
+
+        /// <summary>
+        /// Adds a point if it is far enough from the previous one, then tests for closure.
+        /// </summary>
         private void AppendPoint(Point p)
         {
             if (_stroke.Count > 0)
@@ -120,38 +133,50 @@ namespace DinoLino.Utilities.Modes
                 Point last = _stroke[_stroke.Count - 1];
                 double dx = p.X - last.X, dy = p.Y - last.Y;
                 if (dx * dx + dy * dy < MinPointSpacing * MinPointSpacing)
-                    return; // too close to previous point; skip
+                    return;
             }
 
             _stroke.Add(p);
 
-            // Check whether the most recent segment crosses any earlier, non-adjacent segment.
+            // A self-intersection closes the loop immediately.
             if (TryCloseLoop()) return;
 
             RefreshPreview();
         }
 
-        // Builds/updates the open preview polyline from the current stroke.
+        /// <summary>
+        /// Rebuilds the dashed preview polyline from the current stroke.
+        /// </summary>
         private void RefreshPreview()
         {
-            if (_stroke.Count < 2) { ClearPreview(); return; }
+            if (_stroke.Count < 2)
+            {
+                ClearPreview();
+                return;
+            }
 
             var line = new Polyline
             {
                 Stroke = _context.LineColor,
                 StrokeThickness = 2,
-                StrokeDashArray = OutlineVisuals.PreviewDashes, // dashed = not yet closed
+                StrokeDashArray = OutlineVisuals.PreviewDashes,
                 FillRule = FillRule.EvenOdd
             };
+
             foreach (var sp in _stroke)
                 line.Points.Add(sp);
 
             var old = _previewPolyline;
             _previewPolyline = line;
             PreviewReady?.Invoke(line);
-            if (old != null) PreviewClear?.Invoke(old);
+
+            if (old != null)
+                PreviewClear?.Invoke(old);
         }
 
+        /// <summary>
+        /// Removes the current preview polyline from the canvas.
+        /// </summary>
         private void ClearPreview()
         {
             if (_previewPolyline != null)
@@ -161,23 +186,23 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // Tests whether the LAST segment of the stroke intersects any earlier non-adjacent
-        // segment. If it does, the closed loop is extracted (the polygon between the two
-        // crossing segments, joined at the intersection point), tails are discarded, and
-        // the outline is committed exactly like an auto-generated one.
-        //
-        // Returns true if the loop was closed (and the stroke consumed), false otherwise.
+        // =====================
+        // Loop closure
+        // =====================
+
+        /// <summary>
+        /// Closes the outline when the newest segment crosses an earlier one.
+        /// </summary>
         private bool TryCloseLoop()
         {
             int n = _stroke.Count;
-            if (n < 4) return false; // need at least a few segments to self-cross
+            if (n < 4) return false;
 
-            int lastSeg = n - 2;                     // segment (n-2 -> n-1)
+            int lastSeg = n - 2; // segment (n-2 -> n-1)
             Point a1 = _stroke[lastSeg];
             Point a2 = _stroke[lastSeg + 1];
 
-            // Compare against every earlier segment except the one directly adjacent
-            // (which shares endpoint a1 and can't "cross" in a meaningful way).
+            // Skip the adjacent segment; it shares an endpoint and cannot form a valid crossing.
             for (int j = 0; j <= lastSeg - 2; j++)
             {
                 Point b1 = _stroke[j];
@@ -185,14 +210,10 @@ namespace DinoLino.Utilities.Modes
 
                 if (PolylineGeometry.TryGetSegmentIntersection(a1, a2, b1, b2, out Point hit))
                 {
-                    // The enclosed loop runs from the intersection point, along the stroke
-                    // through indices j+1 .. lastSeg, and back to the intersection point.
-                    // Everything before segment j (the leading tail) and after the last
-                    // point (the trailing tail) is discarded.
+                    // Keep only the enclosed loop and discard the tails.
                     var loop = new List<Point> { hit };
                     for (int k = j + 1; k <= lastSeg; k++)
                         loop.Add(_stroke[k]);
-                    // loop implicitly closes back to 'hit'
 
                     CommitLoop(loop);
                     return true;
@@ -202,28 +223,39 @@ namespace DinoLino.Utilities.Modes
             return false;
         }
 
-        // Finalizes a closed hand-drawn loop: simplify, validate, convert to a committed
-        // outline, and route it through the SAME commit path as an auto outline so all
-        // metadata / EFD / smooth / erase behavior is shared.
+        /// <summary>
+        /// Simplifies and commits a closed hand-drawn loop.
+        /// </summary>
         private void CommitLoop(List<Point> loopCanvas)
         {
-            // De-dup consecutive coincident points.
+            // Remove duplicate consecutive points before simplification.
             var cleaned = new List<Point>(loopCanvas.Count);
             foreach (var p in loopCanvas)
             {
-                if (cleaned.Count == 0) { cleaned.Add(p); continue; }
+                if (cleaned.Count == 0)
+                {
+                    cleaned.Add(p);
+                    continue;
+                }
+
                 Point l = cleaned[cleaned.Count - 1];
                 double dx = p.X - l.X, dy = p.Y - l.Y;
-                if (dx * dx + dy * dy >= 0.25) cleaned.Add(p);
+                if (dx * dx + dy * dy >= 0.25)
+                    cleaned.Add(p);
             }
 
-            if (cleaned.Count < 3) { Cancel(); return; }
+            if (cleaned.Count < 3)
+            {
+                Cancel();
+                return;
+            }
 
-            // Light simplification to remove hand-jitter, matching the auto outline feel.
+            // Light simplification reduces hand jitter while preserving the loop shape.
             var simplified = GeometryCalculations.DouglasPeucker(cleaned, _context.SimplifyEpsilon);
-            if (simplified.Count < 3) simplified = cleaned;
+            if (simplified.Count < 3)
+                simplified = cleaned;
 
-            // Guard: if simplification somehow self-intersected, fall back to the dense loop.
+            // If simplification creates an invalid outline, fall back to the dense loop.
             if (PolylineGeometry.HasSelfIntersection(simplified))
                 simplified = cleaned;
 
@@ -233,19 +265,19 @@ namespace DinoLino.Utilities.Modes
                 StrokeThickness = 2,
                 FillRule = FillRule.EvenOdd
             };
+
             foreach (var p in simplified)
                 poly.Points.Add(p);
-            poly.Points.Add(simplified[0]); // explicit closure
 
-            // Tear down the in-progress drawing state and the dashed preview.
+            // WPF Polyline is open by default, so repeat the first point to close it.
+            poly.Points.Add(simplified[0]);
+
             ClearPreview();
             _drawingActive = false;
             _stroke.Clear();
             _outlineCommitted = true;
 
-            // Reuse the existing commit path: sets the active polyline, snapshots for
-            // smoothing, commits an OutlineOperation, and fires OutlineReady so
-            // MainWindow draws it.
+            // Reuse the standard outline commit path so all downstream tools see the same result.
             _context.CommitOutline(poly);
         }
     }

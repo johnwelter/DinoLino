@@ -7,13 +7,17 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Shapes;
 
-
 namespace DinoLino.Utilities.Modes
 {
+    /// <summary>
+    /// Draw mode for creating constrained shapes and lines on the canvas.
+    /// </summary>
     public class DrawMode : WorkMode
     {
-        #region Shared Draw Infrastructure
-        //-----Shared Code Across Draw Operations-----//
+        // =====================
+        // Shared draw state
+        // =====================
+
         public override UserControl CreateControlPanel() => new DrawControlPanel(this);
         public override string TabName => "Draw";
         public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
@@ -33,13 +37,13 @@ namespace DinoLino.Utilities.Modes
             ShapeAreaScaledResult = ScaledPlaceholder;
         }
 
-        // method tracker
         public enum DrawMethod
         {
             None,
             Shape,
             Line
         }
+
         private DrawMethod _currentMethod = DrawMethod.None;
 
         public DrawMethod CurrentMethod
@@ -57,7 +61,7 @@ namespace DinoLino.Utilities.Modes
         public bool IsShapeSelected => CurrentMethod == DrawMethod.Shape;
         public bool IsLineSelected => CurrentMethod == DrawMethod.Line;
 
-        // Tracking drawn elements
+        // Live UI elements stay in this list until the operation is committed.
         private List<UIElement> CurrentOperation = new();
         private Vector2 _dragStart;
 
@@ -92,6 +96,7 @@ namespace DinoLino.Utilities.Modes
 
         private void FinishOperation()
         {
+            // Clear the transient state so the next draw starts cleanly.
             CurrentOperation.Clear();
             _currentShape = null;
             _currentLine = null;
@@ -100,9 +105,7 @@ namespace DinoLino.Utilities.Modes
 
         internal override void OnHistoryChanged()
         {
-            // Reset the captured reference direction once no constrained line remains in
-            // history, so the next line drawn establishes a fresh reference. (This is
-            // HandleReferenceLineUndo's logic, finally on a hook that actually runs.)
+            // Clear the stored reference direction once no constrained line remains.
             bool anyConstrainedLinesRemain = UndoRedoManager?.History
                 .OfType<LineOperation>()
                 .Any(op => op.LineLength > 0.00001) ?? false;
@@ -116,6 +119,7 @@ namespace DinoLino.Utilities.Modes
 
         public override void ResetDrawingState()
         {
+            // Reset the in-progress gesture without clearing the full mode state.
             CurrentStep = 0;
             _currentShape = null;
             _currentLine = null;
@@ -128,11 +132,15 @@ namespace DinoLino.Utilities.Modes
         public override void Reset()
         {
             base.Reset();
+
+            // Clear results shown in the UI.
             DrawAspectRatioResult = 0;
             RelativeAreaResult = "N/A";
             LineLengthRatioResult = "N/A";
             LineLengthScaledResult = ScaledPlaceholder;
             ShapeAreaScaledResult = ScaledPlaceholder;
+
+            // Clear any active drawing state.
             _currentShape = null;
             _currentLine = null;
             _dragStart = default;
@@ -142,11 +150,10 @@ namespace DinoLino.Utilities.Modes
             CurrentStep = 0;
         }
 
-        #endregion
+        // =====================
+        // Shape tools
+        // =====================
 
-        #region Shape Operations
-        //-----Shape Operation Code-----//
-        // shape type tracker
         public enum ShapeConstraint
         {
             None,
@@ -155,13 +162,11 @@ namespace DinoLino.Utilities.Modes
             Rectangle,
             Square,
         }
+
         public ShapeConstraint CurrentShape { get; set; } = ShapeConstraint.None;
 
-        // Tracking drawn elements
         private Shape _currentShape = null;
 
-        // Bindable results of shape calculations
-        // private/public pairs used to handle propagation of results to UI bindings
         private double _drawAspectRatioResult;
         private object _relativeAreaResult;
         private double _currentShapeArea = 0;
@@ -172,7 +177,6 @@ namespace DinoLino.Utilities.Modes
             get => _shapeAreaScaledResult;
             set => SetField(ref _shapeAreaScaledResult, value);
         }
-
 
         public double DrawAspectRatioResult
         {
@@ -186,7 +190,6 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _relativeAreaResult, value);
         }
 
-        // switch to shape operation
         public void SelectShape(string tag)
         {
             if (Enum.TryParse(tag, out ShapeConstraint shape))
@@ -201,6 +204,7 @@ namespace DinoLino.Utilities.Modes
             if (CurrentShape == ShapeConstraint.None || _currentShape == null)
                 return mousePos;
 
+            // Constrain size first, then reposition the shape so it grows from the anchor.
             var (width, height) = GetConstrainedShapeSize(mousePos);
             var (x, y) = GetShapePosition(mousePos, width, height);
 
@@ -223,6 +227,7 @@ namespace DinoLino.Utilities.Modes
             switch (CurrentStep)
             {
                 case 0:
+                    // First click records the anchor and creates the preview shape.
                     _dragStart = mousePos;
                     _currentShape = MakeShape(mousePos, mousePos);
                     output.Add(_currentShape);
@@ -231,6 +236,7 @@ namespace DinoLino.Utilities.Modes
                     break;
 
                 case 1:
+                    // Second click finalizes the size, computes results, and commits the operation.
                     var (width, height) = GetConstrainedShapeSize(mousePos);
 
                     CalculateAndUpdateResults(width, height);
@@ -252,8 +258,9 @@ namespace DinoLino.Utilities.Modes
             return output;
         }
 
-        private (double x, double y) GetShapePosition(Vector2 mousePos,double width,double height)
+        private (double x, double y) GetShapePosition(Vector2 mousePos, double width, double height)
         {
+            // Keep the original click as the anchor even when the pointer moves left/up.
             double x = mousePos.X >= _dragStart.X
                 ? _dragStart.X
                 : _dragStart.X - width;
@@ -267,6 +274,7 @@ namespace DinoLino.Utilities.Modes
 
         private Shape MakeShape(Vector2 start, Vector2 end)
         {
+            // Width/height are stored separately from the position so the shape can be resized live.
             double x = Math.Min(start.X, end.X);
             double y = Math.Min(start.Y, end.Y);
             double width = Math.Abs(end.X - start.X);
@@ -277,14 +285,14 @@ namespace DinoLino.Utilities.Modes
             {
                 case ShapeConstraint.Ellipse:
                 case ShapeConstraint.Circle:
-                    shape = new System.Windows.Shapes.Ellipse();
+                    shape = new Ellipse();
                     break;
                 default:
-                    shape = new System.Windows.Shapes.Rectangle();
+                    shape = new Rectangle();
                     break;
             }
 
-            shape.Stroke = this.LineColor;
+            shape.Stroke = LineColor;
             shape.StrokeThickness = 2;
             shape.Width = width;
             shape.Height = height;
@@ -293,11 +301,11 @@ namespace DinoLino.Utilities.Modes
 
             return shape;
         }
-        #endregion
 
-        #region Line Operations
-        //-----Line Operation Code-----//
-        // line type tracker
+        // =====================
+        // Line tools
+        // =====================
+
         public enum LineConstraint
         {
             None,
@@ -305,31 +313,29 @@ namespace DinoLino.Utilities.Modes
             Perpendicular,
             AngleLocked
         }
+
         public LineConstraint CurrentLineType { get; set; } = LineConstraint.None;
 
-        // Tracking drawn elements
         private Line _currentLine = null;
         private Vector2 _referenceLineDirection;
         private bool _hasReferenceLineDirection;
+
         private string _lineLengthScaledResult = "Unscaled";
         public string LineLengthScaledResult
         {
             get => _lineLengthScaledResult;
             set => SetField(ref _lineLengthScaledResult, value);
         }
+
         public double LockedAngleDegrees { get; set; } = 0;
 
-        // Bindable results of shape calculations
-        // private/public pairs used to handle propagation of results to UI bindings
         private object _lineLengthRatioResult;
-
         public object LineLengthRatioResult
         {
             get => _lineLengthRatioResult;
             set => SetField(ref _lineLengthRatioResult, value);
         }
 
-        // switch to line operation
         public void SelectLineConstraint(string tag)
         {
             if (Enum.TryParse(tag, out LineConstraint constraint))
@@ -344,6 +350,7 @@ namespace DinoLino.Utilities.Modes
             if (_currentLine == null)
                 return mousePos;
 
+            // Recompute the live endpoint each frame so the preview follows the constraint.
             Vector2 constrained = ApplyLineConstraint(_dragStart, mousePos);
 
             _currentLine.X2 = constrained.X;
@@ -355,9 +362,11 @@ namespace DinoLino.Utilities.Modes
         private List<UIElement> ProcessLineClick(Vector2 mousePos)
         {
             List<UIElement> output = new();
+
             switch (CurrentStep)
             {
                 case 0:
+                    // First click creates the preview line and stores the anchor point.
                     _dragStart = mousePos;
                     _currentLine = MakeLine(mousePos, mousePos);
                     output.Add(_currentLine);
@@ -366,6 +375,7 @@ namespace DinoLino.Utilities.Modes
                     break;
 
                 case 1:
+                    // Second click locks the endpoint, updates measurements, and commits the line.
                     Vector2 finalPoint = ApplyLineConstraint(_dragStart, mousePos);
                     _currentLine.X2 = finalPoint.X;
                     _currentLine.Y2 = finalPoint.Y;
@@ -376,11 +386,13 @@ namespace DinoLino.Utilities.Modes
                     FinishOperation();
                     break;
             }
+
             return output;
         }
 
         private void TryCaptureReferenceDirection()
         {
+            // The first constrained line defines the direction used by later parallel/perpendicular lines.
             if (CurrentLineType == LineConstraint.None || _hasReferenceLineDirection)
                 return;
 
@@ -396,6 +408,7 @@ namespace DinoLino.Utilities.Modes
 
         private void CommitLine()
         {
+            // Measure the final line in canvas pixels before converting to calibrated units.
             double dx = _currentLine.X2 - _currentLine.X1;
             double dy = _currentLine.Y2 - _currentLine.Y1;
             double length = Math.Sqrt(dx * dx + dy * dy);
@@ -404,6 +417,7 @@ namespace DinoLino.Utilities.Modes
                 ? $"{Scale.ToUnits(length):F2} {Scale.Unit}"
                 : "Unscaled";
 
+            // Compare against the previous measured line, if one exists.
             var prev = FindPreviousLine(0);
             LineLengthRatioResult = GeometryCalculations.RelativeLength(length, prev?.LineLength ?? 0);
 
@@ -417,7 +431,6 @@ namespace DinoLino.Utilities.Modes
             });
         }
 
-        // Helper function to find the most recent line operation in history for line length ratio calculations
         private LineOperation FindPreviousLine(int skipLast)
         {
             var prev = UndoRedoManager.History
@@ -429,7 +442,6 @@ namespace DinoLino.Utilities.Modes
             return prev;
         }
 
-        // Helper function
         private Vector2 ApplyLineConstraint(Vector2 start, Vector2 mousePos)
         {
             if (CurrentLineType == LineConstraint.None || !_hasReferenceLineDirection)
@@ -438,26 +450,31 @@ namespace DinoLino.Utilities.Modes
             if (CurrentLineType == LineConstraint.AngleLocked)
                 return ConstrainToAngle(start, mousePos, LockedAngleDegrees);
 
+            // Parallel uses the captured direction; perpendicular rotates that direction by 90°.
             Vector2 constrainDir = CurrentLineType == LineConstraint.Parallel
                 ? _referenceLineDirection
                 : new Vector2(-_referenceLineDirection.Y, _referenceLineDirection.X);
 
             Vector2 toMouse = mousePos - start;
             double magnitude = (toMouse.X * constrainDir.X) + (toMouse.Y * constrainDir.Y);
+
+            // Project the mouse vector onto the constraint direction.
             return new Vector2(start.X + constrainDir.X * magnitude, start.Y + constrainDir.Y * magnitude);
         }
 
-        // Helper function
         private (double width, double height) GetConstrainedShapeSize(Vector2 mousePos)
         {
+            // Measure raw size from the anchor point.
             double rawW = Math.Abs(mousePos.X - _dragStart.X);
             double rawH = Math.Abs(mousePos.Y - _dragStart.Y);
 
+            // Squares/circles lock both dimensions to the larger drag distance.
             if (CurrentShape == ShapeConstraint.Square || CurrentShape == ShapeConstraint.Circle)
             {
                 double size = Math.Max(rawW, rawH);
                 return (size, size);
             }
+
             return (rawW, rawH);
         }
 
@@ -465,18 +482,18 @@ namespace DinoLino.Utilities.Modes
         {
             if (double.TryParse(textInput, out double val))
             {
-                this.LockedAngleDegrees = val;
+                LockedAngleDegrees = val;
             }
             else
             {
-                // If the user clears the box or types nonsense, 
-                // we set it to 0 to trigger our safeguards.
-                this.LockedAngleDegrees = 0;
+                // Invalid input disables the explicit angle lock until the user enters a number again.
+                LockedAngleDegrees = 0;
             }
         }
 
         private Vector2 ConstrainToAngle(Vector2 origin, Vector2 mousePos, double angleDegrees)
         {
+            // Start from the reference line direction, then add the user-specified offset.
             double baseAngleRadians = Math.Atan2(_referenceLineDirection.Y, _referenceLineDirection.X);
             double lockedRadians = baseAngleRadians + angleDegrees * Math.PI / 180.0;
 
@@ -484,19 +501,21 @@ namespace DinoLino.Utilities.Modes
             Vector2 toMouse = mousePos - origin;
             double magnitude = (toMouse.X * direction.X) + (toMouse.Y * direction.Y);
 
+            // Project onto the rotated direction to keep the line at the requested angle.
             return new Vector2(origin.X + direction.X * magnitude, origin.Y + direction.Y * magnitude);
         }
 
-        
+        // =====================
+        // Results and tips
+        // =====================
 
-        #endregion
-
-        #region Results
         private void CalculateAndUpdateResults(double width, double height)
         {
+            // Use ellipse math for round shapes and rectangle math for box shapes.
             double area = (CurrentShape == ShapeConstraint.Ellipse || CurrentShape == ShapeConstraint.Circle)
                 ? GeometryCalculations.EllipseArea(width, height)
                 : GeometryCalculations.RectangleArea(width, height);
+
             _currentShapeArea = area;
             DrawAspectRatioResult = height > 1e-5 ? Math.Round(width / height, 2) : 0;
 
@@ -504,6 +523,7 @@ namespace DinoLino.Utilities.Modes
                 ? $"{Scale.ToUnitsArea(area):F2} {Scale.Unit}²"
                 : "Unscaled";
 
+            // Relative area compares the new shape against the most recent shape in history.
             var prev = UndoRedoManager.History
                 .OfType<ShapeOperation>()
                 .LastOrDefault();
@@ -517,31 +537,33 @@ namespace DinoLino.Utilities.Modes
             if (IsShapeSelected)
                 return new[]
                 {
-            "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
-            "💡 Aspect ratio is the horizontal length of the shape divided by its maximum height.",
-            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-            "💡 Zoom in or out using the scroll wheel.",
-            "💡 Press 'Ctrl' and left click to drag the image.",
-            "💡 The user guide and software information can be found in the Help menu.",
-            "💡 Toggle tip visibility in the View menu."
-        };
+                    "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
+                    "💡 Aspect ratio is the horizontal length of the shape divided by its maximum height.",
+                    "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+                    "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
+                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
+                    "💡 Zoom in or out using the scroll wheel.",
+                    "💡 Press 'Ctrl' and left click to drag the image.",
+                    "💡 The user guide and software information can be found in the Help menu.",
+                    "💡 Toggle tip visibility in the View menu."
+                };
+
             if (IsLineSelected)
                 return new[]
                 {
-            "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
-            "💡 Line ratio is the length of the most recently drawn line (Line n) divided by the length of the line drawn before it (Line n-1).",
-            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-            "💡 Zoom in or out using the scroll wheel.",
-            "💡 Press 'Ctrl' and left click to drag the image.",
-            "💡 The user guide and software information can be found in the Help menu.",
-            "💡 Toggle tip visibility in the View menu."
-        };
+                    "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
+                    "💡 Line ratio is the length of the most recently drawn line (Line n) divided by the length of the line drawn before it (Line n-1).",
+                    "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
+                    "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
+                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
+                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
+                    "💡 Zoom in or out using the scroll wheel.",
+                    "💡 Press 'Ctrl' and left click to drag the image.",
+                    "💡 The user guide and software information can be found in the Help menu.",
+                    "💡 Toggle tip visibility in the View menu."
+                };
+
             return new[]
             {
                 "💡 Select a drawing method to begin.",
@@ -552,6 +574,5 @@ namespace DinoLino.Utilities.Modes
                 "💡 Toggle tip visibility in the View menu."
             };
         }
-        #endregion
     }
 }

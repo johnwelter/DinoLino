@@ -9,67 +9,25 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 namespace DinoLino.Utilities
 {
     /// <summary>
-    /// Per-image output of the SAM image encoder, plus the geometry needed to
-    /// map click coordinates into the model frame. Immutable after creation —
-    /// safe to share read-only across concurrent click operations, exactly
-    /// like the other per-image caches in OutlineMode.ImageAnalysis.
+    /// Per-image SAM encoder output and the geometry needed to map clicks into model space.
     /// </summary>
     internal sealed class SamImageState
     {
         public DenseTensor<float> Embedding;
-        public int Width;    // original image size
+        public int Width;
         public int Height;
-        public float Scale;  // original → model frame (long side = SamSegmenter input size)
+        public float Scale;
     }
 
     /// <summary>
-    /// Click-prompted neural segmentation via ONNX Runtime (MobileSAM /
-    /// EfficientSAM / SAM-class models).
-    ///
-    /// DEPLOYMENT: drop TWO .onnx files into a "Models" folder beside the
-    /// executable — the image encoder (filename containing "encoder", e.g.
-    /// mobile_sam_encoder.onnx) and the prompt/mask decoder (any other .onnx,
-    /// e.g. mobile_sam.onnx). No settings, no UI: if the files are present and
-    /// load, the neural candidate runs; if not, <see cref="Shared"/> is null
-    /// and the classical pipeline runs exactly as before. Loading never throws
-    /// past this class.
-    ///
-    /// MODEL CONTRACT: targets the standard segment-anything / MobileSAM ONNX
-    /// exports —
-    ///  * decoder from scripts/export_onnx_model.py, inputs image_embeddings,
-    ///    point_coords, point_labels, mask_input, has_mask_input, orig_im_size;
-    ///    outputs masks (logits, resized in-graph to orig_im_size) and
-    ///    iou_predictions. Input/output names are resolved by substring so
-    ///    minor export variations still bind; mask_input / has_mask_input /
-    ///    orig_im_size are optional (a trimmed export without orig_im_size
-    ///    falls back to the 256×256 low-res grid path below).
-    ///  * encoder taking the longest-side-1024 resized image. NCHW
-    ///    [1,3,1024,1024] is the primary layout; NHWC and HWC are detected
-    ///    from the input metadata and handled. SAM-standard normalization
-    ///    (mean/std below) is applied HERE — set NormalizeEncoderInput to
-    ///    false if your particular export embeds normalization in the graph
-    ///    (symptom: garbage masks everywhere with a correctly loading model).
-    ///
-    /// THREADING: EncodeImage runs once per image on the analysis worker;
-    /// Segment runs on click workers and is serialized by an internal lock —
-    /// decodes are tens of milliseconds, so serialization is cheaper than
-    /// reasoning about concurrent Run() calls sharing one embedding tensor.
+    /// Click-prompted segmentation using a SAM-style ONNX encoder/decoder pair.
     /// </summary>
     internal sealed class SamSegmenter : IDisposable
     {
         private const int InputSize = 1024;
-        // SEED value only: the constructor CALIBRATES the correct mode against
-        // a synthetic test image and overrides this (see CalibrateNormalization),
-        // so exports that embed preprocessing in the graph and exports that
-        // expect SAM-normalized input both work without editing code. Kept as
-        // the fallback when calibration itself fails.
         private const bool NormalizeEncoderInput = false;
-        private static readonly float[] PixelMean = { 123.675f, 116.28f, 103.53f }; // RGB, SAM standard
+        private static readonly float[] PixelMean = { 123.675f, 116.28f, 103.53f };
         private static readonly float[] PixelStd = { 58.395f, 57.12f, 57.375f };
-
-        // Cap for the in-graph mask resize: beyond this the graph would
-        // materialize several full-resolution float mask planes (12 MP × 4
-        // masks × 4 bytes ≈ 190 MB per click); we resize the remainder here.
         private const int MaxDecodeSide = 2048;
 
         private readonly InferenceSession _encoder;
@@ -79,24 +37,21 @@ namespace DinoLino.Utilities
         private readonly string _decEmbedName;
         private readonly string _decCoordsName;
         private readonly string _decLabelsName;
-        private readonly string _decMaskName;     // optional
-        private readonly string _decHasMaskName;  // optional
-        private readonly string _decSizeName;     // optional
+        private readonly string _decMaskName;
+        private readonly string _decHasMaskName;
+        private readonly string _decSizeName;
         private readonly object _decodeLock = new object();
-        private bool _normalize = NormalizeEncoderInput; // resolved by CalibrateNormalization
+        private bool _normalize = NormalizeEncoderInput;
 
         // =====================
-        // SINGLETON
+        // Singleton access
         // =====================
         private static readonly object InitLock = new object();
         private static bool _initTried;
         private static SamSegmenter _shared;
 
         /// <summary>
-        /// Lazily loads models from "&lt;exe dir&gt;\Models" (falling back to the
-        /// exe directory itself). Null when no usable models are found — the
-        /// caller treats that as "feature not installed" and runs the
-        /// classical pipeline alone.
+        /// Loads the first usable encoder/decoder pair from the application folder or Models folder.
         /// </summary>
         internal static SamSegmenter Shared
         {
@@ -119,16 +74,14 @@ namespace DinoLino.Utilities
         }
 
         /// <summary>
-        /// Attempts to load an encoder/decoder pair from the directory.
-        /// Encoder = first *.onnx whose name contains "encoder"; decoder = the
-        /// first other *.onnx (preferring names containing "decoder").
-        /// Returns null — never throws — on any failure.
+        /// Attempts to load a matching encoder/decoder pair from the given folder.
         /// </summary>
         internal static SamSegmenter TryCreate(string modelDirectory)
         {
             try
             {
                 if (string.IsNullOrEmpty(modelDirectory) || !Directory.Exists(modelDirectory)) return null;
+
                 var onnx = Directory.GetFiles(modelDirectory, "*.onnx");
                 if (onnx.Length < 2) return null;
 
@@ -142,6 +95,7 @@ namespace DinoLino.Utilities
                     ?? onnx.FirstOrDefault(f =>
                         !string.Equals(f, encoderPath, StringComparison.OrdinalIgnoreCase) &&
                         Path.GetFileName(f).IndexOf("encoder", StringComparison.OrdinalIgnoreCase) < 0);
+
                 if (decoderPath == null) return null;
 
                 return new SamSegmenter(encoderPath, decoderPath);
@@ -162,6 +116,7 @@ namespace DinoLino.Utilities
             _encInputName = encIn.Key;
             _encInputDims = encIn.Value.Dimensions ?? Array.Empty<int>();
 
+            // Resolve decoder inputs by substring so common export variants still bind.
             string FindInput(string needle)
             {
                 foreach (var k in _decoder.InputMetadata.Keys)
@@ -180,11 +135,8 @@ namespace DinoLino.Utilities
 
             if (_decEmbedName == null || _decCoordsName == null || _decLabelsName == null)
                 throw new InvalidOperationException(
-                    "decoder inputs not recognized — expected the official SAM ONNX export contract " +
-                    "(image_embeddings / point_coords / point_labels)");
+                    "decoder inputs not recognized — expected the official SAM ONNX export contract");
 
-            // Contract dump: one glance at the Output window now answers every
-            // "which export flavor is this?" question.
             System.Diagnostics.Debug.WriteLine(
                 $"[sam] encoder input '{_encInputName}' dims=[{string.Join(",", _encInputDims)}]");
             System.Diagnostics.Debug.WriteLine(
@@ -192,7 +144,10 @@ namespace DinoLino.Utilities
             System.Diagnostics.Debug.WriteLine(
                 $"[sam] decoder outputs: {string.Join(", ", _decoder.OutputMetadata.Keys)}");
 
-            try { CalibrateNormalization(); }
+            try
+            {
+                CalibrateNormalization();
+            }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
@@ -200,19 +155,17 @@ namespace DinoLino.Utilities
             }
         }
 
+        // =====================
+        // Encoder calibration
+        // =====================
+
         /// <summary>
-        /// Settles the encoder-normalization question empirically instead of by
-        /// configuration: encodes a synthetic scene (a colored square on a
-        /// contrasting background) once with SAM normalization and once with
-        /// raw 0–255 input, decodes a center-click for each, and keeps the mode
-        /// whose mask best matches the known square. Runs once at model load
-        /// (~2 extra encoder passes, hidden inside the first image's async
-        /// analysis). Deterministic — no randomness.
+        /// Chooses the correct encoder normalization mode by testing both against a synthetic target.
         /// </summary>
         private void CalibrateNormalization()
         {
             const int S = 512;
-            const int lo = 160, hi = 352; // square occupies [lo, hi) in both axes
+            const int lo = 160, hi = 352;
 
             var pixels = new byte[S * S * 4];
             for (int y = 0; y < S; y++)
@@ -220,11 +173,9 @@ namespace DinoLino.Utilities
                 {
                     int i = (y * S + x) * 4;
                     bool inSquare = x >= lo && x < hi && y >= lo && y < hi;
-                    // BGRA: bluish-gray background, reddish square — differs in
-                    // both luminance and chroma so either failure mode shows.
-                    pixels[i] = inSquare ? (byte)60 : (byte)140;      // B
-                    pixels[i + 1] = inSquare ? (byte)90 : (byte)120;  // G
-                    pixels[i + 2] = inSquare ? (byte)200 : (byte)110; // R
+                    pixels[i] = inSquare ? (byte)60 : (byte)140;
+                    pixels[i + 1] = inSquare ? (byte)90 : (byte)120;
+                    pixels[i + 2] = inSquare ? (byte)200 : (byte)110;
                     pixels[i + 3] = 255;
                 }
 
@@ -234,6 +185,7 @@ namespace DinoLino.Utilities
                 var state = EncodeImage(pixels, S, S, S * 4, 4);
                 bool[] mask = Segment(state, new[] { (S / 2, S / 2, true) }, S, S, CancellationToken.None);
                 if (mask == null) return 0;
+
                 long inter = 0, union = 0;
                 for (int y = 0; y < S; y++)
                     for (int x = 0; x < S; x++)
@@ -243,6 +195,7 @@ namespace DinoLino.Utilities
                         if (truth && m) inter++;
                         if (truth || m) union++;
                     }
+
                 return union == 0 ? 0 : (double)inter / union;
             }
 
@@ -253,22 +206,27 @@ namespace DinoLino.Utilities
             string note = Math.Max(iouNormalized, iouRaw) < 0.5
                 ? " (LOW CONFIDENCE — check that the encoder/decoder pair matches)"
                 : "";
+
             System.Diagnostics.Debug.WriteLine(
                 $"[sam] normalization calibration: normalized={iouNormalized:F2}, raw={iouRaw:F2} → " +
                 $"using {(_normalize ? "SAM-normalized" : "raw 0-255")} encoder input{note}");
         }
 
         // =====================
-        // ENCODE (once per image)
+        // Image encoding
         // =====================
+
+        /// <summary>
+        /// Encodes one image into a reusable embedding tensor.
+        /// </summary>
         internal SamImageState EncodeImage(byte[] pixels, int w, int h, int stride, int bpp)
         {
+            // Keep the aspect ratio and map the long side to the model input square.
             float scale = (float)InputSize / Math.Max(w, h);
             int rw = Math.Max(1, (int)Math.Round(w * scale));
             int rh = Math.Max(1, (int)Math.Round(h * scale));
 
-            // Resolve layout from the encoder's input metadata; dynamic (-1)
-            // dims fall through to the official NCHW layout.
+            // Detect the encoder's expected layout from metadata.
             var d = _encInputDims;
             bool nchw = d.Length == 4 && d[1] == 3;
             bool nhwc = d.Length == 4 && d[3] == 3;
@@ -280,9 +238,7 @@ namespace DinoLino.Utilities
                 nhwc ? new DenseTensor<float>(new[] { 1, InputSize, InputSize, 3 }) :
                        new DenseTensor<float>(new[] { InputSize, InputSize, 3 });
 
-            // Bilinear resize into RGB float with SAM normalization. Padding
-            // beyond (rw, rh) stays 0, matching SAM's preprocess, which pads
-            // with zeros AFTER normalization.
+            // Resize into the model's square input and apply SAM normalization if enabled.
             for (int y = 0; y < rh; y++)
             {
                 float sy = (y + 0.5f) / scale - 0.5f;
@@ -303,23 +259,17 @@ namespace DinoLino.Utilities
             using (var results = _encoder.Run(new[] { NamedOnnxValue.CreateFromTensor(_encInputName, input) }))
             {
                 var emb = results.First().AsTensor<float>();
-                // Copy out — the result collection is disposed with this scope,
-                // but the embedding must live for the image's whole lifetime.
                 var copy = new DenseTensor<float>(emb.ToArray(), emb.Dimensions.ToArray());
                 return new SamImageState { Embedding = copy, Width = w, Height = h, Scale = scale };
             }
         }
 
         // =====================
-        // DECODE (per click)
+        // Prompt decoding
         // =====================
+
         /// <summary>
-        /// Runs the prompt decoder with the given click points (positive =
-        /// "this is the object", negative = "this is not") and returns a
-        /// full-image boolean mask, or null when it cannot produce one. The
-        /// best of the model's candidate masks is chosen by its own predicted
-        /// IoU; the caller's ScoreMask/size-veto arbitration then judges it
-        /// against the classical candidates like any other.
+        /// Runs the decoder for the supplied click prompts and returns a full-size mask.
         /// </summary>
         internal bool[] Segment(SamImageState state, IReadOnlyList<(int x, int y, bool positive)> points,
             int imageWidth, int imageHeight, CancellationToken token)
@@ -327,21 +277,20 @@ namespace DinoLino.Utilities
             if (state == null || points == null || points.Count == 0) return null;
             token.ThrowIfCancellationRequested();
 
-            // Point prompts in the model frame, plus the (0,0) / label -1
-            // padding point the official export was traced with.
+            // Add one padding prompt to match the common SAM export contract.
             int n = points.Count;
             var coords = new DenseTensor<float>(new[] { 1, n + 1, 2 });
             var labels = new DenseTensor<float>(new[] { 1, n + 1 });
             for (int i = 0; i < n; i++)
             {
+                // Map image-space clicks into the resized model frame.
                 coords[0, i, 0] = points[i].x * state.Scale;
                 coords[0, i, 1] = points[i].y * state.Scale;
                 labels[0, i] = points[i].positive ? 1f : 0f;
             }
-            labels[0, n] = -1f; // padding point; coords default to (0,0)
+            labels[0, n] = -1f;
 
-            // Cap the in-graph resize target for very large images; the
-            // remaining upsample happens here.
+            // Limit in-graph upsampling for large images to keep memory usage bounded.
             int tw = imageWidth, th = imageHeight;
             if (Math.Max(tw, th) > MaxDecodeSide)
             {
@@ -356,12 +305,15 @@ namespace DinoLino.Utilities
                 NamedOnnxValue.CreateFromTensor(_decCoordsName, coords),
                 NamedOnnxValue.CreateFromTensor(_decLabelsName, labels)
             };
+
             if (_decMaskName != null)
                 inputs.Add(NamedOnnxValue.CreateFromTensor(_decMaskName,
                     new DenseTensor<float>(new[] { 1, 1, 256, 256 })));
+
             if (_decHasMaskName != null)
                 inputs.Add(NamedOnnxValue.CreateFromTensor(_decHasMaskName,
                     new DenseTensor<float>(new[] { 1 })));
+
             bool usedSizeInput = _decSizeName != null;
             if (usedSizeInput)
             {
@@ -374,6 +326,7 @@ namespace DinoLino.Utilities
             float[] maskData;
             int[] maskDims;
             float[] iou = null;
+
             lock (_decodeLock)
             {
                 using (var results = _decoder.Run(inputs))
@@ -382,6 +335,7 @@ namespace DinoLino.Utilities
                             r.Name.IndexOf("mask", StringComparison.OrdinalIgnoreCase) >= 0 &&
                             r.Name.IndexOf("low", StringComparison.OrdinalIgnoreCase) < 0)
                         ?? results.First();
+
                     var mt = masksOut.AsTensor<float>();
                     maskDims = mt.Dimensions.ToArray();
                     maskData = mt.ToArray();
@@ -391,6 +345,7 @@ namespace DinoLino.Utilities
                     if (iouOut != null) iou = iouOut.AsTensor<float>().ToArray();
                 }
             }
+
             token.ThrowIfCancellationRequested();
 
             if (maskDims.Length < 2) return null;
@@ -400,20 +355,16 @@ namespace DinoLino.Utilities
             if (mh <= 1 || mw <= 1) return null;
 
             int bestMask = 0;
+            // Choose the candidate with the highest model-predicted IoU.
             if (iou != null)
                 for (int i = 1; i < Math.Min(mCount, iou.Length); i++)
                     if (iou[i] > iou[bestMask]) bestMask = i;
+
             long offsetL = (long)bestMask * mh * mw;
             if (offsetL + (long)mh * mw > maskData.Length) return null;
             int offset = (int)offsetL;
 
-            // Two post-map paths:
-            //  (a) the export took orig_im_size — logits arrive at (th, tw);
-            //      threshold > 0, then nearest-upsample any capped remainder;
-            //  (b) no size input — logits are the low-res grid over the padded
-            //      model square; bilinear-sample the LOGITS per output pixel
-            //      (far cleaner edges than nearest on a 256 grid), then
-            //      threshold.
+            // Graph path: the decoder already produced mask logits at the requested output size.
             bool[] resultMask;
             string path;
             if (usedSizeInput && mh == th && mw == tw)
@@ -421,6 +372,7 @@ namespace DinoLino.Utilities
                 var atTarget = new bool[tw * th];
                 for (int i = 0; i < atTarget.Length; i++)
                     atTarget[i] = maskData[offset + i] > 0f;
+
                 resultMask = (tw == imageWidth && th == imageHeight)
                     ? atTarget
                     : ResizeMaskNearest(atTarget, tw, th, imageWidth, imageHeight);
@@ -428,18 +380,17 @@ namespace DinoLino.Utilities
             }
             else
             {
+                // Grid path: sample the low-res logits over the full image, then threshold at 0.
                 resultMask = MaskFromModelGrid(maskData, offset, mw, mh, state, imageWidth, imageHeight);
                 path = "grid";
             }
 
-            // Per-decode telemetry: the model's own confidence for EVERY
-            // candidate mask, which one was taken, the raw output geometry,
-            // and the final area — enough to tell a confident-but-mispicked
-            // part from a genuinely degraded embedding at a glance.
             int areaPx = 0;
             for (int i = 0; i < resultMask.Length; i++) if (resultMask[i]) areaPx++;
+
             string iouStr = iou == null ? "n/a"
                 : string.Join(",", iou.Take(mCount).Select(v => v.ToString("F2")));
+
             System.Diagnostics.Debug.WriteLine(
                 $"[sam] decode: masks={mCount} pick={bestMask} iou=[{iouStr}] out={mh}x{mw} " +
                 $"path={path} area={100.0 * areaPx / resultMask.Length:F1}%");
@@ -448,27 +399,33 @@ namespace DinoLino.Utilities
         }
 
         // =====================
-        // HELPERS
+        // Tensor helpers
         // =====================
+
         private static float ReadChannel(byte[] pixels, int stride, int bpp, int x, int y, int c)
         {
             int i = y * stride + x * bpp;
             if (bpp == 1) return pixels[i];
-            return c == 0 ? pixels[i + 2] : c == 1 ? pixels[i + 1] : pixels[i]; // BGRA source, RGB out
+            return c == 0 ? pixels[i + 2] : c == 1 ? pixels[i + 1] : pixels[i];
         }
 
         private static float SampleBilinear(byte[] pixels, int stride, int bpp, int w, int h,
             float fx, float fy, int c)
         {
+            // Clamp sample coordinates so interpolation stays inside the image bounds.
             if (fx < 0) fx = 0; else if (fx > w - 1) fx = w - 1;
             if (fy < 0) fy = 0; else if (fy > h - 1) fy = h - 1;
+
             int x0 = (int)fx, y0 = (int)fy;
             int x1 = Math.Min(w - 1, x0 + 1), y1 = Math.Min(h - 1, y0 + 1);
             float tx = fx - x0, ty = fy - y0;
+
             float v00 = ReadChannel(pixels, stride, bpp, x0, y0, c);
             float v10 = ReadChannel(pixels, stride, bpp, x1, y0, c);
             float v01 = ReadChannel(pixels, stride, bpp, x0, y1, c);
             float v11 = ReadChannel(pixels, stride, bpp, x1, y1, c);
+
+            // Blend the four surrounding pixels using horizontal and vertical weights.
             return v00 * (1 - tx) * (1 - ty) + v10 * tx * (1 - ty)
                  + v01 * (1 - tx) * ty + v11 * tx * ty;
         }
@@ -486,37 +443,45 @@ namespace DinoLino.Utilities
             return dst;
         }
 
-        // The low-res mask grid covers the PADDED model square (InputSize²)
-        // at (mw × mh); map each full-resolution pixel into that grid and
-        // bilinear-sample the logits, thresholding at 0.
+        /// <summary>
+        /// Samples the model-grid logits over the output image and thresholds at zero.
+        /// </summary>
         private static bool[] MaskFromModelGrid(float[] logits, int offset, int mw, int mh,
             SamImageState state, int outW, int outH)
         {
             var result = new bool[outW * outH];
             float gx = state.Scale * mw / InputSize;
             float gy = state.Scale * mh / InputSize;
+
             for (int y = 0; y < outH; y++)
             {
                 float fy = (y + 0.5f) * gy - 0.5f;
                 if (fy < 0) fy = 0; else if (fy > mh - 1) fy = mh - 1;
+
                 int y0 = (int)fy, y1 = Math.Min(mh - 1, y0 + 1);
                 float ty = fy - y0;
                 int row = y * outW;
+
                 for (int x = 0; x < outW; x++)
                 {
                     float fx = (x + 0.5f) * gx - 0.5f;
                     if (fx < 0) fx = 0; else if (fx > mw - 1) fx = mw - 1;
+
                     int x0 = (int)fx, x1 = Math.Min(mw - 1, x0 + 1);
                     float tx = fx - x0;
+
                     float v00 = logits[offset + y0 * mw + x0];
                     float v10 = logits[offset + y0 * mw + x1];
                     float v01 = logits[offset + y1 * mw + x0];
                     float v11 = logits[offset + y1 * mw + x1];
+
                     float v = v00 * (1 - tx) * (1 - ty) + v10 * tx * (1 - ty)
                             + v01 * (1 - tx) * ty + v11 * tx * ty;
+
                     result[row + x] = v > 0f;
                 }
             }
+
             return result;
         }
 

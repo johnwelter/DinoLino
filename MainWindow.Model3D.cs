@@ -8,12 +8,14 @@ using System.Windows.Media.Media3D;
 
 namespace DinoLino
 {
-    // The 3D model workflow: async loading, the pose overlay, drag/wheel/keyboard
-    // rotation, fine-tune controls, capture to a 2D working image, and repositioning.
-    // Split from MainWindow.xaml.cs; no logic changes.
+    /// <summary>
+    /// Handles loading, posing, capturing, and re-posing 3D models.
+    /// </summary>
     public partial class MainWindow
     {
-
+        // =====================
+        // 3D pose state
+        // =====================
 
         private GeometryModel3D _poseModel;
         private QuaternionRotation3D _modelRotation;
@@ -22,25 +24,25 @@ namespace DinoLino
         private Point _lastPosePoint;
         private bool _rotatingModel;
 
-        // 3D pose fine-tuning: exact-degree rotation + preset views over the live transform.
+        // Fine-tune overlay controls for exact-angle rotation and preset views.
         private ModelPoseController _poseController;
         private System.Windows.Controls.TextBox _poseStepBox;
         private System.Windows.Controls.Border _poseFineControls;
 
-        // Mesh + orientation retained after a capture so the same model can be re-posed later
-        // via "Reposition 3D Object". Committed only on a successful capture, so cancelling a
-        // freshly opened model doesn't overwrite the model behind the current captured view.
+        // Captured model state kept so the same specimen can be re-posed later.
         private MeshGeometry3D _activeMesh;
         private string _activeModelName;
         private Quaternion _lastModelQuaternion = Quaternion.Identity;
 
-        // True when the current working image is a captured view of a 3D model (so it can be
-        // re-posed); false for ordinary 2D images, which have nothing to rotate.
+        // True when the workspace image is a captured 3D view rather than a native 2D image.
         private bool _workingImageIsModelCapture;
 
-        // True while the pose overlay is open as a reposition (vs. a fresh open). A reposition
-        // re-captures the SAME specimen from a new angle, so it must not advance the specimen.
+        // True while the pose overlay is being used to re-capture an existing specimen.
         private bool _isRepositioning;
+
+        // =====================
+        // Model loading
+        // =====================
 
         private async void Menu_Open3DModel(object sender, RoutedEventArgs e)
         {
@@ -52,25 +54,23 @@ namespace DinoLino
                          "STL mesh (*.stl)|*.stl|" +
                          "OBJ mesh (*.obj)|*.obj"
             };
+
             if (dlg.ShowDialog() != true) return;
 
             string fileName = dlg.FileName;
-
             MeshGeometry3D mesh = null;
+
             Mouse.OverrideCursor = Cursors.Wait;
             try
             {
-                // MeshGeometry3D is Freezable: the loaders freeze it before returning,
-                // so it can be built on a worker thread and then used from the UI
-                // thread. Parsing + welding + decimation all happen off-thread; the UI
-                // stays responsive with a wait cursor instead of freezing.
+                // Load and simplify off the UI thread; MeshGeometry3D is frozen before return.
                 mesh = await System.Threading.Tasks.Task.Run(() => MeshLoader.Load(fileName));
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Could not read the 3D model:\n{ex.Message}", "Open 3D Model",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;   // finally still restores the cursor
+                return;
             }
             finally
             {
@@ -84,8 +84,7 @@ namespace DinoLino
                 return;
             }
 
-            // Fresh model: start at the front (identity) and treat a resulting capture as a new
-            // specimen. The committed reposition state isn't touched until an actual capture.
+            // Fresh open starts at the default front view and counts as a new specimen if captured.
             ShowModelPoseOverlay(mesh, System.IO.Path.GetFileNameWithoutExtension(fileName),
                                  Quaternion.Identity, isReposition: false);
         }
@@ -94,23 +93,26 @@ namespace DinoLino
         {
             if (_activeMesh == null)
             {
-                MessageBox.Show("Open and capture a 3D model (.ply) first, then you can reposition it.",
+                MessageBox.Show("Open and capture a 3D model first, then you can reposition it.",
                     "No 3D Model", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            // Re-open the posing overlay on the same mesh, resuming from the orientation the last
-            // capture was taken at so the object doesn't snap back to the front. isReposition:true
-            // keeps a re-capture on the same specimen.
+            // Resume from the last captured orientation so the model does not snap back to front.
             ShowModelPoseOverlay(_activeMesh, _activeModelName, _lastModelQuaternion, isReposition: true);
         }
+
+        // =====================
+        // Pose overlay
+        // =====================
 
         private void ShowModelPoseOverlay(MeshGeometry3D mesh, string name,
             Quaternion initialRotation, bool isReposition)
         {
             _isRepositioning = isReposition;
 
-            if (_poseModel != null) UI_ModelGroup.Children.Remove(_poseModel);
+            if (_poseModel != null)
+                UI_ModelGroup.Children.Remove(_poseModel);
 
             var b = mesh.Bounds;
             var center = new Point3D(b.X + b.SizeX / 2, b.Y + b.SizeY / 2, b.Z + b.SizeZ / 2);
@@ -125,10 +127,10 @@ namespace DinoLino
             BuildPoseFineTuneControls();
 
             var tg = new Transform3DGroup();
-            tg.Children.Add(new TranslateTransform3D(-center.X, -center.Y, -center.Z)); // spin about its own center
+            tg.Children.Add(new TranslateTransform3D(-center.X, -center.Y, -center.Z)); // Rotate around model center.
             tg.Children.Add(new RotateTransform3D(_modelRotation));
 
-            // BackMaterial: PLY winding conventions vary, so light both sides of every face.
+            // Light both sides because mesh winding can vary across file formats.
             _poseModel = new GeometryModel3D(mesh, mat) { BackMaterial = mat, Transform = tg };
             UI_ModelGroup.Children.Add(_poseModel);
 
@@ -140,9 +142,13 @@ namespace DinoLino
             _pendingModelName = name;
             UI_ModelPoseOverlay.Visibility = Visibility.Visible;
 
-            PreviewKeyDown -= ModelPose_PreviewKeyDown;   // guard against double-subscribe
+            PreviewKeyDown -= ModelPose_PreviewKeyDown; // Prevent double-subscription when reopening the overlay.
             PreviewKeyDown += ModelPose_PreviewKeyDown;
         }
+
+        // =====================
+        // Mouse input
+        // =====================
 
         private void ModelPose_MouseDown(object sender, MouseButtonEventArgs e)
         {
@@ -156,12 +162,15 @@ namespace DinoLino
         private void ModelPose_MouseMove(object sender, MouseEventArgs e)
         {
             if (!_rotatingModel) return;
+
             var p = e.GetPosition(UI_ModelPoseOverlay);
             double dx = p.X - _lastPosePoint.X;
             double dy = p.Y - _lastPosePoint.Y;
             _lastPosePoint = p;
+
             if (dx == 0 && dy == 0) return;
 
+            // Drag direction maps to a screen-space axis for quick free rotation.
             var axis = new Vector3D(dy, dx, 0);
             RotateModel(axis, axis.Length * 0.4);
             e.Handled = true;
@@ -177,23 +186,27 @@ namespace DinoLino
 
         private void ModelPose_MouseWheel(object sender, MouseWheelEventArgs e)
         {
-            double f = e.Delta > 0 ? 1 / 1.1 : 1.1;   // smaller camera width = zoomed in
+            // Smaller camera width means a closer orthographic view.
+            double f = e.Delta > 0 ? 1 / 1.1 : 1.1;
             double w = UI_ModelCamera.Width * f;
             UI_ModelCamera.Width = Math.Max(_modelDiag * 0.02, Math.Min(_modelDiag * 10, w));
             e.Handled = true;
         }
+
+        // =====================
+        // Capture workflow
+        // =====================
 
         private void ModelPose_Capture(object sender, RoutedEventArgs e)
         {
             double w = UI_ModelViewportHost.ActualWidth, h = UI_ModelViewportHost.ActualHeight;
             if (w <= 0 || h <= 0 || _poseModel == null) return;
 
-            const double ss = 2.0;   // supersample, same idea as the screenshot exporter
+            const double ss = 2.0; // Supersample for a sharper 2D capture.
             var rtb = new RenderTargetBitmap((int)(w * ss), (int)(h * ss), 96 * ss, 96 * ss, PixelFormats.Pbgra32);
             rtb.Render(UI_ModelViewportHost);
 
-            // Re-tag at 96 DPI so downstream code sees an ordinary bitmap whose layout size
-            // equals its pixel size — no DPI surprises in the 2D pipeline.
+            // Rebuild at 96 DPI so the captured bitmap behaves like a normal layout-sized image.
             int stride = rtb.PixelWidth * 4;
             var px = new byte[stride * rtb.PixelHeight];
             rtb.CopyPixels(px, stride, 0);
@@ -201,32 +214,23 @@ namespace DinoLino
                                           PixelFormats.Pbgra32, null, px, stride);
             bmp.Freeze();
 
-            // Exact projection scale: the ortho camera maps Width model units across the
-            // full bitmap width, uniformly, regardless of depth.
+            // Orthographic width maps model units directly to image pixels.
             double pxPerModelUnit = bmp.PixelWidth / UI_ModelCamera.Width;
 
-            // Retain the mesh, orientation, and name so the view can be re-posed later. Grab the
-            // mesh from the live model BEFORE ModelPose_Cancel tears it down. Committing here (not
-            // when the overlay opens) means cancelling a freshly opened model leaves the model
-            // behind the current captured view intact.
             _activeMesh = _poseModel.Geometry as MeshGeometry3D;
             _activeModelName = _pendingModelName;
             _lastModelQuaternion = _modelRotation.Quaternion;
             bool wasReposition = _isRepositioning;
 
-            ModelPose_Cancel(sender, e);                 // hide overlay, remove the live model
+            ModelPose_Cancel(sender, e);
 
-            // A reposition re-captures the same specimen from a new angle, so don't register it
-            // as a new specimen (which would advance the counter and start a new history block).
+            // Repositioning re-captures the same specimen, so it should not advance specimen history.
             SetWorkspaceImage(bmp, _activeModelName, registerAsNewSpecimen: !wasReposition);
 
-            // This working image is a captured 3D view, so it can be re-posed.
             _workingImageIsModelCapture = true;
             UI_MenuReposition3D.IsEnabled = true;
 
-            // Optional auto-calibration: if the PLY is in real units (scanners typically export mm),
-            // 1 model unit == pxPerModelUnit pixels in this image. Hook into ScaleCalibration here,
-            // e.g. Scale.SetPixelsPerUnit(pxPerModelUnit) — adapt to your API.
+            // Optional scale calibration can be derived from pxPerModelUnit if needed by the app.
         }
 
         private void ModelPose_Cancel(object sender, RoutedEventArgs e)
@@ -235,30 +239,36 @@ namespace DinoLino
 
             UI_ModelPoseOverlay.Visibility = Visibility.Collapsed;
             _rotatingModel = false;
+
             if (_poseModel != null)
             {
                 UI_ModelGroup.Children.Remove(_poseModel);
-                _poseModel = null;   // releases the (potentially large) mesh
+                _poseModel = null;
             }
         }
 
-        // Reads the step size (degrees) from the box; falls back to 15 and clamps to
-        // (0, 180] so a stray value can't spin wildly or do nothing.
+        // =====================
+        // Fine rotation UI
+        // =====================
+
         private double ReadPoseStepDegrees()
         {
             double step = 15;
+
             if (_poseStepBox != null &&
                 double.TryParse(_poseStepBox.Text, System.Globalization.NumberStyles.Float,
                                 System.Globalization.CultureInfo.InvariantCulture, out double s))
                 step = s;
+
             if (step <= 0) step = 15;
             if (step > 180) step = 180;
+
             return step;
         }
 
         private void BuildPoseFineTuneControls()
         {
-            if (_poseFineControls != null) return; // built once; survives repositioning
+            if (_poseFineControls != null) return;
 
             var panel = new System.Windows.Controls.StackPanel
             {
@@ -304,7 +314,7 @@ namespace DinoLino
                 };
             }
 
-            // Preset views
+            // Preset views.
             panel.Children.Add(Label("Preset views"));
             var presets = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
             presets.Children.Add(MakeBtn("Front", "View the model's front", (s, e) => _poseController.ViewFront()));
@@ -315,7 +325,7 @@ namespace DinoLino
             presets.Children.Add(MakeBtn("Bottom", "View from below", (s, e) => _poseController.ViewBottom()));
             panel.Children.Add(presets);
 
-            // Step size
+            // Step size.
             panel.Children.Add(Label("Rotate by (degrees)"));
             _poseStepBox = new System.Windows.Controls.TextBox
             {
@@ -336,7 +346,7 @@ namespace DinoLino
                     (s, e) => _poseStepBox.Text = deg));
             panel.Children.Add(chips);
 
-            // Exact-degree axis nudges (world/camera frame)
+            // Exact-angle nudges in camera/world space.
             panel.Children.Add(Label("Fine rotate"));
             var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
 
@@ -361,32 +371,34 @@ namespace DinoLino
 
             _poseFineControls = new System.Windows.Controls.Border
             {
-                Background = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromArgb(0xB0, 0x20, 0x20, 0x20)),
-                BorderBrush = System.Windows.Media.Brushes.Gray,
-                BorderThickness = new System.Windows.Thickness(1),
-                CornerRadius = new System.Windows.CornerRadius(6),
-                Padding = new System.Windows.Thickness(6),
-                Margin = new System.Windows.Thickness(8),
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
-                VerticalAlignment = System.Windows.VerticalAlignment.Top,
+                Background = new SolidColorBrush(Color.FromArgb(0xB0, 0x20, 0x20, 0x20)),
+                BorderBrush = Brushes.Gray,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(6),
+                Margin = new Thickness(8),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
                 Child = panel
             };
 
             UI_ModelPoseOverlay.Children.Add(_poseFineControls);
         }
 
-        // Rotates the model about a screen-space axis (camera is axis-aligned, so world
-        // X = screen right, world Y = screen up). Used by both middle-drag and arrow keys.
+        // =====================
+        // Rotation helper
+        // =====================
+
         private void RotateModel(Vector3D screenAxis, double angleDegrees)
         {
             if (_modelRotation == null || screenAxis.LengthSquared == 0 || angleDegrees == 0) return;
+
             var q = _modelRotation.Quaternion * new Quaternion(screenAxis, angleDegrees);
             q.Normalize();
             _modelRotation.Quaternion = q;
         }
 
-        private const double ArrowRotateStep = 2.0;   // degrees per key event; holding a key auto-repeats
+        private const double ArrowRotateStep = 2.0;
 
         private void ModelPose_PreviewKeyDown(object sender, KeyEventArgs e)
         {
@@ -394,13 +406,23 @@ namespace DinoLino
 
             switch (e.Key)
             {
-                case Key.Down: RotateModel(new Vector3D(1, 0, 0), ArrowRotateStep); break; // top tips forward & down
-                case Key.Up: RotateModel(new Vector3D(1, 0, 0), -ArrowRotateStep); break; // bottom tips forward & up
-                case Key.Right: RotateModel(new Vector3D(0, 1, 0), ArrowRotateStep); break; // left margin swings forward & right
-                case Key.Left: RotateModel(new Vector3D(0, 1, 0), -ArrowRotateStep); break; // right margin swings forward & left
-                default: return;
+                case Key.Down:
+                    RotateModel(new Vector3D(1, 0, 0), ArrowRotateStep);
+                    break;
+                case Key.Up:
+                    RotateModel(new Vector3D(1, 0, 0), -ArrowRotateStep);
+                    break;
+                case Key.Right:
+                    RotateModel(new Vector3D(0, 1, 0), ArrowRotateStep);
+                    break;
+                case Key.Left:
+                    RotateModel(new Vector3D(0, 1, 0), -ArrowRotateStep);
+                    break;
+                default:
+                    return;
             }
-            e.Handled = true;   // stop arrows from moving focus to the Capture/Cancel buttons
+
+            e.Handled = true;
         }
     }
 }

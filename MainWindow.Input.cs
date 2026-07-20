@@ -6,94 +6,97 @@ using System.Windows.Input;
 
 namespace DinoLino
 {
-    // Raw input routing: the window KeyDown handler and the work-canvas mouse handlers
-    // (click dispatch to the active WorkMode, hand-draw, erase, pan, scroll zoom),
-    // plus the pan-drag state those handlers share. Split from MainWindow.xaml.cs.
+    /// <summary>
+    /// Routes raw keyboard and mouse input to workspace actions and the active work mode.
+    /// </summary>
     public partial class MainWindow
     {
+        // =====================
+        // Pan state
+        // =====================
 
-        // --- Ctrl+drag panning state ---
         private bool _isPanning = false;
-        private Point _panStartMouse;                       // mouse position at pan start (UI_WorkSpace frame)
+        private Point _panStartMouse; // Mouse position in workspace coordinates when the drag started.
         private double _panStartImageTx, _panStartImageTy;
 
-        // Keyboard shortcuts
+        // =====================
+        // Keyboard input
+        // =====================
+
         private void MainWindow_KeyDown(object sender, KeyEventArgs e)
         {
-            // Ctrl + C to reset workspace
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
             {
                 ClearAllOperations();
             }
 
-            // Ctrl + F to open image
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
             {
                 Menu_OpenImage(this, new RoutedEventArgs());
                 e.Handled = true;
             }
 
-            // Ctrl + H to view history
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.H)
             {
                 Menu_SeeHistory(this, new RoutedEventArgs());
                 e.Handled = true;
             }
 
-            // Ctrl + E to export operation history
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.E)
             {
                 Menu_ExportHistory(this, new RoutedEventArgs());
                 e.Handled = true;
             }
 
-            // Ctrl + S to take screenshot
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.S)
             {
                 Menu_Screenshot(this, new RoutedEventArgs());
                 e.Handled = true;
             }
 
-            // Ctrl + Z to undo
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Z)
             {
                 Menu_Undo(this, new RoutedEventArgs());
                 e.Handled = true;
             }
 
-            // Ctrl + Y to redo
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Y)
             {
                 Menu_Redo(this, new RoutedEventArgs());
                 e.Handled = true;
             }
 
-            // Enter finalizes an in-progress n-point spline
+            // Finish an in-progress spline when Enter is pressed.
             if (e.Key == Key.Enter && CurrentWorkMode is CurvatureMode cm && cm.CanFinalizeSpline)
             {
-                // The last drawing click queued the previous preview for
-                // removal; nothing runs between that click and Enter, so mop it
-                // up here or it lingers invisibly under the committed spline.
+                // Remove the preview element queued by the last click before committing the final spline.
                 RemovePendingElements();
+
                 foreach (UIElement element in cm.FinalizeSpline())
                     AddElementToWorkSpace(element);
+
                 e.Handled = true;
                 return;
             }
 
-            // Esc to cancel operation
             if (e.Key == Key.Escape)
             {
                 if (_scaleMode)
                 {
                     _scaleMode = false;
                     _scaleClicks = 0;
-                    if (_scaleLine != null) { UI_WorkCanvas.Children.Remove(_scaleLine); _scaleLine = null; }
+
+                    if (_scaleLine != null)
+                    {
+                        UI_WorkCanvas.Children.Remove(_scaleLine);
+                        _scaleLine = null;
+                    }
+
                     e.Handled = true;
                     return;
                 }
-                // Esc while probing turning angle = leave the probe (uncheck
-                // the box). Nothing destructive; the spline stays.
+
+                // Cancel the active probe interaction without changing the underlying specimen data.
                 if (CurrentWorkMode is CurvatureMode probeCm && probeCm.FindTurningAngleMode)
                 {
                     probeCm.FindTurningAngleMode = false;
@@ -107,10 +110,13 @@ namespace DinoLino
             }
         }
 
+        // =====================
+        // Workspace clicks
+        // =====================
 
         private void WorkSpace_Click(object sender, MouseButtonEventArgs e)
         {
-            // Ctrl + left button starts a pan-drag instead of a drawing action.
+            // Ctrl + left drag starts image panning instead of a drawing action.
             if (e.ChangedButton == MouseButton.Left &&
                 (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
             {
@@ -121,8 +127,8 @@ namespace DinoLino
                 _panStartImageTx = tt.X;
                 _panStartImageTy = tt.Y;
 
-                (sender as UIElement)?.CaptureMouse();   // keep receiving move/up if cursor leaves
-                Mouse.OverrideCursor = Cursors.SizeAll;  // visual feedback
+                (sender as UIElement)?.CaptureMouse();  // Keep receiving drag events even if the pointer leaves the canvas.
+                Mouse.OverrideCursor = Cursors.SizeAll;  // Show pan cursor feedback.
                 e.Handled = true;
                 return;
             }
@@ -138,7 +144,7 @@ namespace DinoLino
             if (CurrentWorkMode is OutlineMode)
                 SyncOutlineImageTransform();
 
-            // Hand-draw: a left press begins/continues a freehand stroke.
+            // Begin a freehand stroke in outline mode.
             if (CurrentWorkMode is OutlineMode handOm && handOm.HandDrawMode &&
                 e.ChangedButton == MouseButton.Left && e.ClickCount == 1)
             {
@@ -146,18 +152,12 @@ namespace DinoLino
                     ClearWorkspaceVisualsOnly();
 
                 handOm.BeginHandStroke(mousePos);
-                (sender as UIElement)?.CaptureMouse();   // keep getting moves if cursor leaves
+                (sender as UIElement)?.CaptureMouse();  // Keep receiving movement while the stroke is active.
                 e.Handled = true;
                 return;
             }
 
-            // Probe safety: IsProbeInteraction is the polymorphic contract,
-            // but this guard was once silently defeated by a WorkMode.cs that
-            // lacked the virtual (the override couldn't dispatch), so the
-            // concrete check below keeps the safety independent of that pairing
-            // surviving future merges. A Find-Turning-Angle probe click
-            // inspects the existing spline and returns nothing to re-add —
-            // clearing here erases the very shape being measured.
+            // Skip clearing the workspace for probe interactions or other non-destructive actions.
             bool probing = CurrentWorkMode.IsProbeInteraction
                 || (CurrentWorkMode is CurvatureMode probeGuardCm && probeGuardCm.FindTurningAngleMode)
                 || (CurrentWorkMode is OutlineMode probeGuardOm
@@ -168,23 +168,23 @@ namespace DinoLino
                 && CurrentWorkMode.IsStartingNewOperation
                 && !probing)
             {
-                // Tripwire: prints ONLY when the workspace is actually cleared,
-                // so if a shape ever vanishes unexpectedly again, the Output
-                // window names the failing condition instantly.
                 System.Diagnostics.Debug.WriteLine(
                     $"[workspace] clearing visuals on click (seePrev={CurrentWorkMode.SeePreviousOperations}, " +
                     $"starting={CurrentWorkMode.IsStartingNewOperation}, probe={probing}, mode={CurrentWorkMode.GetType().Name})");
-                // don't use Children.Clear() because we want to keep the DotCursor.
+
+                // Preserve the cursor overlay while removing old workspace drawings.
                 ClearWorkspaceVisualsOnly();
             }
 
             RemovePendingElements();
 
             foreach (UIElement element in CurrentWorkMode.ProcessClick(mousePos))
-            {
                 AddElementToWorkSpace(element);
-            }
         }
+
+        // =====================
+        // Workspace drag
+        // =====================
 
         private void WorkSpace_MouseMove(object sender, MouseEventArgs e)
         {
@@ -195,9 +195,9 @@ namespace DinoLino
                 it.X = _panStartImageTx + (now.X - _panStartMouse.X);
                 it.Y = _panStartImageTy + (now.Y - _panStartMouse.Y);
 
-                // Keep the drawing layer (border + canvas + all drawn elements) locked to the image
+                // Keep the border and overlay layers aligned with the image while panning.
                 UI_WorkBorder.CopyTransforms(UI_WorkImage);
-                return;   // don't run cursor/erase logic while panning
+                return;
             }
 
             if (_scaleMode && _scaleClicks == 1 && _scaleLine != null)
@@ -206,12 +206,13 @@ namespace DinoLino
                 _scaleLine.X2 = p.X;
                 _scaleLine.Y2 = p.Y;
                 UI_DotCursor.SetPosition(p.X - 5, p.Y - 5);
-                return;   // live-preview the calibration line; skip mode logic
+                return;
             }
 
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
             Vector2 centeredCursorPos = CurrentWorkMode.ProcessMouseMovement(mousePos) - new Vector2(5, 5);
             UI_DotCursor.SetPosition(centeredCursorPos.X, centeredCursorPos.Y);
+
             if (e.LeftButton == MouseButtonState.Pressed && CurrentWorkMode is OutlineMode om)
             {
                 if (om.EraseOutlineMode)
@@ -234,7 +235,7 @@ namespace DinoLino
                 return;
             }
 
-            // Hand-draw: releasing pauses the stroke (it stays open and resumable).
+            // Pause the freehand stroke; the stroke remains resumable until the mode ends it.
             if (e.ChangedButton == MouseButton.Left && CurrentWorkMode is OutlineMode om && om.HandDrawMode)
             {
                 om.EndHandStroke();
@@ -249,7 +250,10 @@ namespace DinoLino
             Mouse.OverrideCursor = null;
         }
 
-        // TODO: encapsulate and make generic someplace else
+        // =====================
+        // Workspace zoom
+        // =====================
+
         private void WorkSpace_ScrollZoom(object sender, MouseWheelEventArgs e)
         {
             UpdateWorkSpaceZoom(e.Delta, e.GetPosition(UI_WorkImage));

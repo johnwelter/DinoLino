@@ -13,50 +13,54 @@ using System.Windows.Shapes;
 
 namespace DinoLino.Utilities.Modes
 {
-
+    /// <summary>
+    /// Base class for interactive work modes.
+    /// </summary>
     public abstract class WorkMode : INotifyPropertyChanged
     {
         public abstract UserControl CreateControlPanel();
 
-        // Each mode declares the tab header it corresponds to
+        /// <summary>
+        /// The tab header used to match this mode to its UI tab.
+        /// </summary>
         public abstract string TabName { get; }
 
-        // Returns true when the mode is at the start of a new operation.
+        /// <summary>
+        /// True when the mode is ready to begin a new operation.
+        /// </summary>
         public virtual bool IsStartingNewOperation => CurrentStep == 0;
 
-        // True when the current click is a probe of — or an in-place edit to —
-        // an existing operation rather than the start/continuation of a drawing
-        // (Curvature's Find-Turning-Angle; Outline's erase/smooth/metadata). The input
-        // router uses this to skip the "starting a new operation" workspace
-        // clear, so probe interactions (e.g. Curvature's Find-Turning-Angle,
-        // which returns no new elements to re-add) don't wipe the very shape
-        // they're inspecting. Default false; modes with a probe sub-tool
-        // override it. MUST stay virtual — CurvatureMode and OutlineMode
-        // override it, and the pair once fell out of sync during a merge,
-        // silently disabling the guard.
+        /// <summary>
+        /// True for probe-style interactions that inspect or adjust an existing operation
+        /// instead of starting a new one.
+        /// </summary>
         public virtual bool IsProbeInteraction => false;
 
         public UndoRedoManager UndoRedoManager { get; set; }
 
-        // Shared image-scale calibration, injected by MainWindow. Null until set.
+        /// <summary>
+        /// Shared scale calibration supplied by the main window.
+        /// </summary>
         public ScaleCalibration Scale { get; set; }
 
-        // cancellation support
+        // Cancellation support for long-running mode actions.
         private CancellationTokenSource _operationCTS;
 
         public CancellationToken CancellationToken =>
             _operationCTS?.Token ?? CancellationToken.None;
 
-        // begins a new, cancellable operation.
-        // automatically cancels any previous operation
+        /// <summary>
+        /// Starts a new cancellable operation and cancels any previous one.
+        /// </summary>
         public virtual void BeginOperation()
         {
             CancelCurrentOperation();
-
             _operationCTS = new CancellationTokenSource();
         }
 
-        // cancels the currently-running operation
+        /// <summary>
+        /// Cancels the current operation, if one is active.
+        /// </summary>
         public virtual void CancelCurrentOperation()
         {
             if (_operationCTS != null)
@@ -69,22 +73,27 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // Event for notifying the control panel of tip changes
+        /// <summary>
+        /// Raised when the mode's tip text changes.
+        /// </summary>
         public Action OnTipChanged;
         public virtual string[] GetTips() => new[] { string.Empty };
 
-        // Toggling whether or not previous operations are visible
+        /// <summary>
+        /// Controls whether previously drawn operations remain visible.
+        /// </summary>
         public bool SeePreviousOperations { get; set; } = false;
 
-        // set default line color
         private Brush _lineColor = Brushes.OrangeRed;
 
+        /// <summary>
+        /// Current drawing color for newly created elements.
+        /// </summary>
         public Brush LineColor
         {
             get => _lineColor;
             set
             {
-                // set safeguard to prevent unnecessary updates
                 if (_lineColor != value)
                 {
                     _lineColor = value;
@@ -94,7 +103,6 @@ namespace DinoLino.Utilities.Modes
         }
 
         private readonly ObservableCollection<UIElement> _elementsToRemove = new();
-
         public ReadOnlyObservableCollection<UIElement> ElementsToRemove { get; }
 
         public WorkMode()
@@ -104,13 +112,24 @@ namespace DinoLino.Utilities.Modes
 
         public event PropertyChangedEventHandler PropertyChanged;
 
+        /// <summary>
+        /// Processes mouse movement in mode-specific coordinates.
+        /// </summary>
         public virtual Vector2 ProcessMouseMovement(Vector2 mousePos) { return mousePos; }
+
+        /// <summary>
+        /// Processes a click and returns any UI elements created by that click.
+        /// </summary>
         public virtual List<UIElement> ProcessClick(Vector2 mousePos) { return null; }
 
-        // Resets drawing state only (mid-operation cleanup)
+        /// <summary>
+        /// Clears transient state used while an operation is in progress.
+        /// </summary>
         public virtual void ResetDrawingState() { }
 
-        // full reset
+        /// <summary>
+        /// Resets mode state for a fresh workspace context.
+        /// </summary>
         public virtual void Reset()
         {
             UpdateUndoRedoState();
@@ -134,18 +153,25 @@ namespace DinoLino.Utilities.Modes
             return true;
         }
 
-        // method to queue elements for removal
+        /// <summary>
+        /// Queues an element to be removed from the workspace.
+        /// </summary>
         public void AddElementsToRemove(UIElement element)
         {
             _elementsToRemove.Add(element);
         }
 
-        // method to empty the list
+        /// <summary>
+        /// Clears the pending removal list.
+        /// </summary>
         public void ClearElementsToRemove()
         {
             _elementsToRemove.Clear();
         }
 
+        /// <summary>
+        /// Index of the current step within the active operation.
+        /// </summary>
         public int CurrentStep { get; set; } = 0;
 
         private bool _canUndo;
@@ -154,7 +180,6 @@ namespace DinoLino.Utilities.Modes
             get => _canUndo;
             private set
             {
-                // set safeguard to prevent unnecessary updates
                 if (_canUndo != value)
                 {
                     _canUndo = value;
@@ -169,7 +194,6 @@ namespace DinoLino.Utilities.Modes
             get => _canRedo;
             private set
             {
-                // set safeguard to prevent unnecessary updates
                 if (_canRedo != value)
                 {
                     _canRedo = value;
@@ -178,6 +202,9 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
+        /// <summary>
+        /// Synchronizes the mode's undo/redo state with the shared manager.
+        /// </summary>
         protected void UpdateUndoRedoState()
         {
             CanUndo = UndoRedoManager?.CanUndo == true;
@@ -189,19 +216,21 @@ namespace DinoLino.Utilities.Modes
             UndoRedoManager?.Commit(operation);
         }
 
-        // Called by UndoRedoManager after the operation history changes (commit, undo,
-        // or redo), so a mode can re-derive any state it computes from that history.
-        // Default does nothing; DrawMode uses it to reset its reference-line direction.
+        /// <summary>
+        /// Called after undo/redo changes the active history so the mode can refresh
+        /// any state derived from that history.
+        /// </summary>
         internal virtual void OnHistoryChanged() { }
 
-        // Placeholder for scaled-measurement outputs: "Scale to measure" when the image
-        // has no calibration yet, "N/A" once it has been scaled (the user must take a
-        // fresh measurement to get a real value).
+        /// <summary>
+        /// Placeholder text for scaled values before calibration exists.
+        /// </summary>
         protected string ScaledPlaceholder =>
             Scale != null && Scale.IsCalibrated ? "N/A" : "Unscaled";
 
-        // Resets scaled-measurement displays to ScaledPlaceholder. Modes with scaled
-        // outputs override this; called whenever the calibration is set or cleared.
+        /// <summary>
+        /// Refreshes any scaled-measurement placeholders shown by the mode.
+        /// </summary>
         public virtual void RefreshScalePlaceholders() { }
 
         public virtual void ClearMetadata() { }

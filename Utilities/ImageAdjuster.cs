@@ -7,8 +7,15 @@ using System.Windows.Threading;
 
 namespace DinoLino
 {
+    /// <summary>
+    /// Caches an image and produces adjusted or downsampled writeable bitmaps.
+    /// </summary>
     public class ImageAdjuster
     {
+        // =====================
+        // Cached source image
+        // =====================
+
         private byte[] _originalPixels;
         private int _originalStride;
         private int _originalPixelWidth;
@@ -17,20 +24,30 @@ namespace DinoLino
         private double _dpiX;
         private double _dpiY;
 
-        private DispatcherTimer _adjustmentTimer;
+        // =====================
+        // Deferred adjustment
+        // =====================
+
+        private readonly DispatcherTimer _adjustmentTimer;
         private double _pendingContrast;
         private double _pendingBrightness;
         private double _pendingSaturation;
 
         public bool HasImage => _originalPixels != null;
 
-        // Callback so ImageAdjuster can tell MainWindow to update the image source
+        /// <summary>
+        /// Raised when a new adjusted bitmap is ready.
+        /// </summary>
         public Action<WriteableBitmap> OnAdjustmentApplied;
 
         public ImageAdjuster()
         {
-            _adjustmentTimer = new DispatcherTimer();
-            _adjustmentTimer.Interval = TimeSpan.FromMilliseconds(80);
+            _adjustmentTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(80)
+            };
+
+            // Coalesce rapid slider updates into one render pass.
             _adjustmentTimer.Tick += (s, e) =>
             {
                 _adjustmentTimer.Stop();
@@ -40,6 +57,13 @@ namespace DinoLino
             };
         }
 
+        // =====================
+        // Cache source pixels
+        // =====================
+
+        /// <summary>
+        /// Stores the current bitmap pixels so later adjustments can be applied from the same source.
+        /// </summary>
         public void CacheImage(BitmapSource image)
         {
             if (image == null) return;
@@ -51,9 +75,13 @@ namespace DinoLino
             _originalPixels = new byte[_originalStride * _originalPixelHeight];
             _dpiX = image.DpiX;
             _dpiY = image.DpiY;
+
             image.CopyPixels(_originalPixels, _originalStride, 0);
         }
 
+        /// <summary>
+        /// Queues a new adjustment request and delays rendering slightly to avoid repeated work.
+        /// </summary>
         public void RequestAdjustment(double contrast, double brightness, double saturation)
         {
             _pendingContrast = contrast;
@@ -63,9 +91,14 @@ namespace DinoLino
             _adjustmentTimer.Start();
         }
 
+        // =====================
+        // Adjustment pipeline
+        // =====================
+
         private WriteableBitmap Apply(double contrast, double brightness, double saturation)
         {
             if (!HasImage) return null;
+
             double contrastFactor = 1.0 + contrast;
             byte[] adjustedPixels = new byte[_originalPixels.Length];
             int bytesPerPixel = (_originalPixelFormat.BitsPerPixel + 7) / 8;
@@ -73,23 +106,24 @@ namespace DinoLino
             Parallel.For(0, _originalPixelHeight, y =>
             {
                 int rowStart = y * _originalStride;
+
                 for (int x = 0; x < _originalPixelWidth; x++)
                 {
                     int i = rowStart + x * bytesPerPixel;
 
-                    // Read channels (WPF bitmaps are typically BGR order)
+                    // WPF commonly stores pixels in BGR(A) order.
                     double b = _originalPixels[i + 0] / 255.0;
                     double g = _originalPixels[i + 1] / 255.0;
                     double r = _originalPixels[i + 2] / 255.0;
 
-                    // Apply saturation by blending toward luminance (grayscale)
+                    // Blend toward luminance to reduce or increase saturation.
                     double lum = 0.299 * r + 0.587 * g + 0.114 * b;
                     double satFactor = 1.0 + saturation;
                     r = lum + (r - lum) * satFactor;
                     g = lum + (g - lum) * satFactor;
                     b = lum + (b - lum) * satFactor;
 
-                    // Apply brightness and contrast to each channel
+                    // Apply brightness, then contrast around the mid-point.
                     double[] channels = { b, g, r };
                     for (int c = 0; c < 3; c++)
                     {
@@ -112,12 +146,19 @@ namespace DinoLino
             return wb;
         }
 
+        // =====================
+        // Downsampling
+        // =====================
+
         private long CountPixels()
         {
             if (!HasImage) return 0;
             return (long)_originalPixelWidth * _originalPixelHeight;
         }
 
+        /// <summary>
+        /// Creates a scaled-down copy of the cached image using nearest-neighbor sampling.
+        /// </summary>
         public WriteableBitmap DownSample(long targetPixelCount)
         {
             if (!HasImage) return null;
@@ -125,6 +166,7 @@ namespace DinoLino
             long current = CountPixels();
             if (targetPixelCount <= 0 || targetPixelCount >= current) return null;
 
+            // Scale is chosen so the new area is approximately targetPixelCount.
             double scale = Math.Sqrt((double)targetPixelCount / current);
             int newWidth = Math.Max(1, (int)Math.Round(_originalPixelWidth * scale));
             int newHeight = Math.Max(1, (int)Math.Round(_originalPixelHeight * scale));
@@ -135,11 +177,13 @@ namespace DinoLino
 
             Parallel.For(0, newHeight, y =>
             {
+                // Map each output row back to a source row.
                 int srcY = (int)Math.Floor((double)y / newHeight * _originalPixelHeight);
                 srcY = Math.Min(srcY, _originalPixelHeight - 1);
 
                 for (int x = 0; x < newWidth; x++)
                 {
+                    // Map each output column back to a source column.
                     int srcX = (int)Math.Floor((double)x / newWidth * _originalPixelWidth);
                     srcX = Math.Min(srcX, _originalPixelWidth - 1);
 

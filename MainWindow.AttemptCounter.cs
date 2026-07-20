@@ -5,17 +5,19 @@ using System.Windows.Input;
 
 namespace DinoLino
 {
-    // The on-image Operation Count HUD: recomputes all n_* values from
-    // UndoRedoManager.History, drag-to-move behavior, and the View-menu toggle.
-    // Split from MainWindow.xaml.cs; no logic changes.
+    /// <summary>
+    /// On-image operation count display, drag behavior for the counter, and the View menu toggle.
+    /// </summary>
     public partial class MainWindow
     {
+        // =====================
+        // Attempt counter
+        // =====================
 
-        // ---- Attempt counter (Curvature + Triangle operations) ----
-
-        // Recomputes the four counts directly from the undo/redo history, so the display
-        // can never drift: committing grows history, undo shrinks it, redo regrows it,
-        // Clear All empties it. Draw/Outline operations are intentionally not counted.
+        /// <summary>
+        /// Recomputes the on-screen counts directly from undo history.
+        /// This keeps the display synchronized with commit, undo, redo, and clear actions.
+        /// </summary>
         private void UpdateAttemptCounter()
         {
             if (UndoRedoManager == null) return;
@@ -39,6 +41,10 @@ namespace DinoLino
             UI_AttemptOutline.Text = $"n_outline = {nOutline}";
         }
 
+        // =====================
+        // Counter dragging
+        // =====================
+
         private void AttemptCounter_MouseDown(object sender, MouseButtonEventArgs e)
         {
             _counterDragging = true;
@@ -46,12 +52,15 @@ namespace DinoLino
             _counterStartX = UI_AttemptCounterTransform.X;
             _counterStartY = UI_AttemptCounterTransform.Y;
             UI_AttemptCounter.CaptureMouse();
+
+            // Prevent the mouse-down from bubbling into other workspace interactions.
             e.Handled = true;
         }
 
         private void AttemptCounter_MouseMove(object sender, MouseEventArgs e)
         {
             if (!_counterDragging) return;
+
             Point now = e.GetPosition(UI_WorkSpace);
             UI_AttemptCounterTransform.X = _counterStartX + (now.X - _counterDragStart.X);
             UI_AttemptCounterTransform.Y = _counterStartY + (now.Y - _counterDragStart.Y);
@@ -60,10 +69,17 @@ namespace DinoLino
         private void AttemptCounter_MouseUp(object sender, MouseButtonEventArgs e)
         {
             if (!_counterDragging) return;
+
             _counterDragging = false;
             UI_AttemptCounter.ReleaseMouseCapture();
+
+            // Mark the drag as handled so the release does not trigger unrelated UI logic.
             e.Handled = true;
         }
+
+        // =====================
+        // View toggle
+        // =====================
 
         private void Menu_SeeAttempts(object sender, RoutedEventArgs e)
         {

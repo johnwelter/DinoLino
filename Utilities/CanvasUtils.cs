@@ -5,70 +5,103 @@ using System.Windows.Media;
 
 namespace DinoLino.Utilities
 {
+    /// <summary>
+    /// Helper methods for positioning and transforming WPF elements on a Canvas.
+    /// </summary>
     public static class CanvasUtils
     {
+        /// <summary>
+        /// Places a UI element at an absolute Canvas position.
+        /// </summary>
         public static void SetPosition(this UIElement element, double x, double y)
         {
+            // Canvas.Left/Top only affect direct children of a Canvas.
             Canvas.SetLeft(element, x);
             Canvas.SetTop(element, y);
+
+            // Preserve existing layout behavior for elements that also use Canvas.Right.
             Canvas.SetRight(element, 1);
         }
+
+        /// <summary>
+        /// Assigns a scale + translate transform pair to the element.
+        /// </summary>
         public static void InitializeGroupTransform(this UIElement element, Point origin)
         {
-            TransformGroup group = new TransformGroup();
-            ScaleTransform scaleTransform = new ScaleTransform();
+            var group = new TransformGroup();
+
+            // Scale first, then translate, so zoom and pan stay independent.
+            var scaleTransform = new ScaleTransform();
             group.Children.Add(scaleTransform);
-            TranslateTransform translateTransform = new TranslateTransform();
+
+            var translateTransform = new TranslateTransform();
             group.Children.Add(translateTransform);
+
             element.RenderTransform = group;
             element.RenderTransformOrigin = origin;
         }
+
+        /// <summary>
+        /// Gets the element's translate transform from its render transform group.
+        /// </summary>
         public static TranslateTransform GetTranslateTransform(this UIElement element)
         {
-            return (TranslateTransform)((TransformGroup)element.RenderTransform).Children.First(tr => tr is TranslateTransform);
+            return (TranslateTransform)((TransformGroup)element.RenderTransform)
+                .Children.First(tr => tr is TranslateTransform);
         }
 
+        /// <summary>
+        /// Gets the element's scale transform from its render transform group.
+        /// </summary>
         public static ScaleTransform GetScaleTransform(this UIElement element)
         {
-            return (ScaleTransform)((TransformGroup)element.RenderTransform).Children.First(tr => tr is ScaleTransform);
+            return (ScaleTransform)((TransformGroup)element.RenderTransform)
+                .Children.First(tr => tr is ScaleTransform);
         }
 
+        /// <summary>
+        /// Restores zoom to 100% and translation to zero.
+        /// </summary>
         public static void ResetZoom(this UIElement element)
         {
-            // reset zoom
             var st = GetScaleTransform(element);
             st.ScaleX = 1.0;
             st.ScaleY = 1.0;
 
-            // reset pan
             var tt = GetTranslateTransform(element);
             tt.X = 0.0;
             tt.Y = 0.0;
         }
 
+        /// <summary>
+        /// Zooms around the given point while keeping that point anchored visually.
+        /// </summary>
         public static void ZoomElement(this UIElement element, double delta, Point relativeTo)
         {
             var st = GetScaleTransform(element);
             var tt = GetTranslateTransform(element);
 
             double zoom = delta > 0 ? .2 : -.2;
+
+            // Prevent zooming out too far, which makes the content hard to recover.
             if (!(delta > 0) && (st.ScaleX < .4 || st.ScaleY < .4))
                 return;
 
-            double absoluteX;
-            double absoluteY;
-
-            absoluteX = relativeTo.X * st.ScaleX + tt.X;
-            absoluteY = relativeTo.Y * st.ScaleY + tt.Y;
+            // Convert the mouse point into the element's current transformed coordinates.
+            double absoluteX = relativeTo.X * st.ScaleX + tt.X;
+            double absoluteY = relativeTo.Y * st.ScaleY + tt.Y;
 
             st.ScaleX += zoom;
             st.ScaleY += zoom;
 
+            // Recompute translation so the point under the cursor stays fixed.
             tt.X = absoluteX - relativeTo.X * st.ScaleX;
             tt.Y = absoluteY - relativeTo.Y * st.ScaleY;
-
         }
 
+        /// <summary>
+        /// Copies scale and translation from one element to another.
+        /// </summary>
         public static void CopyTransforms(this UIElement element, UIElement fromElement)
         {
             var st = GetScaleTransform(element);
@@ -82,160 +115,6 @@ namespace DinoLino.Utilities
 
             tt.X = ftt.X;
             tt.Y = ftt.Y;
-
         }
-
-
-
     }
 }
-
-//using System.Linq;
-//using System.Windows;
-//using System.Windows.Controls;
-//using System.Windows.Input;
-//using System.Windows.Media;
-
-// Source - https://stackoverflow.com/a/6782715
-// Posted by Wiesław Šoltés, modified by community. See post 'Timeline' for change history
-// Retrieved 2026-02-23, License - CC BY-SA 4.0
-
-//namespace PanAndZoom
-//{
-//    public class ZoomBorder : Border
-//    {
-//        private UIElement child = null;
-//        private Point origin;
-//        private Point start;
-
-//        private TranslateTransform GetTranslateTransform(UIElement element)
-//        {
-//            return (TranslateTransform)((TransformGroup)element.RenderTransform)
-//              .Children.First(tr => tr is TranslateTransform);
-//        }
-
-//        private ScaleTransform GetScaleTransform(UIElement element)
-//        {
-//            return (ScaleTransform)((TransformGroup)element.RenderTransform)
-//              .Children.First(tr => tr is ScaleTransform);
-//        }
-
-//        public override UIElement Child
-//        {
-//            get { return base.Child; }
-//            set
-//            {
-//                if (value != null && value != this.Child)
-//                    this.Initialize(value);
-//                base.Child = value;
-//            }
-//        }
-
-//        public void Initialize(UIElement element)
-//        {
-//            this.child = element;
-//            if (child != null)
-//            {
-//                TransformGroup group = new TransformGroup();
-//                ScaleTransform st = new ScaleTransform();
-//                group.Children.Add(st);
-//                TranslateTransform tt = new TranslateTransform();
-//                group.Children.Add(tt);
-//                child.RenderTransform = group;
-//                child.RenderTransformOrigin = new Point(0.0, 0.0);
-//                this.MouseWheel += child_MouseWheel;
-//                this.MouseLeftButtonDown += child_MouseLeftButtonDown;
-//                this.MouseLeftButtonUp += child_MouseLeftButtonUp;
-//                this.MouseMove += child_MouseMove;
-//                this.PreviewMouseRightButtonDown += new MouseButtonEventHandler(
-//                  child_PreviewMouseRightButtonDown);
-//            }
-//        }
-
-//        public void Reset()
-//        {
-//            if (child != null)
-//            {
-//                // reset zoom
-//                var st = GetScaleTransform(child);
-//                st.ScaleX = 1.0;
-//                st.ScaleY = 1.0;
-
-//                // reset pan
-//                var tt = GetTranslateTransform(child);
-//                tt.X = 0.0;
-//                tt.Y = 0.0;
-//            }
-//        }
-
-//        #region Child Events
-
-//        private void child_MouseWheel(object sender, MouseWheelEventArgs e)
-//        {
-//            if (child != null)
-//            {
-//                var st = GetScaleTransform(child);
-//                var tt = GetTranslateTransform(child);
-
-//                double zoom = e.Delta > 0 ? .2 : -.2;
-//                if (!(e.Delta > 0) && (st.ScaleX < .4 || st.ScaleY < .4))
-//                    return;
-
-//                Point relative = e.GetPosition(child);
-//                double absoluteX;
-//                double absoluteY;
-
-//                absoluteX = relative.X * st.ScaleX + tt.X;
-//                absoluteY = relative.Y * st.ScaleY + tt.Y;
-
-//                st.ScaleX += zoom;
-//                st.ScaleY += zoom;
-
-//                tt.X = absoluteX - relative.X * st.ScaleX;
-//                tt.Y = absoluteY - relative.Y * st.ScaleY;
-//            }
-//        }
-
-//        private void child_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-//        {
-//            if (child != null)
-//            {
-//                var tt = GetTranslateTransform(child);
-//                start = e.GetPosition(this);
-//                origin = new Point(tt.X, tt.Y);
-//                this.Cursor = Cursors.Hand;
-//                child.CaptureMouse();
-//            }
-//        }
-
-//        private void child_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-//        {
-//            if (child != null)
-//            {
-//                child.ReleaseMouseCapture();
-//                this.Cursor = Cursors.Arrow;
-//            }
-//        }
-
-//        void child_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
-//        {
-//            this.Reset();
-//        }
-
-//        private void child_MouseMove(object sender, MouseEventArgs e)
-//        {
-//            if (child != null)
-//            {
-//                if (child.IsMouseCaptured)
-//                {
-//                    var tt = GetTranslateTransform(child);
-//                    Vector v = start - e.GetPosition(this);
-//                    tt.X = origin.X - v.X;
-//                    tt.Y = origin.Y - v.Y;
-//                }
-//            }
-//        }
-
-//        #endregion
-//    }
-//}

@@ -1,23 +1,21 @@
 ﻿using System;
-using System.Collections.Generic;    // Dictionary
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Windows.Media;          // Int32Collection
-using System.Windows.Media.Media3D;  // Point3D, Point3DCollection, MeshGeometry3D
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
 
 namespace DinoLino
 {
-    /// Minimal STL mesh reader supporting both binary and ASCII STL.
-    ///
-    /// STL stores every triangle independently, repeating shared vertices, so a naive
-    /// read produces 3 vertices per triangle (a 1M-triangle scan becomes 3M vertices).
-    /// This loader WELDS vertices during the read: coordinates that are bit-identical
-    /// (the normal case for shared vertices in well-formed STL) collapse to one entry,
-    /// typically cutting vertex count ~6x. Degenerate (zero-area) triangles whose
-    /// welded corners coincide are dropped. Per-facet normals are ignored (WPF derives
-    /// its own, same as PlyLoader).
+    /// <summary>
+    /// Minimal STL reader for WPF meshes.
+    /// Supports ASCII and binary STL.
+    /// </summary>
     public static class StlLoader
     {
+        /// <summary>
+        /// Loads an STL file into a frozen MeshGeometry3D.
+        /// </summary>
         public static MeshGeometry3D Load(string path)
         {
             var mesh = IsBinary(path) ? ReadBinary(path) : ReadAscii(path);
@@ -25,30 +23,29 @@ namespace DinoLino
             return mesh;
         }
 
-        // Robust binary-vs-ASCII detection: a binary STL's length is exactly
-        // 84 + 50*triangleCount (80-byte header + 4-byte count + 50 bytes/triangle).
-        // The "solid" prefix is unreliable because binary headers may also contain it.
+        /// <summary>
+        /// Detects binary STL by file length.
+        /// </summary>
         private static bool IsBinary(string path)
         {
             long len = new FileInfo(path).Length;
-            if (len < 84) return false; // too short to be binary; treat as ASCII
+            if (len < 84) return false;
 
             using var br = new BinaryReader(File.OpenRead(path));
             br.BaseStream.Seek(80, SeekOrigin.Begin);
-            uint tris = br.ReadUInt32(); // STL binary is always little-endian
+            uint tris = br.ReadUInt32();
             return len == 84L + 50L * tris;
         }
 
+        /// <summary>
+        /// Reads a binary STL file and welds identical vertices.
+        /// </summary>
         private static MeshGeometry3D ReadBinary(string path)
         {
-            // BufferedStream: BinaryReader otherwise issues many tiny reads on the raw
-            // FileStream, which is slow for multi-hundred-MB scans.
             using var br = new BinaryReader(new BufferedStream(File.OpenRead(path), 1 << 20));
-            br.ReadBytes(80);            // header, ignored
+            br.ReadBytes(80);
             uint tris = br.ReadUInt32();
 
-            // Capacity hints only (collections grow past them fine). A closed manifold
-            // has ~tris/2 unique vertices, so `tris` leaves comfortable headroom.
             int posCap = (int)Math.Min((long)tris, 6_000_000L);
             int idxCap = (int)Math.Min(tris * 3L, 18_000_000L);
 
@@ -56,8 +53,6 @@ namespace DinoLino
             var positions = new Point3DCollection(posCap);
             var indices = new Int32Collection(idxCap);
 
-            // Weld on the raw float triple: shared vertices in well-formed STL are
-            // bit-identical, so exact equality merges them with no tolerance needed.
             int Weld(float x, float y, float z)
             {
                 var key = (x, y, z);
@@ -72,17 +67,16 @@ namespace DinoLino
 
             for (uint t = 0; t < tris; t++)
             {
-                // Per-facet normal (3 floats): read-and-discard singles rather than
-                // ReadBytes(12), which would allocate a fresh array per triangle.
+                // Normal is stored in STL but not used by this viewer.
                 br.ReadSingle(); br.ReadSingle(); br.ReadSingle();
 
                 int i0 = Weld(br.ReadSingle(), br.ReadSingle(), br.ReadSingle());
                 int i1 = Weld(br.ReadSingle(), br.ReadSingle(), br.ReadSingle());
                 int i2 = Weld(br.ReadSingle(), br.ReadSingle(), br.ReadSingle());
 
-                br.ReadUInt16();         // attribute byte count, ignored
+                br.ReadUInt16();
 
-                // Skip degenerate slivers whose welded corners coincide.
+                // Drop triangles that collapsed after welding.
                 if (i0 != i1 && i1 != i2 && i0 != i2)
                 {
                     indices.Add(i0);
@@ -94,6 +88,9 @@ namespace DinoLino
             return new MeshGeometry3D { Positions = positions, TriangleIndices = indices };
         }
 
+        /// <summary>
+        /// Reads an ASCII STL file and welds identical vertices.
+        /// </summary>
         private static MeshGeometry3D ReadAscii(string path)
         {
             var vertexIndex = new Dictionary<(double, double, double), int>();
@@ -112,8 +109,6 @@ namespace DinoLino
                 return i;
             }
 
-            // "vertex" lines arrive in groups of three (one facet loop each); collect
-            // three welded indices, then emit the triangle.
             var tri = new int[3];
             int triFill = 0;
 
@@ -121,7 +116,6 @@ namespace DinoLino
             string line;
             while ((line = sr.ReadLine()) != null)
             {
-                // Only "vertex x y z" lines matter; solid/facet/loop/endloop are skipped.
                 var t = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
                 if (t.Length >= 4 && t[0] == "vertex")
                 {
@@ -129,6 +123,8 @@ namespace DinoLino
                     if (triFill == 3)
                     {
                         triFill = 0;
+
+                        // Drop triangles that collapsed after welding.
                         if (tri[0] != tri[1] && tri[1] != tri[2] && tri[0] != tri[2])
                         {
                             indices.Add(tri[0]);

@@ -6,19 +6,20 @@ using System.Text;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 
-namespace DinoLino   // adjust to your namespace
+namespace DinoLino
 {
-    /// Minimal PLY mesh reader: ASCII, binary_little_endian, and binary_big_endian.
-    /// Reads vertex x/y/z and face index lists; all other properties (normals,
-    /// colors, extra elements) are read past and ignored.
+    /// <summary>
+    /// Minimal PLY reader for WPF meshes.
+    /// Supports ASCII and binary little/big-endian files.
+    /// </summary>
     public static class PlyLoader
     {
         private class PlyProperty
         {
             public string Name;
-            public string Type;        // scalar type, or list item type
+            public string Type;      // Scalar type, or list item type.
             public bool IsList;
-            public string CountType;   // list count type
+            public string CountType;  // List count type.
         }
 
         private class PlyElement
@@ -28,11 +29,14 @@ namespace DinoLino   // adjust to your namespace
             public readonly List<PlyProperty> Props = new List<PlyProperty>();
         }
 
+        /// <summary>
+        /// Loads a PLY file into a frozen MeshGeometry3D.
+        /// </summary>
         public static MeshGeometry3D Load(string path)
         {
             using var stream = new BufferedStream(File.OpenRead(path), 1 << 20);
 
-            // ---------- header ----------
+            // Parse header.
             if (ReadHeaderLine(stream)?.Trim() != "ply")
                 throw new InvalidDataException("Not a PLY file (missing 'ply' signature).");
 
@@ -44,6 +48,7 @@ namespace DinoLino   // adjust to your namespace
             {
                 string line = ReadHeaderLine(stream)
                     ?? throw new InvalidDataException("PLY header ended unexpectedly.");
+
                 var t = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
                 if (t.Length == 0) continue;
                 if (t[0] == "end_header") break;
@@ -64,16 +69,16 @@ namespace DinoLino   // adjust to your namespace
                             ? new PlyProperty { IsList = true, CountType = t[2], Type = t[3], Name = t[4] }
                             : new PlyProperty { IsList = false, Type = t[1], Name = t[2] });
                         break;
-                        // "comment" / "obj_info": ignored
                 }
             }
 
-            // ---------- body ----------
+            // Allocate output collections from header counts.
             int vCount = elements.Find(el => el.Name == "vertex")?.Count ?? 0;
             int fCount = elements.Find(el => el.Name == "face")?.Count ?? 0;
             var positions = new Point3DCollection(vCount);
             var indices = new Int32Collection(fCount * 3);
 
+            // Read body data in the declared format.
             if (binary)
             {
                 using var br = new BinaryReader(stream);
@@ -90,10 +95,13 @@ namespace DinoLino   // adjust to your namespace
             }
 
             var mesh = new MeshGeometry3D { Positions = positions, TriangleIndices = indices };
-            mesh.Freeze();   // big performance win; we never mutate the geometry, only transforms
+            mesh.Freeze(); // Freeze for efficient WPF rendering and safe reuse.
             return mesh;
         }
 
+        /// <summary>
+        /// Reads one element block from a binary PLY stream.
+        /// </summary>
         private static void ReadElementBinary(BinaryReader br, PlyElement el, bool big,
             Point3DCollection positions, Int32Collection indices)
         {
@@ -104,18 +112,22 @@ namespace DinoLino   // adjust to your namespace
             for (int i = 0; i < el.Count; i++)
             {
                 double x = 0, y = 0, z = 0;
+
                 foreach (var prop in el.Props)
                 {
                     if (prop.IsList)
                     {
                         int n = (int)ReadScalarBinary(br, prop.CountType, big);
-                        bool wantIdx = isFace && prop.Name.StartsWith("vertex_ind"); // vertex_index / vertex_indices
+                        bool wantIdx = isFace && prop.Name.StartsWith("vertex_ind");
+
                         if (wantIdx) face.Clear();
+
                         for (int k = 0; k < n; k++)
                         {
                             double v = ReadScalarBinary(br, prop.Type, big);
                             if (wantIdx) face.Add((int)v);
                         }
+
                         if (wantIdx) AddFace(face, indices);
                     }
                     else
@@ -129,10 +141,14 @@ namespace DinoLino   // adjust to your namespace
                         }
                     }
                 }
+
                 if (isVertex) positions.Add(new Point3D(x, y, z));
             }
         }
 
+        /// <summary>
+        /// Reads one element block from an ASCII PLY stream.
+        /// </summary>
         private static void ReadElementAscii(string[] tok, ref int p, PlyElement el,
             Point3DCollection positions, Int32Collection indices)
         {
@@ -143,18 +159,22 @@ namespace DinoLino   // adjust to your namespace
             for (int i = 0; i < el.Count; i++)
             {
                 double x = 0, y = 0, z = 0;
+
                 foreach (var prop in el.Props)
                 {
                     if (prop.IsList)
                     {
                         int n = (int)ParseNum(tok[p++]);
                         bool wantIdx = isFace && prop.Name.StartsWith("vertex_ind");
+
                         if (wantIdx) face.Clear();
+
                         for (int k = 0; k < n; k++)
                         {
                             double v = ParseNum(tok[p++]);
                             if (wantIdx) face.Add((int)v);
                         }
+
                         if (wantIdx) AddFace(face, indices);
                     }
                     else
@@ -168,13 +188,16 @@ namespace DinoLino   // adjust to your namespace
                         }
                     }
                 }
+
                 if (isVertex) positions.Add(new Point3D(x, y, z));
             }
         }
 
+        /// <summary>
+        /// Triangulates polygons using a triangle fan.
+        /// </summary>
         private static void AddFace(List<int> face, Int32Collection indices)
         {
-            // Fan-triangulate quads/ngons; triangles pass straight through.
             for (int i = 1; i + 1 < face.Count; i++)
             {
                 indices.Add(face[0]);
@@ -186,22 +209,45 @@ namespace DinoLino   // adjust to your namespace
         private static double ParseNum(string s) =>
             double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
 
+        /// <summary>
+        /// Reads a scalar PLY value in the declared binary type.
+        /// </summary>
         private static double ReadScalarBinary(BinaryReader br, string type, bool big)
         {
             switch (type)
             {
-                case "char": case "int8": return unchecked((sbyte)br.ReadByte());
-                case "uchar": case "uint8": return br.ReadByte();
-                case "short": case "int16": return BitConverter.ToInt16(Bytes(br, 2, big), 0);
-                case "ushort": case "uint16": return BitConverter.ToUInt16(Bytes(br, 2, big), 0);
-                case "int": case "int32": return BitConverter.ToInt32(Bytes(br, 4, big), 0);
-                case "uint": case "uint32": return BitConverter.ToUInt32(Bytes(br, 4, big), 0);
-                case "float": case "float32": return BitConverter.ToSingle(Bytes(br, 4, big), 0);
-                case "double": case "float64": return BitConverter.ToDouble(Bytes(br, 8, big), 0);
-                default: throw new InvalidDataException($"PLY: unknown property type '{type}'.");
+                case "char":
+                case "int8":
+                    return unchecked((sbyte)br.ReadByte());
+                case "uchar":
+                case "uint8":
+                    return br.ReadByte();
+                case "short":
+                case "int16":
+                    return BitConverter.ToInt16(Bytes(br, 2, big), 0);
+                case "ushort":
+                case "uint16":
+                    return BitConverter.ToUInt16(Bytes(br, 2, big), 0);
+                case "int":
+                case "int32":
+                    return BitConverter.ToInt32(Bytes(br, 4, big), 0);
+                case "uint":
+                case "uint32":
+                    return BitConverter.ToUInt32(Bytes(br, 4, big), 0);
+                case "float":
+                case "float32":
+                    return BitConverter.ToSingle(Bytes(br, 4, big), 0);
+                case "double":
+                case "float64":
+                    return BitConverter.ToDouble(Bytes(br, 8, big), 0);
+                default:
+                    throw new InvalidDataException($"PLY: unknown property type '{type}'.");
             }
         }
 
+        /// <summary>
+        /// Reads an exact byte count and swaps endianness when needed.
+        /// </summary>
         private static byte[] Bytes(BinaryReader br, int n, bool big)
         {
             var b = br.ReadBytes(n);
@@ -210,16 +256,20 @@ namespace DinoLino   // adjust to your namespace
             return b;
         }
 
-        // Reads header lines byte-by-byte so we never over-read into a binary body.
+        /// <summary>
+        /// Reads header lines without consuming bytes from the binary body.
+        /// </summary>
         private static string ReadHeaderLine(Stream s)
         {
             var sb = new StringBuilder(64);
             int b;
+
             while ((b = s.ReadByte()) != -1)
             {
                 if (b == '\n') return sb.ToString().TrimEnd('\r');
                 sb.Append((char)b);
             }
+
             return sb.Length > 0 ? sb.ToString() : null;
         }
     }

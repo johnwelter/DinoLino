@@ -15,12 +15,31 @@ using System.Windows.Media;
 
 namespace DinoLino.Utilities
 {
+    // Read-only-ish viewer for every operation performed this session, one tab per
+    // operation kind (Circular Arc, Parabolic Arc, n-Point Spline, Triangle, Line,
+    // Outline), grouped into a labelled block per specimen within each tab.
+    //
+    // Two parallel sets of "build" methods exist on purpose:
+    //   - BuildXxxTab   : builds the on-screen DataGrid tabs AND their matching CSV
+    //                     rows (used by this window's per-tab "Export to CSV…" button
+    //                     and "Add to workbook" button).
+    //   - BuildXxxData  : headless twins that produce ONLY headers + rows (no UI),
+    //                     used exclusively by the static ExportAllOperationHistory,
+    //                     which dumps all six tables straight to one workbook without
+    //                     ever opening this window (Tools > Export History / Ctrl+E).
+    // The pairs are kept in lockstep by hand — if you add a field to one, add it to
+    // its twin too, or the "Export History" file will silently miss it.
     public class GeomOpHistoryWindow : Window
     {
+        // Tables the user has explicitly added via each tab's "Add to workbook"
+        // button; "Export workbook…" in the footer writes only these, letting the
+        // user assemble a subset instead of always exporting all six tables.
         private readonly List<WorkbookSheet> _workbook = new();
         private TextBlock _workbookStatus;
         private Button _exportWorkbookButton;
 
+        // One flattened table pending export: a sheet name, its column headers,
+        // and its data rows (already formatted as display strings).
         private class WorkbookSheet
         {
             public string Name;
@@ -28,7 +47,10 @@ namespace DinoLino.Utilities
             public List<string[]> Rows;
         }
 
-        // Backs the editable "Attempt" header for one tab.
+        // Backs the editable "Attempt" column header shown at the top of each tab.
+        // One instance is created per Build*Tab call and shared by every specimen
+        // block within that tab, so renaming it (e.g. to "Trial") relabels the whole
+        // tab at once — this is a display-only label and does not affect exports.
         private class AttemptHeader : INotifyPropertyChanged
         {
             private string _text = "Attempt";
@@ -50,6 +72,8 @@ namespace DinoLino.Utilities
             var footer = BuildWorkbookFooter();
             UpdateWorkbookStatus();
 
+            // One tab per operation kind; each tab internally loops over every
+            // specimen via Blocks() below.
             var tabs = new TabControl();
             tabs.Items.Add(BuildCircularArcTab(undoRedo, specimenName));
             tabs.Items.Add(BuildParabolicArcTab(undoRedo, specimenName));
@@ -65,6 +89,12 @@ namespace DinoLino.Utilities
             Content = root;
         }
 
+        // Every specimen of the session, oldest first, as (name, operations) pairs.
+        // UndoRedoManager keeps the ACTIVE specimen's operations in History and every
+        // other specimen's in Archive, so this stitches the two back together: past
+        // specimens from the archive, then the current one (using its live-updating
+        // name and History) last. Every tab builder loops over this, so switching
+        // specimens or renaming the active one is reflected here with no extra work.
         private static IEnumerable<(string Name, IReadOnlyList<WorkOperation> Ops)> Blocks(
             UndoRedoManager ur, string currentName)
         {
@@ -72,6 +102,8 @@ namespace DinoLino.Utilities
                 yield return (rec.SpecimenName, rec.Operations);
             yield return (currentName, ur.History);
         }
+
+        #region Tab builders — one per operation kind, each looping over every specimen
 
         private TabItem BuildLineTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
@@ -88,7 +120,7 @@ namespace DinoLino.Utilities
                 AddColumn(grid, "Length", nameof(LineHistoryRow.Length));
 
                 var rows = new List<LineHistoryRow>();
-                int attempt = 1;
+                int attempt = 1;   // numbering restarts at 1 for every specimen block
                 bool any = false;
                 foreach (var op in ops.OfType<LineOperation>())
                 {
@@ -101,6 +133,8 @@ namespace DinoLino.Utilities
                     rows.Add(r);
                     csvRows.Add(new[] { name, r.Attempt, r.Length });
                 }
+                // A specimen with zero operations of this kind still gets one blank
+                // CSV row, so the export shows every specimen even if empty.
                 if (!any)
                     csvRows.Add(new[] { name, "", "", "" });
                 grid.ItemsSource = rows;
@@ -135,9 +169,10 @@ namespace DinoLino.Utilities
                 var rows = new List<OutlineHistoryRow>();
                 int attempt = 1;
                 bool any = false;
-                // Only finalized outlines with generated metadata (HasMetadata) — matching the
-                // n_outline counter. EFD/EFA coefficients are omitted; they export separately
-                // from the EFA detail window.
+                // Only finalized outlines (HasMetadata) count — this matches the
+                // n_outline counter in the main window. EFD/EFA coefficients are
+                // intentionally omitted here; they export separately from the
+                // Elliptic Fourier Analysis window.
                 foreach (var op in ops.OfType<OutlineOperation>().Where(o => o.HasMetadata))
                 {
                     any = true;
@@ -340,6 +375,14 @@ namespace DinoLino.Utilities
             return WrapTab("Triangle", panel, headers, csvRows, "triangle_history.csv");
         }
 
+        #endregion
+
+        #region Tab chrome — shared UI shell and DataGrid column helpers
+
+        // Wraps a tab's specimen-block panel in a scroll viewer plus a bottom button
+        // row ("Add to workbook", "Export to CSV…"). csvHeaders/csvRows are the flat
+        // data captured while the tab's grids were being built above; the buttons
+        // just hand that data to ExportCsv or stash it on _workbook.
         private TabItem WrapTab(string header, StackPanel panel,
             string[] csvHeaders, List<string[]> csvRows, string suggestedFileName)
         {
@@ -358,6 +401,7 @@ namespace DinoLino.Utilities
             };
             addButton.Click += (s, e) =>
             {
+                // Toggle: click again to remove this tab's table from the workbook.
                 var existing = _workbook.FirstOrDefault(w => w.Name == header);
                 if (existing != null)
                     _workbook.Remove(existing);
@@ -396,6 +440,7 @@ namespace DinoLino.Utilities
         private static string WorkbookButtonLabel(bool added) =>
             added ? "\u2713 Added to workbook" : "Add to workbook";
 
+        // Bold specimen-name label placed above each specimen's grid within a tab.
         private static TextBlock SpecimenHeader(string name) => new TextBlock
         {
             Text = name,
@@ -403,6 +448,9 @@ namespace DinoLino.Utilities
             Margin = new Thickness(8, 12, 8, 4)
         };
 
+        // Shared visual style for every operation-kind grid: read-only cells (the
+        // Attempt column overrides this individually), no add/delete/sort/reorder,
+        // and its own scrolling disabled since the tab's outer ScrollViewer handles it.
         private static DataGrid MakeGrid()
         {
             var grid = new DataGrid
@@ -422,6 +470,7 @@ namespace DinoLino.Utilities
             return grid;
         }
 
+        // A plain read-only measurement column bound to one property of a row DTO.
         private static void AddColumn(DataGrid grid, string header, string path, double? fixedWidth = null)
         {
             grid.Columns.Add(new DataGridTextColumn
@@ -435,6 +484,9 @@ namespace DinoLino.Utilities
             });
         }
 
+        // The editable header shown above the Attempt column: a borderless TextBox
+        // bound (two-way) to the shared AttemptHeader model for this tab, so typing
+        // in it relabels the column immediately.
         private static TextBox MakeAttemptHeaderBox(AttemptHeader model)
         {
             var box = new TextBox
@@ -455,6 +507,10 @@ namespace DinoLino.Utilities
             return box;
         }
 
+        // Unlike AddColumn's read-only measurement columns, the Attempt column itself
+        // is user-editable (IsReadOnly = false) so the user can relabel individual
+        // attempt numbers; the binding commits on LostFocus rather than every
+        // keystroke to avoid re-rendering the grid mid-edit.
         private static void AddAttemptColumn(DataGrid grid, TextBox headerBox, string path, double fixedWidth)
         {
             grid.Columns.Add(new DataGridTextColumn
@@ -470,6 +526,13 @@ namespace DinoLino.Utilities
             });
         }
 
+        #endregion
+
+        #region Workbook footer + per-tab export actions
+
+        // Bottom bar of the window: status text ("N tables added to workbook") plus
+        // the "Export workbook…" button that writes everything in _workbook to one
+        // .xlsx file.
         private FrameworkElement BuildWorkbookFooter()
         {
             _workbookStatus = new TextBlock
@@ -508,6 +571,7 @@ namespace DinoLino.Utilities
             _exportWorkbookButton.IsEnabled = n > 0;
         }
 
+        // Writes one tab's already-formatted rows straight to a CSV file.
         private static void ExportCsv(string[] headers, List<string[]> rows, string suggestedFileName)
         {
             var dlg = new SaveFileDialog
@@ -536,6 +600,8 @@ namespace DinoLino.Utilities
             }
         }
 
+        // Quotes a field only if it contains a character that would otherwise break
+        // CSV parsing; embedded quotes are doubled per the CSV convention.
         private static string CsvEscape(string field)
         {
             field ??= "";
@@ -544,6 +610,8 @@ namespace DinoLino.Utilities
             return field;
         }
 
+        // Writes every table currently staged in _workbook (via each tab's "Add to
+        // workbook" button) to one .xlsx file.
         private void ExportWorkbook()
         {
             if (_workbook.Count == 0) return;
@@ -569,6 +637,15 @@ namespace DinoLino.Utilities
             }
         }
 
+        #endregion
+
+        #region Export-all-history entry point (Tools > Export History / Ctrl+E)
+
+        // Entry point called directly from the main window's menu/shortcut — exports
+        // all six operation tables to one .xlsx WITHOUT requiring this window to be
+        // open first. Rebuilds the tables headlessly via BuildXxxData below rather
+        // than reusing the Build*Tab methods, since those also construct on-screen
+        // DataGrids this call has no window to host.
         public static void ExportAllOperationHistory(
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
@@ -610,7 +687,7 @@ namespace DinoLino.Utilities
             var (h4, r4) = BuildTriangleData(ur, currentName, scale);
             sheets.Add(new WorkbookSheet { Name = "Triangle", Headers = h4, Rows = r4 });
 
-            var (h5, r5) = BuildLineData(ur, currentName, scale);           
+            var (h5, r5) = BuildLineData(ur, currentName, scale);
             sheets.Add(new WorkbookSheet { Name = "Lines", Headers = h5, Rows = r5 });
 
             var (h6, r6) = BuildOutlineData(ur, currentName, scale);
@@ -619,6 +696,8 @@ namespace DinoLino.Utilities
             return sheets;
         }
 
+        // Headless twin of BuildCircularArcTab: same grouping/formatting logic, minus
+        // any UI construction. Keep in sync with its tab counterpart above.
         private static (string[] Headers, List<string[]> Rows) BuildCircularArcData(
             UndoRedoManager ur, string currentName)
         {
@@ -638,6 +717,7 @@ namespace DinoLino.Utilities
             return (headers, rows);
         }
 
+        // Headless twin of BuildParabolicArcTab.
         private static (string[] Headers, List<string[]> Rows) BuildParabolicArcData(
             UndoRedoManager ur, string currentName)
         {
@@ -657,6 +737,7 @@ namespace DinoLino.Utilities
             return (headers, rows);
         }
 
+        // Headless twin of BuildSplineTab.
         private static (string[] Headers, List<string[]> Rows) BuildSplineData(
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
@@ -676,6 +757,7 @@ namespace DinoLino.Utilities
             return (headers, rows);
         }
 
+        // Headless twin of BuildTriangleTab.
         private static (string[] Headers, List<string[]> Rows) BuildTriangleData(
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
@@ -695,6 +777,8 @@ namespace DinoLino.Utilities
             return (headers, rows);
         }
 
+        // Headless twin of BuildLineTab. Note the extra "Line ratio" column, which
+        // the on-screen Lines tab does not show — export-only field.
         private static (string[] Headers, List<string[]> Rows) BuildLineData(
     UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
@@ -714,6 +798,7 @@ namespace DinoLino.Utilities
             return (headers, rows);
         }
 
+        // Headless twin of BuildOutlineTab (same HasMetadata filter as n_outline).
         private static (string[] Headers, List<string[]> Rows) BuildOutlineData(
     UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
@@ -743,6 +828,15 @@ namespace DinoLino.Utilities
             return (headers, rows);
         }
 
+        #endregion
+
+        #region Minimal XLSX (OOXML) writer — no external library dependency
+
+        // Hand-rolls the smallest valid .xlsx package: a workbook part, one worksheet
+        // part per sheet, and a bare-bones styles part (Excel requires styles.xml to
+        // exist even when nothing is styled). Uses System.IO.Packaging directly
+        // instead of a spreadsheet library, so this project has zero extra NuGet
+        // dependencies for what is otherwise just "write some XML into a zip".
         private static void WriteXlsx(string path, List<WorkbookSheet> sheets)
         {
             const string nsMain = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -764,6 +858,7 @@ namespace DinoLino.Utilities
             WritePartText(stylesPart, StylesXml());
             wbPart.CreateRelationship(stylesUri, TargetMode.Internal, relStyles, "rIdStyles");
 
+            // One worksheet part per sheet, related back to the workbook by rId.
             for (int i = 1; i <= sheets.Count; i++)
             {
                 var sheetUri = new Uri($"/xl/worksheets/sheet{i}.xml", UriKind.Relative);
@@ -772,6 +867,7 @@ namespace DinoLino.Utilities
                 wbPart.CreateRelationship(sheetUri, TargetMode.Internal, relWorksheet, $"rId{i}");
             }
 
+            // workbook.xml itself: the <sheets> list Excel uses to find/name each tab.
             var wb = new StringBuilder();
             wb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
             wb.Append($"<workbook xmlns=\"{nsMain}\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>");
@@ -788,6 +884,9 @@ namespace DinoLino.Utilities
             writer.Write(content);
         }
 
+        // The minimum styles.xml Excel will accept: one default font/fill/border and
+        // one cell format, all left unstyled. Nothing in this app applies custom
+        // formatting, so this never needs more than a single entry of each.
         private static string StylesXml() =>
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
             "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
@@ -799,6 +898,8 @@ namespace DinoLino.Utilities
             "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>" +
             "</styleSheet>";
 
+        // One <row> per data row, one header row first; column position (not name)
+        // determines the cell reference (A1, B1, …) via ColumnLetter below.
         private static string BuildSheetXml(WorkbookSheet sheet)
         {
             var sb = new StringBuilder();
@@ -824,6 +925,9 @@ namespace DinoLino.Utilities
             return sb.ToString();
         }
 
+        // Emits a numeric cell (<v>) when the value parses as a number, so Excel
+        // treats it as a number (sortable, usable in formulas) rather than text;
+        // everything else falls back to an inline string cell.
         private static string Cell(string reference, string value)
         {
             if (!string.IsNullOrEmpty(value) &&
@@ -835,6 +939,8 @@ namespace DinoLino.Utilities
         private static string InlineStringCell(string reference, string value) =>
             $"<c r=\"{reference}\" t=\"inlineStr\"><is><t xml:space=\"preserve\">{XmlEscape(value)}</t></is></c>";
 
+        // 0-based column index -> spreadsheet column letters (0 -> "A", 25 -> "Z",
+        // 26 -> "AA", …), i.e. bijective base-26 with no zero digit.
         private static string ColumnLetter(int index)
         {
             string s = "";
@@ -857,6 +963,9 @@ namespace DinoLino.Utilities
                     .Replace("\"", "&quot;");
         }
 
+        // Excel sheet-name rules: no : \ / ? * [ ], max 31 characters, non-empty.
+        // Falls back to "SheetN" (ordinal = sheet position) when the specimen name
+        // is blank or becomes blank after stripping bad characters.
         private static string SafeSheetName(string name, int ordinal)
         {
             if (string.IsNullOrWhiteSpace(name)) name = $"Sheet{ordinal}";
@@ -868,17 +977,25 @@ namespace DinoLino.Utilities
             return name;
         }
 
+        #endregion
+
+        #region Formatting helpers
+
         private static string Fmt(double v) =>
             Math.Round(v, 2).ToString(CultureInfo.InvariantCulture);
 
         private static string Fmt4(double v) =>
     Math.Round(v, 4).ToString(CultureInfo.InvariantCulture);
 
-        // The line-length ratio is boxed as either a rounded double or the string "N/A"
-        // (see GeometryCalculations.RelativeLength), so format each case accordingly.
+        // LineLengthRatio is boxed as either a rounded double or the string "N/A"
+        // (see GeometryCalculations.RelativeLength, which returns "N/A" when there is
+        // no calibrated reference line to compare against), so format each case
+        // accordingly instead of assuming it is always numeric.
         private static string FmtRatio(object ratio) =>
             ratio is double d ? Fmt(d) : ratio?.ToString() ?? "";
 
+        // Renders in real-world units when the scale is calibrated, otherwise falls
+        // back to raw canvas pixels so the table is never blank.
         private static string FmtLength(double pixels, ScaleCalibration scale) =>
             scale != null && scale.IsCalibrated
                 ? $"{scale.ToUnits(pixels):F2} {scale.Unit}"
@@ -888,7 +1005,11 @@ namespace DinoLino.Utilities
             scale != null && scale.IsCalibrated
                 ? $"{scale.ToUnitsArea(pixelArea):F2} {scale.Unit}\u00B2"
                 : $"{Math.Round(pixelArea, 1).ToString(CultureInfo.InvariantCulture)} px\u00B2";
+
+        #endregion
     }
+
+    #region DataGrid row types — one per tab, bound via each column's Binding path
 
     public class CircularArcHistoryRow
     {
@@ -940,4 +1061,6 @@ namespace DinoLino.Utilities
         public string Solidity { get; set; }
         public string TurningAngleLength { get; set; }
     }
+
+    #endregion
 }

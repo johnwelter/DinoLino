@@ -1,10 +1,9 @@
 ﻿// Utilities/SplineFitting.cs
 //
-// Pure spline geometry shared by CurvatureMode: centripetal Catmull-Rom
-// interpolation and Schneider's recursive cubic-Bézier fitting. Works on Vector2
-// lists and System math only — no WPF, no Path, no UI state — matching the
-// GeometryCalculations / EllipticFourierAnalysis split. CurvatureMode turns the
-// points and segments returned here into WPF shapes.
+// Pure spline geometry used by CurvatureMode.
+// Catmull-Rom generates dense interpolated points, and Schneider fitting reduces a
+// polyline to one or more cubic Bézier segments.
+// This file depends only on Vector2 and System math so it stays UI-agnostic.
 
 using DinoLino.DataTypes;
 using System;
@@ -14,18 +13,19 @@ namespace DinoLino.Utilities
 {
     public static class SplineFitting
     {
-        // =====================================================================
-        // CATMULL-ROM
-        // =====================================================================
+        // =====================
+        // Catmull-Rom sampling
+        // =====================
 
-        // Dense interpolated points along a centripetal Catmull-Rom spline through
-        // controlPoints. Phantom endpoints duplicate the first and last control
-        // points so every segment has a full 4-point neighborhood.
+        /// <summary>
+        /// Samples a centripetal Catmull-Rom spline through the supplied control points.
+        /// </summary>
         public static List<Vector2> GetCatmullRomPoints(List<Vector2> controlPoints, int samplesPerSegment)
         {
             var result = new List<Vector2>();
             if (controlPoints == null || controlPoints.Count < 2) return result;
 
+            // Duplicate the endpoints so every segment has four points available.
             var pts = new List<Vector2>(controlPoints.Count + 2);
             pts.Add(controlPoints[0]);
             pts.AddRange(controlPoints);
@@ -39,12 +39,15 @@ namespace DinoLino.Utilities
                     result.Add(CatmullRom(pts[i - 1], pts[i], pts[i + 1], pts[i + 2], t));
                 }
             }
+
+            // Include the final control point so the sampled polyline reaches the end.
             result.Add(controlPoints[controlPoints.Count - 1]);
             return result;
         }
 
-        // Centripetal Catmull-Rom (alpha = 0.5): evaluates the curve between p1 and
-        // p2 at parameter t in [0,1] via Barry-Goldman recursive interpolation.
+        /// <summary>
+        /// Evaluates a centripetal Catmull-Rom segment between p1 and p2.
+        /// </summary>
         private static Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, double t)
         {
             double t0 = 0;
@@ -64,18 +67,22 @@ namespace DinoLino.Utilities
             return B1 * ((t2 - s) / (t2 - t1)) + B2 * ((s - t1) / (t2 - t1));
         }
 
-        // alpha = 0.5 knot interval = distance^0.5 = (dx² + dy²)^0.25
+        /// <summary>
+        /// Returns the centripetal knot spacing for two points.
+        /// </summary>
         private static double KnotInterval(Vector2 a, Vector2 b)
         {
             double dx = b.X - a.X, dy = b.Y - a.Y;
             return Math.Max(Math.Pow(dx * dx + dy * dy, 0.25), 1e-6);
         }
 
-        // =====================================================================
-        // SCHNEIDER CUBIC-BÉZIER FITTING
-        // =====================================================================
+        // =====================
+        // Schneider fitting
+        // =====================
 
-        // One fitted cubic Bézier segment: endpoints P0/P3, control handles P1/P2.
+        /// <summary>
+        /// One fitted cubic Bézier segment.
+        /// </summary>
         public struct CubicBezierSegmentData
         {
             public Vector2 P0;
@@ -92,8 +99,9 @@ namespace DinoLino.Utilities
             }
         }
 
-        // Fits one or more cubic Bézier segments to points within tolerance
-        // (Schneider, "An Algorithm for Automatically Fitting Digitized Curves", 1990).
+        /// <summary>
+        /// Fits one or more cubic Bézier segments to a polyline within the given tolerance.
+        /// </summary>
         public static List<CubicBezierSegmentData> FitSchneiderBezier(List<Vector2> points, double tolerance)
         {
             var result = new List<CubicBezierSegmentData>();
@@ -114,6 +122,7 @@ namespace DinoLino.Utilities
 
             if (count == 2)
             {
+                // With only two points, approximate the segment using handles one-third in from each end.
                 Vector2 p0 = points[first];
                 Vector2 p3 = points[last];
                 Vector2 d = (p3 - p0) * (1.0 / 3.0);
@@ -137,24 +146,35 @@ namespace DinoLino.Utilities
             FitSchneiderBezierRecursive(points, splitPoint, last, tolerance, output);
         }
 
+        /// <summary>
+        /// Estimates the tangent at the start of the fitted span.
+        /// </summary>
         private static Vector2 ComputeStartTangent(List<Vector2> points, int first, int last)
         {
             Vector2 t = points[first + 1] - points[first];
             if (t.Magnitude() < 1e-9 && last > first + 1)
                 t = points[first + 2] - points[first];
+
             t.Normalize();
             return t;
         }
 
+        /// <summary>
+        /// Estimates the tangent at the end of the fitted span.
+        /// </summary>
         private static Vector2 ComputeEndTangent(List<Vector2> points, int first, int last)
         {
             Vector2 t = points[last - 1] - points[last];
             if (t.Magnitude() < 1e-9 && last > first + 1)
                 t = points[last - 2] - points[last];
+
             t.Normalize();
             return t;
         }
 
+        /// <summary>
+        /// Builds a cubic Bézier approximation for the current point span.
+        /// </summary>
         private static CubicBezierSegmentData GenerateBezier(
             List<Vector2> points, int first, int last, Vector2 tHat1, Vector2 tHat2)
         {
@@ -178,6 +198,7 @@ namespace DinoLino.Utilities
                 Vector2 a1 = tHat1 * b1;
                 Vector2 a2 = tHat2 * b2;
 
+                // Residual between the data point and the current end-point blend.
                 Vector2 tmp = points[first + i] - (p0 * (b0 + b1) + p3 * (b2 + b3));
 
                 c00 += a1 | a1;
@@ -217,6 +238,9 @@ namespace DinoLino.Utilities
             return new CubicBezierSegmentData(p0, p1, p2, p3);
         }
 
+        /// <summary>
+        /// Finds the point with the largest fit error.
+        /// </summary>
         private static int FindMaxErrorPoint(
             List<Vector2> points, int first, int last,
             CubicBezierSegmentData bez, out double maxError)
@@ -241,11 +265,13 @@ namespace DinoLino.Utilities
             return splitPoint;
         }
 
-        // =====================================================================
-        // SAMPLING
-        // =====================================================================
+        // =====================
+        // Sampling
+        // =====================
 
-        // Samples every fitted Bézier segment to a dense polyline (used for metrics).
+        /// <summary>
+        /// Samples fitted Bézier segments into a dense polyline.
+        /// </summary>
         public static List<Vector2> GetSchneiderBezierPoints(
             List<Vector2> controlPoints, int samplesPerSegment, double tolerance = 2.0)
         {
@@ -267,6 +293,9 @@ namespace DinoLino.Utilities
             return result;
         }
 
+        /// <summary>
+        /// Evaluates a cubic Bézier curve at t in [0,1].
+        /// </summary>
         private static Vector2 EvaluateCubicBezier(CubicBezierSegmentData bez, double t)
         {
             double mt = 1.0 - t;
@@ -278,6 +307,9 @@ namespace DinoLino.Utilities
             return bez.P0 * b0 + bez.P1 * b1 + bez.P2 * b2 + bez.P3 * b3;
         }
 
+        /// <summary>
+        /// Parameterizes points by cumulative chord length.
+        /// </summary>
         private static double[] ChordLengthParameterize(List<Vector2> points, int first, int last)
         {
             int n = last - first + 1;

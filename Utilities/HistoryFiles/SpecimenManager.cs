@@ -6,86 +6,61 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 
-// This one file holds both the specimen data layer (Specimen + SpecimenManager,
-// in DinoLino.Utilities) and the Tools > Edit Image Cache window that edits it
-// (EditImageCacheWindow, in DinoLino alongside the app's other windows). Two
-// namespace blocks in one file is deliberate: the window is a thin view over
-// SpecimenManager's cache API, and keeping them together means they evolve as
-// a unit.
+// This file contains the specimen cache model and the window used to edit it.
+// Keeping the two together makes it easier to keep the UI and data model in sync.
 
 namespace DinoLino.Utilities
 {
-    // One opened image together with the name the user gave it. Names are associated
-    // with images: each opened image gets its own record, and only the record for the
-    // image currently loaded in the workspace is editable (the bound TextBox always
-    // shows the current specimen, so a non-loaded image can't be renamed).
-    //
-    // Image is the only "cache" part of the record: releasing it (Tools > Clear Image
-    // Cache / Edit Image Cache) sets Image = null while Name and FileName persist for
-    // the whole session. All measurements live in UndoRedoManager (live history +
-    // archive), which holds them per specimen via Record below, so releasing images
-    // can never touch metadata, the History window, or exports.
+    /// <summary>
+    /// Represents one opened specimen: its image, file name, display name, creation order, and archived history.
+    /// </summary>
     public class Specimen
     {
-        public BitmapSource Image { get; set; }   // null = released from the cache
-        public string FileName { get; set; }      // shown in the "Loaded: X" label
-        public string Name { get; set; }          // null => use the auto "Specimen N"
+        public BitmapSource Image { get; set; }   // Null when the image has been released from the cache.
+        public string FileName { get; set; }      // Shown in the loaded-file label.
+        public string Name { get; set; }          // Null means the default "Specimen N" label is used.
 
-        // Creation index of this specimen (0-based, never changes: specimen records
-        // are never removed). UndoRedoManager uses it to keep the History-window /
-        // export block order stable no matter how the user cycles with the arrows.
+        /// <summary>
+        /// Stable session-wide order for this specimen.
+        /// </summary>
         public int Ordinal { get; set; }
 
-        // This specimen's operation record, owned by UndoRedoManager's archive
-        // machinery. Null until the user first moves OFF this specimen; from then on
-        // it is refreshed on every departure and restored as the live history on
-        // every arrival, which is what makes the attempt counter, undo/redo, and
-        // exports per-specimen.
+        /// <summary>
+        /// This specimen's archived operation record, managed by UndoRedoManager.
+        /// </summary>
         public SpecimenRecord Record { get; set; }
     }
 
-    // Manages the ordered list of opened specimens (image + name) shown in the control
-    // panel, plus which one is currently loaded. The up/down arrows move the current
-    // pointer through this list; MainWindow reloads the pointed-to image into the
-    // workspace. Implements INotifyPropertyChanged so the TextBox and the loaded-file
-    // label can bind directly.
+    /// <summary>
+    /// Tracks opened specimens and the specimen currently loaded in the workspace.
+    /// Also provides bindings for the specimen name textbox and cache-related actions.
+    /// </summary>
     public class SpecimenManager : INotifyPropertyChanged
     {
-        //----- INotifyPropertyChanged -----//
         public event PropertyChangedEventHandler PropertyChanged;
 
         private void OnPropertyChanged([CallerMemberName] string propertyName = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
-        //----- State -----//
-
-        // Opened specimens in the order they were opened. Starts with a single "pending"
-        // record (no image yet) so the box shows "Specimen 1" and can be named before the
-        // first image is opened; that pending record receives the first opened image.
+        // The first entry is a placeholder so the first specimen can be named before any image is opened.
         private readonly List<Specimen> _specimens = new() { new Specimen() };
         private int _current = 0;
 
         private Specimen Current => _specimens[_current];
 
-        // The currently loaded specimen. MainWindow needs it to tell UndoRedoManager
-        // who is departing when the user opens a new image or cycles with the arrows.
         public Specimen CurrentSpecimen => Current;
 
-        // True once the first image has been opened. MainWindow uses this to decide whether
-        // an image-open is a specimen transition (stash the outgoing specimen's operations)
-        // or just the initial load (nothing to stash yet).
+        // Becomes true after the first image is loaded into the initial placeholder record.
         private bool _hasOpenedImage = false;
         public bool HasOpenedImage => _hasOpenedImage;
-
-        //----- Display bindings -----//
 
         public string LoadedFileLabel =>
             Current.FileName == null ? "No file loaded" : $"Loaded: {Current.FileName}";
 
-        // Name of the currently loaded specimen. The setter writes back to that specimen
-        // only, so an image that is not loaded cannot be renamed. Because the bound TextBox
-        // writes this on every keystroke, the stored name is always the last one typed while
-        // the specimen was loaded.
+        /// <summary>
+        /// Name shown in the textbox for the active specimen.
+        /// Updates apply only to the currently loaded specimen.
+        /// </summary>
         public string DisplayName
         {
             get => Current.Name ?? $"Specimen {_current + 1}";
@@ -97,11 +72,10 @@ namespace DinoLino.Utilities
             }
         }
 
-        //----- Navigation (up/down arrows) -----//
-        // Specimens whose image has been released (Image == null) are invisible to the
-        // arrows: navigation skips them in both directions, and when nothing with an
-        // image remains on a side, that side's arrow reports disabled.
-
+        /// <summary>
+        /// Returns true when there is a newer specimen with a cached image.
+        /// Released specimens are skipped by navigation.
+        /// </summary>
         public bool CanMoveNext
         {
             get
@@ -112,6 +86,10 @@ namespace DinoLino.Utilities
             }
         }
 
+        /// <summary>
+        /// Returns true when there is an older specimen with a cached image.
+        /// Released specimens are skipped by navigation.
+        /// </summary>
         public bool CanMovePrevious
         {
             get
@@ -122,14 +100,14 @@ namespace DinoLino.Utilities
             }
         }
 
-        // Up arrow: move to the NEAREST newer specimen that still has a cached image.
-        // Returns the specimen that is now current so MainWindow can reload its image,
-        // or null (a no-op for the caller) when nothing newer holds an image.
+        /// <summary>
+        /// Moves to the next specimen that still has an image cached.
+        /// </summary>
         public Specimen MoveNext()
         {
             for (int i = _current + 1; i < _specimens.Count; i++)
             {
-                if (_specimens[i].Image == null) continue;   // released: skip
+                if (_specimens[i].Image == null) continue;
                 _current = i;
                 RaiseCurrentChanged();
                 return Current;
@@ -137,13 +115,14 @@ namespace DinoLino.Utilities
             return null;
         }
 
-        // Down arrow: move to the NEAREST older specimen that still has a cached image.
-        // Returns it, or null (a no-op for the caller) when nothing older holds an image.
+        /// <summary>
+        /// Moves to the previous specimen that still has an image cached.
+        /// </summary>
         public Specimen MovePrevious()
         {
             for (int i = _current - 1; i >= 0; i--)
             {
-                if (_specimens[i].Image == null) continue;   // released: skip
+                if (_specimens[i].Image == null) continue;
                 _current = i;
                 RaiseCurrentChanged();
                 return Current;
@@ -151,18 +130,16 @@ namespace DinoLino.Utilities
             return null;
         }
 
-        //----- Image cache (Tools > Clear Image Cache / Edit Image Cache) -----//
-
-        // Read-only roster for the Edit Image Cache window: every specimen of the
-        // session in open order. The leading record has FileName == null until the
-        // first image is opened; display code skips it.
+        /// <summary>
+        /// Returns the specimens in session order for the cache editor window.
+        /// </summary>
         public IReadOnlyList<Specimen> Specimens => _specimens;
 
         public bool IsCurrent(Specimen specimen) => ReferenceEquals(specimen, Current);
 
-        // Auto-or-custom label for ANY specimen (the DisplayName property covers only
-        // the current one). Auto names are positional, matching what the name box
-        // showed while that specimen was loaded.
+        /// <summary>
+        /// Returns the display name for any specimen, using the stored name when available.
+        /// </summary>
         public string NameOf(Specimen specimen)
         {
             if (specimen?.Name != null) return specimen.Name;
@@ -181,11 +158,10 @@ namespace DinoLino.Utilities
             }
         }
 
-        // Releases one specimen's bitmap: it disappears from arrow cycling and its
-        // memory can be reclaimed (immediately for past specimens; for the currently
-        // loaded one only after the workspace moves to another image, because the
-        // workspace itself still references that bitmap). Name, file name, and every
-        // measurement remain untouched.
+        /// <summary>
+        /// Releases one specimen image from the cache.
+        /// The specimen remains in the session list, but it no longer participates in image cycling.
+        /// </summary>
         public void ClearImage(Specimen specimen)
         {
             if (specimen == null || specimen.Image == null) return;
@@ -194,9 +170,9 @@ namespace DinoLino.Utilities
             OnPropertyChanged(nameof(CanMovePrevious));
         }
 
-        // Releases every cached bitmap in one sweep (Clear Image Cache). Records and
-        // metadata persist exactly as with ClearImage; only the arrows go quiet until
-        // new images are opened.
+        /// <summary>
+        /// Releases every cached image in the session.
+        /// </summary>
         public void ClearAllImages()
         {
             bool changed = false;
@@ -211,12 +187,10 @@ namespace DinoLino.Utilities
             OnPropertyChanged(nameof(CanMovePrevious));
         }
 
-        //----- Image open -----//
-
-        // Called by MainWindow whenever an image is registered as a new specimen. The first
-        // opened image fills the initial pending record (keeping any name typed beforehand);
-        // every image after that appends a new record and makes it current, which freezes the
-        // previous specimen's name (whatever the user last typed while it was loaded).
+        /// <summary>
+        /// Registers a newly opened image as the current specimen.
+        /// The first image fills the initial placeholder; later images create new specimen records.
+        /// </summary>
         public void OnImageOpened(BitmapSource image, string fileName)
         {
             if (!_hasOpenedImage)
@@ -231,7 +205,7 @@ namespace DinoLino.Utilities
                 {
                     Image = image,
                     FileName = fileName,
-                    Ordinal = _specimens.Count   // creation index, stable for the session
+                    Ordinal = _specimens.Count
                 });
                 _current = _specimens.Count - 1;
             }
@@ -246,19 +220,15 @@ namespace DinoLino.Utilities
             OnPropertyChanged(nameof(CanMovePrevious));
         }
 
-        //----- TextBox wiring -----//
-
-        // Wires the manager to the TextBox so edits flow both ways.
-        // Call this once from MainWindow after InitializeComponent().
+        /// <summary>
+        /// Binds specimen name changes to a TextBox in both directions.
+        /// </summary>
         public void BindToTextBox(TextBox textBox)
         {
-            // flag to prevent the two handlers from triggering each other
             bool _isSyncing = false;
 
-            // Set initial display
             textBox.Text = DisplayName;
 
-            // View -> ViewModel: user types in the box (writes to the current specimen)
             textBox.TextChanged += (s, e) =>
             {
                 if (_isSyncing) return;
@@ -267,7 +237,6 @@ namespace DinoLino.Utilities
                 _isSyncing = false;
             };
 
-            // ViewModel -> View: navigation / open changes DisplayName
             PropertyChanged += (s, e) =>
             {
                 if (_isSyncing) return;
@@ -282,16 +251,9 @@ namespace DinoLino.Utilities
 
 namespace DinoLino
 {
-    // Tools > Edit Image Cache. Lists every file opened this session (specimen name +
-    // file name) with a minus button that releases that image from the specimen cache.
-    // Releasing affects ONLY the specimen up/down cycling and memory: the specimen's
-    // name stays on its record, and every measurement lives in UndoRedoManager (live
-    // history + archive), which this window never touches — the History window and
-    // exported tables are unchanged.
-    //
-    // Built in code rather than XAML so it can live in this file next to the manager
-    // it edits. Fonts are inherited from the FontSize/FontFamily the caller sets on
-    // the window, matching the app's other dialogs.
+    /// <summary>
+    /// Window for reviewing the specimen image cache and releasing cached images.
+    /// </summary>
     public class EditImageCacheWindow : Window
     {
         private readonly SpecimenManager _manager;
@@ -312,10 +274,8 @@ namespace DinoLino
 
             var header = new TextBlock
             {
-                Text = "Releasing an image frees its memory and removes it from the " +
-                       "specimen \u25b2/\u25bc cycling. Specimen names and all " +
-                       "measurements are kept \u2014 the History window and exported " +
-                       "tables are unaffected.",
+                Text = "Releasing an image frees its memory and removes it from specimen cycling. " +
+                       "Specimen names and measurements are kept.",
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 10)
             };
@@ -334,7 +294,7 @@ namespace DinoLino
             DockPanel.SetDock(closeBar, Dock.Bottom);
             root.Children.Add(closeBar);
 
-            // Last child fills the remaining space between header and close bar.
+            // This view is small, so rebuilding the list after each change keeps the code simple.
             root.Children.Add(new ScrollViewer
             {
                 Content = _rows,
@@ -345,8 +305,9 @@ namespace DinoLino
             RebuildRows();
         }
 
-        // The list is small (one row per opened file), so rebuilding it wholesale after
-        // every release keeps the code trivial and the display always truthful.
+        /// <summary>
+        /// Rebuilds the visible specimen list from the current manager state.
+        /// </summary>
         private void RebuildRows()
         {
             _rows.Children.Clear();
@@ -354,7 +315,7 @@ namespace DinoLino
             bool any = false;
             foreach (var specimen in _manager.Specimens)
             {
-                if (specimen.FileName == null) continue;   // pre-first-open placeholder record
+                if (specimen.FileName == null) continue;
                 any = true;
                 _rows.Children.Add(BuildRow(specimen));
             }
@@ -369,6 +330,9 @@ namespace DinoLino
             }
         }
 
+        /// <summary>
+        /// Builds one row for the cache editor list.
+        /// </summary>
         private UIElement BuildRow(Specimen specimen)
         {
             var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
@@ -393,10 +357,10 @@ namespace DinoLino
             {
                 var minus = new Button
                 {
-                    Content = "\u2212",   // minus sign
+                    Content = "\u2212",
                     MinWidth = 30,
                     Padding = new Thickness(6, 0, 6, 0),
-                    ToolTip = "Release this image from the cache (specimen name and measurements are kept)"
+                    ToolTip = "Release this image from the cache."
                 };
                 minus.Click += (s, e) =>
                 {

@@ -6,54 +6,53 @@ using System.Windows.Shapes;
 namespace DinoLino.Utilities.Modes
 {
     /// <summary>
-    /// The narrow view of OutlineMode that the outline tools (erase, smooth,
-    /// hand-draw) are allowed to see. Tools never touch the mode directly, so
-    /// their full dependency surface is this interface — which is also what
-    /// makes them testable against a stub.
+    /// Narrow outline-tool context exposed to erase, smooth, and hand-draw helpers.
     /// </summary>
     public interface IOutlineToolContext
     {
         /// <summary>
-        /// The committed/live outline the tools operate on (canvas-space
-        /// vertex list), or null when none exists yet.
+        /// Current outline in canvas coordinates, or null if no outline exists yet.
         /// </summary>
         Polyline ActivePolyline { get; }
 
-        /// <summary>Current canvas ↔ image mapping (zoom + pan).</summary>
+        /// <summary>
+        /// Current canvas-to-image transform, including zoom and pan.
+        /// </summary>
         ViewTransform Transform { get; }
 
-        /// <summary>Douglas-Peucker epsilon shared with the automatic outline.</summary>
+        /// <summary>
+        /// Simplification tolerance shared with the auto-generated outline.
+        /// </summary>
         double SimplifyEpsilon { get; }
 
-        /// <summary>Stroke brush for committed outlines and previews.</summary>
+        /// <summary>
+        /// Stroke brush used for committed outlines and previews.
+        /// </summary>
         Brush LineColor { get; }
 
-        /// <summary>True when an image is loaded (hand-draw refuses to start otherwise).</summary>
+        /// <summary>
+        /// True when an image is loaded and hand-draw is allowed to start.
+        /// </summary>
         bool HasImage { get; }
 
-        /// <summary>True while the hand-draw tool is the selected tool.</summary>
+        /// <summary>
+        /// True when hand-draw is the active tool.
+        /// </summary>
         bool IsHandDrawActive { get; }
 
         /// <summary>
-        /// Called by the hand-draw tool on the first press of a brand-new
-        /// stroke. The mode begins an undo operation and clears prior
-        /// metadata/EFD results, exactly as the old inline code did.
+        /// Starts a new hand-drawn stroke and clears any stale outline results.
         /// </summary>
         void OnHandStrokeStarted();
 
         /// <summary>
-        /// Routes a finished hand-drawn loop through the SAME commit path as
-        /// an automatic outline (sets the active polyline, snapshots for
-        /// smoothing, commits an OutlineOperation, fires OutlineReady).
+        /// Commits a finished outline through the same path used by automatic tracing.
         /// </summary>
         void CommitOutline(Polyline outline);
     }
 
     /// <summary>
-    /// Shared visual constants for the outline mode and its tools. Frozen
-    /// Freezables are shareable across elements and threads; this is the ONE
-    /// copy of the 4-2 preview dash pattern that HandDrawTool and OutlineMode
-    /// each used to build privately.
+    /// Shared outline rendering constants.
     /// </summary>
     internal static class OutlineVisuals
     {
@@ -68,9 +67,7 @@ namespace DinoLino.Utilities.Modes
     }
 
     /// <summary>
-    /// Minimal INotifyPropertyChanged base for the tool objects, mirroring
-    /// the SetField helper the modes inherit from WorkMode so XAML can bind
-    /// tool parameters (e.g. {Binding Erase.BrushRadius}) directly.
+    /// Minimal observable base class for tool parameter bindings.
     /// </summary>
     public abstract class ObservableToolBase : INotifyPropertyChanged
     {
@@ -83,6 +80,7 @@ namespace DinoLino.Utilities.Modes
         {
             if (System.Collections.Generic.EqualityComparer<T>.Default.Equals(field, value))
                 return false;
+
             field = value;
             OnPropertyChanged(propertyName);
             return true;

@@ -12,66 +12,84 @@ using System.Windows.Threading;
 
 namespace DinoLino
 {
-    // Working-image lifecycle: opening 2D images, swapping/clearing the workspace,
-    // zoom math, flips/rotations, screenshot export, picture adjustment, downsampling,
-    // and the scale-calibration flow. Split from MainWindow.xaml.cs; no logic changes.
+    /// <summary>
+    /// Working-image lifecycle, workspace transforms, image export, picture adjustment, and scale calibration.
+    /// </summary>
     public partial class MainWindow
     {
+        // =====================
+        // Image adjustment
+        // =====================
 
-        // image adjuster fields
         private ImageAdjuster _imageAdjuster = new ImageAdjuster();
 
-        // Picture adjustment state
+        // Current adjustment values, stored so the dialog can reopen with the last settings.
         private double _currentContrast = 0;
         private double _currentBrightness = 0;
         private double _currentSaturation = 0;
 
-        // --- Scale Image capture state ---
+        // =====================
+        // Scale capture
+        // =====================
+
         private bool _scaleMode = false;
         private int _scaleClicks = 0;
         private Line _scaleLine;
 
-        // Full reset: clears the undo/redo history (counter returns to zero, undo/redo
-        // disabled) AND clears the workspace visuals. Used by "Clear All" and Ctrl+C.
-        // NOT used on image-open, so the counter survives loading a new image.
+        // =====================
+        // Workspace reset
+        // =====================
+
+        /// <summary>
+        /// Clears the active operation history and the current workspace visuals.
+        /// </summary>
         private void ClearAllOperations()
         {
             UndoRedoManager?.Clear();
             ClearWorkspace();
         }
+
+        /// <summary>
+        /// Removes workspace overlays, restores the cursor, and resets the active mode.
+        /// </summary>
         private void ClearWorkspace()
         {
-            // Clear everything in the workspace, put the cursor back in
             UI_WorkCanvas.Children.Clear();
             AddElementToWorkSpace(UI_DotCursor);
             UI_DotCursor.SetPosition(0, 0);
+
+            // Clear any outline-specific preview that depends on the previous workspace state.
             OutlineMode?.ClearEFDPreview();
 
-            //reset the work mode
             CurrentWorkMode.Reset();
         }
 
+        /// <summary>
+        /// Ensures an element is attached to the workspace canvas and not to another parent.
+        /// </summary>
         private void AddElementToWorkSpace(UIElement element)
         {
             if (element == null) return;
 
-            // Remove from logical parent first
             if (element is FrameworkElement fe && fe.Parent is Panel logicalPanel)
             {
                 logicalPanel.Children.Remove(element);
             }
             else
             {
-                // Fall back to visual parent
+                // Some workspace elements may still be attached through the visual tree.
                 var visualParent = VisualTreeHelper.GetParent(element);
                 if (visualParent is Panel visualPanel)
                     visualPanel.Children.Remove(element);
             }
 
-            // Add to workspace if not already there
             if (!UI_WorkCanvas.Children.Contains(element))
                 UI_WorkCanvas.Children.Add(element);
         }
+
+        // =====================
+        // Zoom
+        // =====================
 
         private void UpdateWorkSpaceZoom(double delta, Point relativeTo)
         {
@@ -85,6 +103,9 @@ namespace DinoLino
             UI_WorkBorder.CopyTransforms(UI_WorkImage);
         }
 
+        // =====================
+        // Open image
+        // =====================
 
         private void Menu_OpenImage(object sender, RoutedEventArgs e)
         {
@@ -101,17 +122,16 @@ namespace DinoLino
 
             SetWorkspaceImage(bmp, openFileDialog.SafeFileName, registerAsNewSpecimen: true);
 
-            // A 2D image can't be re-posed: disable reposition and drop any retained mesh.
+            // A 2D image does not use the 3D reposition workflow.
             _workingImageIsModelCapture = false;
             _activeMesh = null;
             _activeModelName = null;
             UI_MenuReposition3D.IsEnabled = false;
         }
 
-        // Swaps the working image and refreshes everything derived from it. When
-        // registerAsNewSpecimen is true this counts as opening a new specimen (advances the
-        // specimen counter and updates the loaded-file label); repositioning a 3D model passes
-        // false, because a new capture of the same object is still the same specimen.
+        /// <summary>
+        /// Loads an image into the workspace and refreshes all state derived from it.
+        /// </summary>
         private void SetWorkspaceImage(BitmapSource bmp, string specimenName, bool registerAsNewSpecimen)
         {
             WorkingImage = bmp;
@@ -133,9 +153,13 @@ namespace DinoLino
                 new Action(SyncOutlineImageTransform));
         }
 
+        /// <summary>
+        /// Aligns outline-mode coordinates with the displayed image after layout completes.
+        /// </summary>
         private void SyncOutlineImageTransform()
         {
             if (WorkingImage == null) return;
+
             double displayW = UI_WorkImage.ActualWidth;
             double displayH = UI_WorkImage.ActualHeight;
             if (displayW <= 0 || displayH <= 0) return;
@@ -143,11 +167,15 @@ namespace DinoLino
             OutlineMode.ScaleX = displayW / WorkingImage.PixelWidth;
             OutlineMode.ScaleY = displayH / WorkingImage.PixelHeight;
 
-            // Offset of the image within the canvas
+            // TranslatePoint gives the image's offset in canvas coordinates.
             var imagePos = UI_WorkImage.TranslatePoint(new Point(0, 0), UI_WorkCanvas);
             OutlineMode.OffsetX = imagePos.X;
             OutlineMode.OffsetY = imagePos.Y;
         }
+
+        // =====================
+        // Image transforms
+        // =====================
 
         private void Menu_FlipHorizontal(object sender, RoutedEventArgs e)
             => ApplyImageTransform(new ScaleTransform(-1, 1));
@@ -159,13 +187,11 @@ namespace DinoLino
             => ApplyImageTransform(new RotateTransform(90));
 
         private void Menu_RotateLeft(object sender, RoutedEventArgs e)
-            => ApplyImageTransform(new RotateTransform(270));   // 270° clockwise = 90° counter-clockwise
+            => ApplyImageTransform(new RotateTransform(270));   // 270° clockwise equals 90° counter-clockwise.
 
-        // Applies a geometric transform (mirror flip or 90° rotation) to the working image.
-        // TransformedBitmap supports negative ScaleTransforms (mirroring) and RotateTransforms
-        // at 0/90/180/270 degrees. The result is re-encoded to a BitmapImage — the same
-        // round-trip the image adjuster uses — so it matches WorkingImage's type and can be
-        // re-cached by OutlineMode.
+        /// <summary>
+        /// Applies a geometric transform to the active image and reloads the workspace state.
+        /// </summary>
         private void ApplyImageTransform(Transform transform)
         {
             if (WorkingImage == null)
@@ -176,6 +202,7 @@ namespace DinoLino
 
             var transformed = new TransformedBitmap(WorkingImage, transform);
 
+            // Re-encode the transformed bitmap so it can be cached and reused like a normal image source.
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(transformed));
             using var stream = new System.IO.MemoryStream();
@@ -191,10 +218,8 @@ namespace DinoLino
             WorkingImage = bmi;
             UI_WorkImage.Source = WorkingImage;
 
-            // Flipping or rotating changes the image geometry, so existing overlays would no
-            // longer line up, and a canvas-space scale calibration may no longer be valid
-            // (a 90° rotation of a non-square image changes the on-screen fit). Treat it like
-            // loading a fresh image: reset zoom, clear the scale, clear the workspace.
+            // A flip or rotation changes the image geometry, so existing overlays and scale calibration
+            // must be rebuilt against the new image.
             ResetWorkSpaceZoom();
             ScaleCalibration.Clear();
             ClearWorkspace();
@@ -203,6 +228,10 @@ namespace DinoLino
             OutlineMode.SourceImage = WorkingImage;
             Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(SyncOutlineImageTransform));
         }
+
+        // =====================
+        // Screenshot export
+        // =====================
 
         private void Menu_Screenshot(object sender, RoutedEventArgs e)
         {
@@ -213,7 +242,7 @@ namespace DinoLino
                 return;
             }
 
-            var rtb = RenderWorkspaceToBitmap(2.0); // 2x supersample for a crisp capture
+            var rtb = RenderWorkspaceToBitmap(2.0); // Supersample for a sharper export.
             if (rtb == null) return;
 
             var dlg = new SaveFileDialog
@@ -226,8 +255,7 @@ namespace DinoLino
             };
             if (dlg.ShowDialog() != true) return;
 
-            // Choose the encoder from the extension the user actually saved with, so a
-            // hand-typed ".tif" is honored even if the filter dropdown says PNG.
+            // Use the extension the user actually chose so typed filenames are respected.
             BitmapEncoder encoder = System.IO.Path.GetExtension(dlg.FileName).ToLowerInvariant() switch
             {
                 ".jpg" or ".jpeg" => new JpegBitmapEncoder { QualityLevel = 95 },
@@ -248,10 +276,9 @@ namespace DinoLino
             }
         }
 
-        // Renders the workspace (image + every visible overlay, at the current zoom/pan)
-        // to a bitmap, supersampled by `scale`. UI_WorkSpace has ClipToBounds and the bitmap
-        // is sized to it, so any panned-off part of the image is clipped away. The white
-        // follow-cursor dot is hidden during the capture so it doesn't appear in the file.
+        /// <summary>
+        /// Renders the workspace, including visible overlays, to a bitmap.
+        /// </summary>
         private RenderTargetBitmap RenderWorkspaceToBitmap(double scale)
         {
             double w = UI_WorkSpace.ActualWidth, h = UI_WorkSpace.ActualHeight;
@@ -272,13 +299,14 @@ namespace DinoLino
             }
             finally
             {
-                UI_DotCursor.Visibility = cursorVis;   // always restore, even if Render throws
+                UI_DotCursor.Visibility = cursorVis;   // Restore the cursor even if rendering fails.
                 UI_WorkSpace.UpdateLayout();
             }
         }
 
-        // Strips characters invalid in file names so the specimen-derived default is always
-        // valid; falls back to "screenshot" if the specimen name is blank.
+        /// <summary>
+        /// Removes invalid filename characters and returns a safe default when needed.
+        /// </summary>
         private static string SanitizeFileName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return "screenshot";
@@ -286,6 +314,11 @@ namespace DinoLino
                 name = name.Replace(c, '_');
             return name;
         }
+
+        // =====================
+        // Picture adjustment
+        // =====================
+
         private void Menu_PictureAdjustment(object sender, RoutedEventArgs e)
         {
             if (WorkingImage == null)
@@ -303,6 +336,8 @@ namespace DinoLino
                 _currentContrast = contrast;
                 _currentBrightness = brightness;
                 _currentSaturation = saturation;
+
+                // Values are stored as percentages in the dialog and converted to normalized adjustments here.
                 _imageAdjuster.RequestAdjustment(
                     contrast / 100.0,
                     brightness / 100.0,
@@ -311,6 +346,10 @@ namespace DinoLino
 
             adjustWindow.Show();
         }
+
+        // =====================
+        // Downsampling
+        // =====================
 
         private void Menu_DownSample(object sender, RoutedEventArgs e)
         {
@@ -329,14 +368,15 @@ namespace DinoLino
             sampleWindow.OnPixelsChanged = targetPixels =>
             {
                 var result = _imageAdjuster.DownSample(targetPixels);
-                if (result != null)
-                    UI_WorkImage.Source = result;
-                else
-                    UI_WorkImage.Source = WorkingImage;
+                UI_WorkImage.Source = result ?? WorkingImage;
             };
 
             sampleWindow.Show();
         }
+
+        // =====================
+        // Global actions
+        // =====================
 
         private void GlobalTools_Clear(object sender, RoutedEventArgs e)
         {
@@ -350,28 +390,32 @@ namespace DinoLino
                 mode.RefreshScalePlaceholders();
         }
 
-        // Helper method for single click and double click finishing
+        /// <summary>
+        /// Removes all overlay elements except the cursor.
+        /// </summary>
         private void RemovePendingElements()
         {
             foreach (UIElement element in CurrentWorkMode.ElementsToRemove)
-            {
                 UI_WorkCanvas.Children.Remove(element);
-            }
+
             CurrentWorkMode.ClearElementsToRemove();
         }
 
-        // Helper method to clear the drawings but keep the cursor
+        /// <summary>
+        /// Clears workspace drawings while keeping the cursor overlay in place.
+        /// </summary>
         private void ClearWorkspaceVisualsOnly()
         {
-            // Loop backwards to safely remove children while keeping the UI_DotCursor
             for (int i = UI_WorkCanvas.Children.Count - 1; i >= 0; i--)
             {
                 if (UI_WorkCanvas.Children[i] != UI_DotCursor)
-                {
                     UI_WorkCanvas.Children.RemoveAt(i);
-                }
             }
         }
+
+        // =====================
+        // Scale calibration
+        // =====================
 
         private void GlobalTools_ScaleImage(object sender, RoutedEventArgs e)
         {
@@ -380,9 +424,15 @@ namespace DinoLino
                 MessageBox.Show("Please open an image first.", "No Image", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            if (_scaleLine != null) { UI_WorkCanvas.Children.Remove(_scaleLine); _scaleLine = null; }
+
+            if (_scaleLine != null)
+            {
+                UI_WorkCanvas.Children.Remove(_scaleLine);
+                _scaleLine = null;
+            }
+
             _scaleClicks = 0;
-            _scaleMode = true;   // next two workspace clicks define the calibration line
+            _scaleMode = true;   // The next two workspace clicks define the calibration line.
         }
 
         private void HandleScaleClick(Vector2 mousePos)
@@ -406,6 +456,7 @@ namespace DinoLino
 
             _scaleLine.X2 = mousePos.X;
             _scaleLine.Y2 = mousePos.Y;
+
             double dx = _scaleLine.X2 - _scaleLine.X1;
             double dy = _scaleLine.Y2 - _scaleLine.Y1;
             FinishScaleCapture(Math.Sqrt(dx * dx + dy * dy));
@@ -418,7 +469,11 @@ namespace DinoLino
 
             if (pixelLength < 1e-3)
             {
-                if (_scaleLine != null) { UI_WorkCanvas.Children.Remove(_scaleLine); _scaleLine = null; }
+                if (_scaleLine != null)
+                {
+                    UI_WorkCanvas.Children.Remove(_scaleLine);
+                    _scaleLine = null;
+                }
                 return;
             }
 
@@ -435,7 +490,11 @@ namespace DinoLino
                 RefreshAllScalePlaceholders();
             }
 
-            if (_scaleLine != null) { UI_WorkCanvas.Children.Remove(_scaleLine); _scaleLine = null; }
+            if (_scaleLine != null)
+            {
+                UI_WorkCanvas.Children.Remove(_scaleLine);
+                _scaleLine = null;
+            }
         }
     }
 }

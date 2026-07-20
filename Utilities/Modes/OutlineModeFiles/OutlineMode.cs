@@ -1,5 +1,4 @@
 ﻿using DinoLino.DataTypes;
-using DinoLino.Properties;
 using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;

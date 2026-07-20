@@ -6,13 +6,7 @@ using DinoLino.DataTypes;
 namespace DinoLino.Utilities.Modes
 {
     /// <summary>
-    /// SMOOTH OUTLINE tool: Global (whole perimeter, live from the slider)
-    /// vs Local (a draggable sanding brush, progressive like Erase).
-    ///
-    /// Extracted verbatim from OutlineMode's smooth region. The tool OWNS the
-    /// pre-smooth snapshot; the old hidden coupling (erase refreshed the
-    /// snapshot directly) is now an explicit wiring in OutlineMode:
-    /// Erase.OutlineEdited → Smooth.RefreshSnapshot().
+    /// Smooths the active outline in either global or local scope.
     /// </summary>
     public sealed class SmoothTool : ObservableToolBase
     {
@@ -24,20 +18,16 @@ namespace DinoLino.Utilities.Modes
         }
 
         /// <summary>
-        /// Raised after this tool changes the outline's geometry (a global pass
-        /// or a local-smooth drag). OutlineMode subscribes to invalidate the
-        /// cached dense EFA contour, so Elliptic Fourier Analysis runs on the
-        /// smoothed shape rather than the stale auto-detected boundary. Mirrors
-        /// EraseTool.OutlineEdited.
+        /// Raised after smoothing changes the outline geometry.
         /// </summary>
         public event Action OutlineEdited;
 
         private int _strength = 0;
+
         /// <summary>
-        /// Number of Laplacian passes. In GLOBAL scope changing the slider
-        /// re-applies live from the snapshot (deliberate live-apply UX); in
-        /// LOCAL scope it only sets the sanding strength for the drag brush
-        /// and must not trigger a whole-perimeter pass.
+        /// Number of Laplacian passes to apply.
+        /// In global scope, changes apply immediately from the current snapshot.
+        /// In local scope, this only updates the brush strength.
         /// </summary>
         public int Strength
         {
@@ -50,103 +40,125 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // ── Smoothing scope ──
+        // =====================
+        // Scope selection
+        // =====================
+
         private bool _localScope = false;
 
+        /// <summary>
+        /// True when the tool smooths the entire outline.
+        /// </summary>
         public bool IsGlobalScope
         {
             get => !_localScope;
-            set { if (value == !_localScope) return; _localScope = !value; OnScopeChanged(); }
+            set
+            {
+                if (value == !_localScope) return;
+                _localScope = !value;
+                OnScopeChanged();
+            }
         }
 
+        /// <summary>
+        /// True when the tool smooths only the dragged region.
+        /// </summary>
         public bool IsLocalScope
         {
             get => _localScope;
-            set { if (value == _localScope) return; _localScope = value; OnScopeChanged(); }
+            set
+            {
+                if (value == _localScope) return;
+                _localScope = value;
+                OnScopeChanged();
+            }
         }
 
         private void OnScopeChanged()
         {
             OnPropertyChanged(nameof(IsGlobalScope));
             OnPropertyChanged(nameof(IsLocalScope));
-            // Entering LOCAL bakes whatever the global slider currently shows
-            // into the snapshot, so sanding starts from the shape on screen and
-            // a later return to Global doesn't stack passes on a stale base.
-            if (_localScope) RefreshSnapshot();
+
+            // Rebase the snapshot when entering local scope so the brush starts from the visible shape.
+            if (_localScope)
+                RefreshSnapshot();
         }
 
-        // Brush size for local smoothing (canvas pixels), mirroring the erase
-        // brush so the tool stays screen-true at any zoom.
+        // =====================
+        // Brush settings
+        // =====================
+
         private double _brushRadius = 25;
+
+        /// <summary>
+        /// Radius of the local smoothing brush in canvas pixels.
+        /// </summary>
         public double BrushRadius
         {
             get => _brushRadius;
             set => SetField(ref _brushRadius, value);
         }
 
-        // Snapshot of the polyline points taken when smooth mode is entered,
-        // so that smoothing always applies to the original shape rather than
-        // compounding on each slider change.
+        // =====================
+        // Snapshot management
+        // =====================
+
         private List<Point> _preSmoothSnapshot = null;
 
-        /// <summary>Public snapshot capture — MainWindow calls this when smooth mode is entered.</summary>
+        /// <summary>
+        /// Captures the current outline as the global smoothing baseline.
+        /// </summary>
         public void TakeSnapshot()
         {
             var polyline = _context.ActivePolyline;
-            if (polyline == null) { _preSmoothSnapshot = null; return; }
+            if (polyline == null)
+            {
+                _preSmoothSnapshot = null;
+                return;
+            }
+
             _preSmoothSnapshot = new List<Point>(polyline.Points);
         }
 
         /// <summary>
-        /// Re-bakes the snapshot from the live polyline. Wired to
-        /// EraseTool.OutlineEdited, and called after each local-smooth drag,
-        /// so a later Global pass builds on what is on screen.
+        /// Replaces the snapshot with the current live outline.
         /// </summary>
         public void RefreshSnapshot()
         {
             var polyline = _context.ActivePolyline;
             if (polyline == null) return;
+
             _preSmoothSnapshot = new List<Point>(polyline.Points);
         }
 
         /// <summary>
-        /// Seeds the snapshot from a freshly committed outline (the commit
-        /// paths used to write _preSmoothSnapshot directly).
+        /// Sets the snapshot from committed outline points.
         /// </summary>
         public void SetSnapshot(IEnumerable<Point> points)
         {
             _preSmoothSnapshot = points == null ? null : new List<Point>(points);
         }
 
-        /// <summary>Forgets the snapshot (mode Reset — the outline is gone).</summary>
+        /// <summary>
+        /// Clears the snapshot when no outline is available.
+        /// </summary>
         public void ClearSnapshot() => _preSmoothSnapshot = null;
 
-        // Applies Laplacian smoothing to the entire polyline.
-        // Runs Strength passes of neighbor-averaging over all points.
-        // Always works from the pre-smooth snapshot so slider changes are
-        // non-destructive; setting the slider back to 0 restores the
-        // 4-px-uniform RESAMPLE of the snapshot (visually identical to the
-        // original — the vertex set differs, which is fine because every
-        // metadata consumer resamples again anyway).
+        // =====================
+        // Global smoothing
+        // =====================
+
         private void ApplyGlobal()
         {
             var polyline = _context.ActivePolyline;
             if (polyline == null) return;
             if (_preSmoothSnapshot == null || _preSmoothSnapshot.Count < 3) return;
 
-            // Resample to uniform arc-length spacing before smoothing so that
-            // Laplacian pressure is even around the whole outline. Without this,
-            // dense regions (tight curves) smooth faster than sparse ones (straight runs),
-            // causing corners to drift unpredictably.
+            // Resample first so smoothing pressure is distributed evenly around the outline.
             var working = PolylineGeometry.ResampleClosedUniformSpacing(
                 new List<Point>(_preSmoothSnapshot), targetSpacing: 4.0);
 
-            // BUG FIX (seam kink): the resampler preserves the trailing
-            // closure duplicate, and the cyclic kernel below then saw the seam
-            // vertex TWICE as adjacent ring members, kinking the start point a
-            // little more with every pass. Smooth the DISTINCT vertices only
-            // and re-add the explicit closure afterwards — exactly what
-            // ProcessLocalDrag already does.
+            // Smooth distinct vertices only, then restore the explicit closure point.
             PolylineGeometry.StripClosureDuplicate(working);
             if (working.Count < 3) return;
 
@@ -169,45 +181,37 @@ namespace DinoLino.Utilities.Modes
                     working[i] = smoothed[i];
             }
 
-            // Write result back into the live polyline, with an explicit
-            // closure point (the outline polylines' convention).
             var points = polyline.Points;
             points.Clear();
             foreach (var p in working)
                 points.Add(p);
             points.Add(working[0]);
 
-            // Fire AFTER the write so subscribers (the mode's dense-contour
-            // invalidation) observe the smoothed geometry.
             OutlineEdited?.Invoke();
         }
 
         // =====================
-        // LOCAL SMOOTHING (draggable sanding brush)
+        // Local smoothing
         // =====================
-        // Called on mouse-drag when Smooth mode + Local scope are active.
-        // Applies Strength weighted-Laplacian passes to the vertices under
-        // the brush, with a quartic falloff to zero at the brush rim so the
-        // treated section blends into its surroundings without kinks. Vertices
-        // outside the brush are pinned exactly — no global ripple (the lesson
-        // the erase tool taught). Progressive like sanding: keep dragging to
-        // keep smoothing. Each event refreshes the smooth snapshot so a later
-        // Global pass builds on what is on screen, matching erase semantics.
+
         private bool _localDragInProgress = false;
 
+        /// <summary>
+        /// Applies brush-based smoothing during a drag in local scope.
+        /// </summary>
         public void ProcessLocalDrag(Vector2 mousePos)
         {
             var polyline = _context.ActivePolyline;
             if (polyline == null) return;
             if (!_localScope || _strength <= 0) return;
             if (_localDragInProgress) return;
+
             _localDragInProgress = true;
             try
             {
                 var pts = polyline.Points;
                 if (pts.Count < 4) return;
 
-                // Distinct vertices; remember whether a closure duplicate exists.
                 int n = pts.Count;
                 bool hasClosure;
                 {
@@ -215,62 +219,74 @@ namespace DinoLino.Utilities.Modes
                     double dx = f.X - l.X, dy = f.Y - l.Y;
                     hasClosure = dx * dx + dy * dy < 1.0;
                 }
+
                 int open = hasClosure ? n - 1 : n;
                 if (open < 3) return;
 
                 var work = new Point[open];
                 for (int i = 0; i < open; i++) work[i] = pts[i];
 
-                // Brush weights: canvas-space distance with a quartic falloff —
-                // w = (1 - (d/R)^2)^2 — 1 at the centre, 0 at the rim, smooth.
+                // Weight falls off to zero at the brush edge.
                 double r = Math.Max(2.0, _brushRadius);
                 double r2 = r * r;
                 var weight = new double[open];
                 int touched = 0;
+
                 for (int i = 0; i < open; i++)
                 {
                     double dx = work[i].X - mousePos.X;
                     double dy = work[i].Y - mousePos.Y;
                     double d2 = dx * dx + dy * dy;
                     if (d2 >= r2) continue;
+
                     double t = 1.0 - d2 / r2;
                     weight[i] = t * t;
                     touched++;
                 }
+
                 if (touched == 0) return;
 
-                // Strength weighted passes of the same [1,2,1]/4 kernel the
-                // global tool uses, scaled per-vertex by the brush weight.
                 var next = new Point[open];
                 for (int pass = 0; pass < _strength; pass++)
                 {
                     for (int i = 0; i < open; i++)
                     {
                         double w = weight[i];
-                        if (w <= 0) { next[i] = work[i]; continue; }
+                        if (w <= 0)
+                        {
+                            next[i] = work[i];
+                            continue;
+                        }
+
                         Point a = work[(i - 1 + open) % open];
                         Point b = work[i];
                         Point c = work[(i + 1) % open];
+
                         double tx = (a.X + 2 * b.X + c.X) / 4.0;
                         double ty = (a.Y + 2 * b.Y + c.Y) / 4.0;
                         next[i] = new Point(b.X + (tx - b.X) * w, b.Y + (ty - b.Y) * w);
                     }
-                    var tmp = work; work = next; next = tmp;
+
+                    var tmp = work;
+                    work = next;
+                    next = tmp;
                 }
 
                 pts.Clear();
-                foreach (var p in work) pts.Add(p);
-                if (hasClosure) pts.Add(work[0]);
+                foreach (var p in work)
+                    pts.Add(p);
+                if (hasClosure)
+                    pts.Add(work[0]);
 
-                // Bake the edit so a later Global pass starts from this shape
-                // (identical to how erase keeps the snapshot current).
+                // Keep the snapshot aligned with what the user sees.
                 RefreshSnapshot();
 
-                // Invalidate the cached dense EFA contour: this drag changed
-                // the geometry, so EFA must re-run on the smoothed polyline.
                 OutlineEdited?.Invoke();
             }
-            finally { _localDragInProgress = false; }
+            finally
+            {
+                _localDragInProgress = false;
+            }
         }
     }
 }

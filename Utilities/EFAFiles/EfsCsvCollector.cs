@@ -7,39 +7,32 @@ using System.Text;
 namespace DinoLino.Utilities
 {
     /// <summary>
-    /// Accumulates EFD coefficient tables across a working session so the user can
-    /// add multiple specimens and export them all to a single CSV at the end.
-    /// One instance lives on OutlineMode for the session; it is intentionally NOT
-    /// cleared on image-open or workspace-clear, so the batch survives those.
-    /// Each specimen becomes a vertically-stacked block:
-    ///     &lt;specimen name&gt;
-    ///     harmonic,a,b,c,d
-    ///     1,...
-    ///     ...
-    /// with a blank line between consecutive blocks. Harmonic counts may differ
-    /// between specimens; stacking handles that naturally.
+    /// Collects EFD coefficient tables for export across a session.
+    /// Each specimen is stored as its own block and can be exported together at the end.
     /// </summary>
     public class EfdCsvCollector
     {
         private sealed class Entry
         {
             public string Name;
-            public double[] Coefficients; // flattened [a1,b1,c1,d1, a2,...]
+            public double[] Coefficients; // Flattened as [a1, b1, c1, d1, a2, ...].
         }
 
         private readonly List<Entry> _entries = new();
 
-        /// Number of specimens currently pending export.
+        /// <summary>
+        /// Number of specimens currently stored for export.
+        /// </summary>
         public int Count => _entries.Count;
 
-        /// Appends a COPY of the given coefficients under the given specimen name.
-        /// Returns false if there is nothing valid to add.
+        /// <summary>
+        /// Adds a specimen copy to the export batch.
+        /// Returns false when there is no usable coefficient data.
+        /// </summary>
         public bool AddSpecimen(string specimenName, double[] coefficients)
         {
             if (coefficients == null || coefficients.Length < 4) return false;
 
-            // Copy so later recomputation of the live coefficients can't mutate
-            // what we have already banked.
             _entries.Add(new Entry
             {
                 Name = string.IsNullOrWhiteSpace(specimenName)
@@ -47,29 +40,45 @@ namespace DinoLino.Utilities
                     : specimenName,
                 Coefficients = (double[])coefficients.Clone()
             });
+
             return true;
         }
 
-        /// Removes all pending specimens.
+        /// <summary>
+        /// Removes all stored specimens.
+        /// </summary>
         public void Clear() => _entries.Clear();
 
-        /// Builds the full CSV text for every pending specimen, blocks stacked
-        /// vertically with a blank separator line between them.
+        // =====================
+        // Vertical export
+        // =====================
+
+        /// <summary>
+        /// Builds a stacked CSV with one block per specimen.
+        /// </summary>
         public string BuildCsv()
         {
             var sb = new StringBuilder();
+
             for (int e = 0; e < _entries.Count; e++)
             {
-                if (e > 0) sb.AppendLine(); // blank separator row between blocks
+                if (e > 0) sb.AppendLine(); // Blank line separates specimen blocks.
 
                 var entry = _entries[e];
                 sb.AppendLine(CsvEscape(entry.Name));
                 sb.AppendLine("harmonic,a,b,c,d");
 
+                // Each harmonic contributes four coefficients: a, b, c, d.
                 int harmonics = entry.Coefficients.Length / 4;
                 for (int h = 0; h < harmonics; h++)
                 {
                     int k = h * 4;
+
+                    // k points to harmonic h's first coefficient:
+                    //   a = coeff[k + 0]
+                    //   b = coeff[k + 1]
+                    //   c = coeff[k + 2]
+                    //   d = coeff[k + 3]
                     sb.AppendLine(string.Join(",",
                         (h + 1).ToString(CultureInfo.InvariantCulture),
                         entry.Coefficients[k].ToString("R", CultureInfo.InvariantCulture),
@@ -78,46 +87,74 @@ namespace DinoLino.Utilities
                         entry.Coefficients[k + 3].ToString("R", CultureInfo.InvariantCulture)));
                 }
             }
+
             return sb.ToString();
         }
 
+        // =====================
+        // Wide export
+        // =====================
+
+        /// <summary>
+        /// Builds a wide CSV with one row per specimen and one column per coefficient.
+        /// </summary>
         public string BuildWideCsv()
         {
             var sb = new StringBuilder();
             if (_entries.Count == 0) return sb.ToString();
 
             int maxH = 0;
-            foreach (var e in _entries) maxH = Math.Max(maxH, e.Coefficients.Length / 4);
+            foreach (var e in _entries)
+                maxH = Math.Max(maxH, e.Coefficients.Length / 4);
 
-            // Header
+            // Columns are grouped by coefficient letter first, then harmonic index:
+            // A1..An, B1..Bn, C1..Cn, D1..Dn.
             sb.Append("specimen");
-            foreach (char L in new[] { 'A', 'B', 'C', 'D' })
-                for (int i = 1; i <= maxH; i++) sb.Append(',').Append(L).Append(i);
+            foreach (char label in new[] { 'A', 'B', 'C', 'D' })
+            {
+                for (int i = 1; i <= maxH; i++)
+                    sb.Append(',').Append(label).Append(i);
+            }
             sb.AppendLine();
 
-            // One row per specimen; offset picks a=0,b=1,c=2,d=3 within each harmonic quad.
             foreach (var e in _entries)
             {
-                int h = e.Coefficients.Length / 4;
+                int harmonics = e.Coefficients.Length / 4;
                 sb.Append(CsvEscape(e.Name));
+
+                // The coefficients are stored as repeating 4-value groups:
+                // [a1,b1,c1,d1, a2,b2,c2,d2, ...].
+                // The outer loop picks which value in the group to emit.
                 for (int comp = 0; comp < 4; comp++)
+                {
+                    // The inner loop walks harmonics in order.
                     for (int i = 0; i < maxH; i++)
                     {
                         sb.Append(',');
-                        if (i < h)
-                            sb.Append(e.Coefficients[i * 4 + comp].ToString("R", CultureInfo.InvariantCulture));
-                        // else: blank cell (ragged padded)
+
+                        // If this specimen has fewer harmonics than the table width,
+                        // leave the cell blank so the CSV stays rectangular.
+                        if (i < harmonics)
+                        {
+                            sb.Append(e.Coefficients[i * 4 + comp]
+                                .ToString("R", CultureInfo.InvariantCulture));
+                        }
                     }
+                }
+
                 sb.AppendLine();
             }
+
             return sb.ToString();
         }
 
         private static string CsvEscape(string field)
         {
             if (field == null) return "";
+
             bool needsQuoting = field.Contains(',') || field.Contains('"') ||
                                 field.Contains('\n') || field.Contains('\r');
+
             return needsQuoting ? "\"" + field.Replace("\"", "\"\"") + "\"" : field;
         }
     }
