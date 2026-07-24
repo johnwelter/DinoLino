@@ -20,22 +20,7 @@ namespace DinoLino.Utilities.Modes
 
         public override UserControl CreateControlPanel() => new DrawControlPanel(this);
         public override string TabName => "Draw";
-        public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
-
-        public override void ClearMetadata()
-        {
-            DrawAspectRatioResult = 0;
-            RelativeAreaResult = "N/A";
-            LineLengthRatioResult = "N/A";
-            LineLengthScaledResult = ScaledPlaceholder;
-            ShapeAreaScaledResult = ScaledPlaceholder;
-        }
-
-        public override void RefreshScalePlaceholders()
-        {
-            LineLengthScaledResult = ScaledPlaceholder;
-            ShapeAreaScaledResult = ScaledPlaceholder;
-        }
+        public override bool IsStartingNewOperation => CurrentStep == 0;
 
         public enum DrawMethod
         {
@@ -61,8 +46,6 @@ namespace DinoLino.Utilities.Modes
         public bool IsShapeSelected => CurrentMethod == DrawMethod.Shape;
         public bool IsLineSelected => CurrentMethod == DrawMethod.Line;
 
-        // Live UI elements stay in this list until the operation is committed.
-        private List<UIElement> CurrentOperation = new();
         private Vector2 _dragStart;
 
         public override List<UIElement> ProcessClick(Vector2 mousePos)
@@ -105,6 +88,8 @@ namespace DinoLino.Utilities.Modes
 
         internal override void OnHistoryChanged()
         {
+            base.OnHistoryChanged();
+
             // Clear the stored reference direction once no constrained line remains.
             bool anyConstrainedLinesRemain = UndoRedoManager?.History
                 .OfType<LineOperation>()
@@ -129,25 +114,63 @@ namespace DinoLino.Utilities.Modes
             CurrentOperation.Clear();
         }
 
-        public override void Reset()
-        {
-            base.Reset();
+        // =====================
+        // Scaled measurements
+        // =====================
 
-            // Clear results shown in the UI.
+        // Canvas-space measurements behind the scaled rows, kept so those rows can be
+        // re-derived whenever the calibration changes or an undo restores a different
+        // shape or line.
+        private double _canvasShapeArea;
+        private bool _hasCanvasShapeArea;
+        private double _canvasLineLength;
+        private bool _hasCanvasLineLength;
+
+        private void RecomputeScaledResults()
+        {
+            ShapeAreaScaledResult = FormatScaledArea(_canvasShapeArea, _hasCanvasShapeArea);
+            LineLengthScaledResult = FormatScaledLength(_canvasLineLength, _hasCanvasLineLength);
+        }
+
+        /// <summary>
+        /// Restores the canvas-space area behind the shape row. Called by
+        /// ShapeOperation.ApplyMetadataToMode when undo or redo changes which shape
+        /// is current.
+        /// </summary>
+        public void RestoreShapeMeasurement(double canvasArea)
+        {
+            _canvasShapeArea = canvasArea;
+            _hasCanvasShapeArea = true;
+            RecomputeScaledResults();
+        }
+
+        /// <summary>
+        /// Restores the canvas-space length behind the line row. Called by
+        /// LineOperation.ApplyMetadataToMode when undo or redo changes which line is
+        /// current.
+        /// </summary>
+        public void RestoreLineMeasurement(double canvasLength)
+        {
+            _canvasLineLength = canvasLength;
+            _hasCanvasLineLength = true;
+            RecomputeScaledResults();
+        }
+
+        public override void ClearMetadata()
+        {
             DrawAspectRatioResult = 0;
             RelativeAreaResult = "N/A";
             LineLengthRatioResult = "N/A";
-            LineLengthScaledResult = ScaledPlaceholder;
-            ShapeAreaScaledResult = ScaledPlaceholder;
+            _canvasShapeArea = 0;
+            _hasCanvasShapeArea = false;
+            _canvasLineLength = 0;
+            _hasCanvasLineLength = false;
+            RecomputeScaledResults();
+        }
 
-            // Clear any active drawing state.
-            _currentShape = null;
-            _currentLine = null;
-            _dragStart = default;
-            _referenceLineDirection = default;
-            _hasReferenceLineDirection = false;
-            CurrentOperation.Clear();
-            CurrentStep = 0;
+        public override void RefreshScalePlaceholders()
+        {
+            RecomputeScaledResults();
         }
 
         // =====================
@@ -169,7 +192,6 @@ namespace DinoLino.Utilities.Modes
 
         private double _drawAspectRatioResult;
         private object _relativeAreaResult;
-        private double _currentShapeArea = 0;
 
         private string _shapeAreaScaledResult = "Unscaled";
         public string ShapeAreaScaledResult
@@ -241,14 +263,12 @@ namespace DinoLino.Utilities.Modes
 
                     CalculateAndUpdateResults(width, height);
 
-                    CommitOperation(new ShapeOperation
+                    CommitCurrentOperation(new ShapeOperation
                     {
                         OperationKind = "Shape",
-                        SourceMode = this,
-                        Elements = new List<UIElement>(CurrentOperation),
                         DrawAspectRatio = DrawAspectRatioResult,
                         RelativeArea = RelativeAreaResult,
-                        ShapeArea = _currentShapeArea
+                        ShapeArea = _canvasShapeArea
                     });
 
                     FinishOperation();
@@ -413,19 +433,17 @@ namespace DinoLino.Utilities.Modes
             double dy = _currentLine.Y2 - _currentLine.Y1;
             double length = Math.Sqrt(dx * dx + dy * dy);
 
-            LineLengthScaledResult = Scale != null && Scale.IsCalibrated
-                ? $"{Scale.ToUnits(length):F2} {Scale.Unit}"
-                : "Unscaled";
+            _canvasLineLength = length;
+            _hasCanvasLineLength = true;
+            RecomputeScaledResults();
 
             // Compare against the previous measured line, if one exists.
             var prev = FindPreviousLine(0);
             LineLengthRatioResult = GeometryCalculations.RelativeLength(length, prev?.LineLength ?? 0);
 
-            CommitOperation(new LineOperation
+            CommitCurrentOperation(new LineOperation
             {
                 OperationKind = "Lines",
-                SourceMode = this,
-                Elements = new List<UIElement>(CurrentOperation),
                 LineLength = length,
                 LineLengthRatio = LineLengthRatioResult
             });
@@ -516,12 +534,11 @@ namespace DinoLino.Utilities.Modes
                 ? GeometryCalculations.EllipseArea(width, height)
                 : GeometryCalculations.RectangleArea(width, height);
 
-            _currentShapeArea = area;
-            DrawAspectRatioResult = height > 1e-5 ? Math.Round(width / height, 2) : 0;
+            _canvasShapeArea = area;
+            _hasCanvasShapeArea = true;
+            RecomputeScaledResults();
 
-            ShapeAreaScaledResult = Scale != null && Scale.IsCalibrated
-                ? $"{Scale.ToUnitsArea(area):F2} {Scale.Unit}²"
-                : "Unscaled";
+            DrawAspectRatioResult = height > 1e-5 ? Math.Round(width / height, 2) : 0;
 
             // Relative area compares the new shape against the most recent shape in history.
             var prev = UndoRedoManager.History
@@ -532,47 +549,22 @@ namespace DinoLino.Utilities.Modes
             RelativeAreaResult = GeometryCalculations.RelativeArea(area, previousArea);
         }
 
+        private static readonly string[] ShapeTips = BuildTips(
+            "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
+            "💡 Aspect ratio is the horizontal length of the shape divided by its maximum height.");
+
+        private static readonly string[] LineTips = BuildTips(
+            "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
+            "💡 Line ratio is the length of the most recently drawn line (Line n) divided by the length of the line drawn before it (Line n-1).");
+
+        private static readonly string[] NoMethodTips = BuildTips(
+            "💡 Select a drawing method to begin.");
+
         public override string[] GetTips()
         {
-            if (IsShapeSelected)
-                return new[]
-                {
-                    "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
-                    "💡 Aspect ratio is the horizontal length of the shape divided by its maximum height.",
-                    "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-                    "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                    "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Press 'Ctrl' and left click to drag the image.",
-                    "💡 The user guide and software information can be found in the Help menu.",
-                    "💡 Toggle tip visibility in the View menu."
-                };
-
-            if (IsLineSelected)
-                return new[]
-                {
-                    "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
-                    "💡 Line ratio is the length of the most recently drawn line (Line n) divided by the length of the line drawn before it (Line n-1).",
-                    "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-                    "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                    "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Press 'Ctrl' and left click to drag the image.",
-                    "💡 The user guide and software information can be found in the Help menu.",
-                    "💡 Toggle tip visibility in the View menu."
-                };
-
-            return new[]
-            {
-                "💡 Select a drawing method to begin.",
-                "💡 The user guide and software information can be found in the Help menu.",
-                "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the File menu.",
-                "💡 Zoom in or out using the scroll wheel.",
-                "💡 Press 'Ctrl' and left click to drag the image.",
-                "💡 Toggle tip visibility in the View menu."
-            };
+            if (IsShapeSelected) return ShapeTips;
+            if (IsLineSelected) return LineTips;
+            return NoMethodTips;
         }
     }
 }

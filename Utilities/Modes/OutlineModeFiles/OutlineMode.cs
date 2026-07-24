@@ -15,35 +15,34 @@ using ImageSnapshot = DinoLino.Utilities.OutlineProcessor.ImageSnapshot;
 
 namespace DinoLino.Utilities.Modes
 {
+    // Automatic + manual outline detection and measurement. A click segments the
+    // object under the cursor (SegmentAtClick runs a cheapest-first candidate
+    // portfolio — SAM, flood variants, watershed — keeping the best-scoring mask);
+    // Erase/Smooth/Hand-draw edit it; Generate Metadata measures it and runs
+    // Elliptic Fourier Analysis. Per-image analysis is built once per image on a
+    // worker (CacheSourcePixels) and shared read-only across clicks.
     public class OutlineMode : WorkMode, IOutlineToolContext
     {
         public override string TabName => "Outline";
-        // Cached: recreating the panel on every tab switch discarded panel
-        // state and let the EFA window's per-panel single-instance guard leak
-        // duplicate windows (each one subscribed to PropertyChanged).
+        // Cached so tab switches preserve panel state (rebuilding it leaked
+        // duplicate EFA windows via PropertyChanged subscriptions).
         private OutlineControlPanel _cachedPanel;
         public override UserControl CreateControlPanel() => _cachedPanel ??= new OutlineControlPanel(this);
         public override bool IsStartingNewOperation => true;
 
-        // Erase, smooth, and metadata clicks operate ON the existing outline —
-        // they return no new elements for the router to re-add, so the
-        // "starting a new operation" workspace clear must not fire for them or
-        // a single click wipes the very outline being edited (the erase-mode
-        // bug; smooth and metadata clicks had the same latent hazard). Drawing
-        // clicks are unaffected: they clear and then re-add the fresh outline.
-        // Hand-draw is deliberately NOT included — starting a hand stroke
-        // replaces the previous outline via its own clear in MainWindow.Input.
+        // Erase/smooth/metadata clicks edit the existing outline and return no
+        // new elements, so the "new operation" workspace clear must NOT fire for
+        // them or the click wipes the outline being edited. Hand-draw is excluded:
+        // it clears the previous outline itself in MainWindow.Input.
         public override bool IsProbeInteraction =>
             _eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode;
 
         #region tools
 
         // ── Tool objects ──
-        // Each tool is self-contained: it owns its parameters (bindable via
-        // {Binding Erase.BrushRadius} etc. — the panel's DataContext is this
-        // mode) and its drag handlers, and sees the mode only through
-        // IOutlineToolContext. Mode-SELECTION flags (which tool is active)
-        // stay on the mode below; tool PARAMETERS live on the tools.
+        // Each tool owns its parameters and drag handlers and sees the mode only
+        // through IOutlineToolContext. Which tool is ACTIVE is a mode flag below;
+        // tool PARAMETERS live on the tools (bindable via {Binding Erase.BrushRadius}).
         public HandDrawTool HandDraw { get; }
         public EraseTool Erase { get; }
         public SmoothTool Smooth { get; }
@@ -54,20 +53,12 @@ namespace DinoLino.Utilities.Modes
             Erase = new EraseTool(this);
             Smooth = new SmoothTool(this);
 
-            // The old hidden coupling — erase called RefreshSmoothSnapshot()
-            // directly so a later Global smooth builds on the erased shape —
-            // is now this one explicit wire.
+            // Explicit wire so a later Global smooth builds on the erased shape.
             Erase.OutlineEdited += Smooth.RefreshSnapshot;
 
-            // EFA
-            // prefers the cached dense contour (_activeDenseContourImage),
-            // which is captured ONCE during automatic detection and never
-            // updated by erase/smooth. Any tool that mutates the outline now
-            // raises OutlineEdited, and the mode invalidates the cache — so
-            // GenerateMetadata falls through to the live (edited) polyline.
-            // This is the general contract: editing tools raise OutlineEdited;
-            // the mode invalidates. A new editing tool wired the same way is
-            // covered automatically.
+            // Contract: editing tools raise OutlineEdited; the mode invalidates the
+            // cached dense contour so GenerateMetadata falls through to the live
+            // (edited) polyline. A new editing tool wired the same way is covered.
             Erase.OutlineEdited += InvalidateDenseContour;
             Smooth.OutlineEdited += InvalidateDenseContour;
         }
@@ -82,8 +73,7 @@ namespace DinoLino.Utilities.Modes
 
         void IOutlineToolContext.OnHandStrokeStarted()
         {
-            // First press of a brand-new hand stroke: start an undo operation
-            // and clear any prior result (moved from the old BeginHandStroke).
+            // First press of a new hand stroke: start an undo op and clear any result.
             BeginOperation();
             ClearMetadata();
             ClearEFDPreview();
@@ -145,9 +135,8 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // The setter is now cheap and idempotent; the control panel
-        // invokes GenerateMetadata / ClearEFDPreview from its Checked /
-        // Unchecked handlers instead (see OutlineControlPanel.xaml.cs).
+        // Cheap idempotent flag; the panel drives GenerateMetadata / ClearEFDPreview
+        // from its Checked/Unchecked handlers (see OutlineControlPanel.xaml.cs).
         private bool _outlineMetadataMode = false;
         public bool OutlineMetadataMode
         {
@@ -186,8 +175,8 @@ namespace DinoLino.Utilities.Modes
         }
 
         // ── Per-image analysis, built ONCE per image on a worker thread ──
-        // All arrays are written during the build and only read afterwards, so
-        // they are safe to share read-only across concurrent click operations.
+        // Written during the build then read-only, so it is safe to share across
+        // concurrent click operations.
         private sealed class ImageAnalysis
         {
             public byte[] Pixels;
@@ -209,37 +198,29 @@ namespace DinoLino.Utilities.Modes
         // supersedes the analysis exactly like _opCts supersedes clicks.
         private CancellationTokenSource _analysisCts;
 
-        // Debounce for the per-image analysis rebuild. Rapid SourceImage swaps
-        // (specimen ▲/▼ reloads, picture-adjustment updates) restart this
-        // timer, so the pixel copy and BuildImageAnalysis — including the 1–3 s
-        // SAM encode — run only for the image the user actually lands on;
-        // skimmed-past images never start any work. Runs on the UI thread
-        // (SourceImage is only ever set there), which also keeps CopyPixels
-        // legal on non-frozen bitmaps. 600 ms sits below toggle-then-aim-and-
-        // click time
+        // Debounces the analysis rebuild: rapid SourceImage swaps (specimen ▲/▼,
+        // picture adjustments) restart the timer so the pixel copy and the 1–3 s
+        // SAM encode run only for the image the user lands on. UI-thread only,
+        // which also keeps CopyPixels legal on non-frozen bitmaps.
         private System.Windows.Threading.DispatcherTimer _analysisDebounce;
         private const int AnalysisDebounceMs = 600;
 
         private void CacheSourcePixels()
         {
             _imageVersion++;
-            _opCts?.Cancel();   // supersede any operation still running against the old image
+            _opCts?.Cancel();   // supersede any operation still running on the previous image
 
             var oldAnalysis = _analysisCts;
             oldAnalysis?.Cancel();
             oldAnalysis?.Dispose();  // tokens stay readable after disposal
             _analysisCts = null;
 
-            // a pending multi-click outline
-            // belongs to the image it was floods from. Any image change now clears the pending state outright
-            // (and ProcessClick double-checks via _pendingImageVersion).
+            // A pending multi-click outline belongs to its source image, so any
+            // image change clears it (ProcessClick also checks _pendingImageVersion).
             ClearPendingState();
 
-            // Invalidate IMMEDIATELY, before the debounce: ProcessClick's
-            // (_cachedPixels == null || _analysisTask == null) guard and
-            // IOutlineToolContext.HasImage both read "no image" during the
-            // window, so clicks and tools no-op instead of racing an analysis
-            // that has not started yet.
+            // Invalidate before the debounce so clicks/tools read "no image" and
+            // no-op during the window instead of racing a not-yet-started analysis.
             _cachedPixels = null;
             _analysisTask = null;
 
@@ -268,13 +249,9 @@ namespace DinoLino.Utilities.Modes
             _analysisDebounce.Start();
         }
 
-        // The formerly-inline tail of CacheSourcePixels: the synchronous part
-        // is just the pixel copy (fast); the expensive analysis — background
-        // mask, Sobel gradient, distance transform, texture, retinex, SAM
-        // encode — runs on a worker so loading a large photo does not freeze
-        // the UI; the first click simply awaits the task inside its own
-        // background work. Fires once per settled image, AnalysisDebounceMs
-        // after the last SourceImage change.
+        // Copies pixels (fast) then runs the analysis — background mask, Sobel
+        // gradient, distance transform, texture, retinex, SAM encode — on a worker
+        // so a large image doesn't freeze the UI; the first click awaits the task.
         private void StartImageAnalysis()
         {
             if (_sourceImage == null) return;
@@ -291,9 +268,8 @@ namespace DinoLino.Utilities.Modes
             int w = _cachedWidth, h = _cachedHeight, stride = _cachedStride, bpp = _cachedBpp;
             _analysisCts = new CancellationTokenSource();
             CancellationToken analysisToken = _analysisCts.Token;
-            // The token is ALSO passed to Task.Run so a pre-cancelled start
-            // yields a Canceled (not Faulted) task — awaiting click operations
-            // already treat OperationCanceledException as "superseded".
+            // Token also passed to Task.Run so a pre-cancelled start yields a
+            // Canceled (not Faulted) task, which callers treat as superseded.
             _analysisTask = Task.Run(() => BuildImageAnalysis(pixels, w, h, stride, bpp, analysisToken), analysisToken);
         }
 
@@ -301,13 +277,9 @@ namespace DinoLino.Utilities.Modes
         {
             var proc = new OutlineProcessor();
 
-            // Neural encoder (item 8): when SAM-class models are installed
-            // (Models\*.onnx beside the executable — see SamSegmenter), run
-            // the image encoder ONCE per image, in PARALLEL with the classical
-            // caches below. The 1–3 s CPU cost hides behind this same async
-            // load, and each click then pays only a tens-of-milliseconds
-            // decoder pass. Null when absent or failed — everything downstream
-            // silently falls back to the classical pipeline.
+            // SAM image encoder, run once per image (in parallel with the classical
+            // caches) when a model is installed; each click then pays only a fast
+            // decoder pass. Null when absent/failed, and downstream falls back.
             Task<SamImageState> samTask = Task.Run(() =>
             {
                 try
@@ -324,9 +296,7 @@ namespace DinoLino.Utilities.Modes
             }, token);
 
             // Border-palette background model (see EstimateBackgroundPalette):
-            // up to ~6 clustered border colors matched by nearest entry, with
-            // per-corner hard-seed trust flags and an adaptive threshold from
-            // robust patch residuals.
+            // ~6 clustered border colors + per-corner trust flags + adaptive threshold.
             var (bgPalette, hardSeedCorners, adaptiveThreshold) =
                 proc.EstimateBackgroundPalette(pixels, w, h, stride, bpp);
             bool[] bgMask = proc.BuildBackgroundMaskProgressive(
@@ -338,29 +308,22 @@ namespace DinoLino.Utilities.Modes
             var snap = new ImageSnapshot(pixels, bgMask, w, h, stride, bpp);
             int[] gradient = proc.ComputeGradient(snap);
 
-            // "Counts as an edge" cutoff for mask scoring: 90th percentile of the
-            // image's own gradient distribution, floored at roughly a 9-level
-            // luminance step so a perfectly flat background can't drive it to
-            // zero and make every rim look edge-aligned.
+            // Edge cutoff for mask scoring: 90th-percentile gradient, floored at a
+            // ~9-level luma step so a flat background can't make every rim look edgy.
             int edgeThreshold = Math.Max(
                 OutlineProcessor.GradientPercentileThreshold(gradient, 0.90), 120_000);
 
-            // Per-pixel local texture (std-dev of luma over a 7×7 window),
-            // ~4 bytes/pixel to keep. Lets the adaptive flood treat "uniformly
-            // textured" as a match criterion and self-tune its tolerance from
-            // the seed's own texture.
+            // Per-pixel local texture (luma std-dev over 7×7). Lets the adaptive
+            // flood match on texture and self-tune tolerance from the seed.
             float[] textureMap = proc.ComputeTextureMap(snap);
             token.ThrowIfCancellationRequested();
 
             int[] distToBackground = proc.ComputeDistanceToBackground(w, h, bgMask);
             token.ThrowIfCancellationRequested();
 
-            // Illumination-flattened copy (poor-man's retinex, radius
-            // ~min(w,h)/8) plus a background model REBUILT on it — that rebuild
-            // is the point: a vignetted or side-lit background that defeated
-            // the original model becomes uniform here, so both the flattened
-            // candidate's flood and its bg mask see a clean scene. Costs one
-            // extra pixel buffer + mask (~5 bytes/pixel).
+            // Illumination-flattened copy (retinex, radius ~min(w,h)/8) with its
+            // background model rebuilt on it, so a vignetted/side-lit scene becomes
+            // uniform for both the flattened flood and its bg mask.
             int flattenRadius = Math.Max(8, Math.Min(w, h) / 8);
             byte[] flattened = proc.ComputeIlluminationFlattened(snap, flattenRadius);
             var (flatPalette, flatCorners, flatThreshold) =
@@ -396,10 +359,8 @@ namespace DinoLino.Utilities.Modes
             };
         }
 
-        // Background palette estimation moved to OutlineProcessor
-        // (EstimateBackgroundPalette): it is pure pixel statistics with no
-        // mode state, so it lives beside the background-mask builders and
-        // shares the single PerceptualDistance formula.
+        // Background palette estimation lives in OutlineProcessor
+        // (EstimateBackgroundPalette): pure pixel statistics, no mode state.
 
         // Canvas → image mapping for the click math below. Delegates to the
         // single Transform value (see the Transform property in the draw
@@ -409,12 +370,9 @@ namespace DinoLino.Utilities.Modes
 
         #region shared functions and variables
 
-        // When true, FORCES watershed for every click (legacy behavior, kept so an
-        // existing XAML binding doesn't break). When false — the recommended
-        // default — each click runs flood fill first, scores the result against
-        // the image gradient, and silently retries with watershed when the flood
-        // looks poor, keeping whichever mask scores better (see SegmentAtClick).
-        // That makes this toggle, and its checkbox, safe to delete from the UI.
+        // When true, forces watershed for every click. When false (default), each
+        // click floods first, scores it, and retries with watershed if the flood
+        // looks poor, keeping the better mask (see SegmentAtClick).
         private bool _useWatershed = false;
         public bool UseWatershed
         {
@@ -441,9 +399,8 @@ namespace DinoLino.Utilities.Modes
 
         public override void RefreshScalePlaceholders()
         {
-            // Calibration changed (set, updated, or cleared): re-derive the
-            // scaled numbers from the stored canvas measurements and re-raise
-            // IsScaleCalibrated / ScaleUnit for the bindings.
+            // Calibration changed: re-derive scaled numbers from the stored canvas
+            // measurements and re-raise IsScaleCalibrated / ScaleUnit.
             RecomputeScaledValues();
         }
         #endregion
@@ -469,12 +426,9 @@ namespace DinoLino.Utilities.Modes
 
         private int _pendingImageVersion = -1;
 
-        // Accumulated click coordinates for the CURRENT pending outline — fed
-        // to the neural candidate as positive point prompts, so a second
-        // multi-click doesn't just merge two masks, it RE-PROMPTS the model
-        // with both points and lets it produce one coherent object. Mutated
-        // only on the UI thread; snapshot with ToArray() before capturing
-        // into a background task.
+        // Click coordinates for the current pending outline, fed to the neural
+        // candidate as positive point prompts so multi-click re-prompts the model
+        // into one object. UI-thread only; ToArray() before capturing to a task.
         private readonly List<(int x, int y)> _pendingClickPoints = new List<(int x, int y)>();
 
         // (newPending, oldPending) — MainWindow swaps them on the canvas
@@ -491,10 +445,8 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // 0 = Off, 1 = Low, 2 = High. Only honored on the legacy forced-watershed
-        // path (UseWatershed == true): in auto mode the candidate portfolio tries
-        // blur levels 0 and 1 itself, so this knob — like UseWatershed — can be
-        // deleted from the UI.
+        // 0=Off, 1=Low, 2=High. Only honored when UseWatershed==true; auto mode
+        // tries blur levels itself.
         private int _watershedBlurLevel = 0;
         public int WatershedBlurLevel
         {
@@ -524,10 +476,8 @@ namespace DinoLino.Utilities.Modes
         }
 
         // ── View transform (zoom + pan) ──
-        // ScaleX/ScaleY/OffsetX/OffsetY are now views over ONE immutable
-        // ViewTransform value with a single PropertyChanged. The four scalar
-        // properties remain so existing MainWindow call sites compile
-        // unchanged; prefer assigning Transform once per zoom/pan.
+        // ScaleX/Y and OffsetX/Y are views over one immutable ViewTransform value;
+        // prefer assigning Transform once per zoom/pan.
         private ViewTransform _transform = ViewTransform.Identity;
         public ViewTransform Transform
         {
@@ -563,19 +513,14 @@ namespace DinoLino.Utilities.Modes
             set => Transform = new ViewTransform(_transform.ScaleX, _transform.ScaleY, _transform.OffsetX, value);
         }
 
-        // Superseding cancellation for click operations: a new click cancels the
-        // previous computation instead of racing it. (Operations also no longer
-        // share OutlineProcessor scratch buffers — see RunClickOperation.)
+        // Superseding cancellation: a new click cancels the previous computation
+        // instead of racing it.
         private CancellationTokenSource _opCts;
 
-        // Busy indicator: raised when a background click operation starts and
-        // lowered when it settles (success, cancel, early return, or error).
-        // A COUNTER rather than a bool so overlapping clicks behave correctly —
-        // a superseded op and its replacement can both be in flight briefly,
-        // and the indicator must stay up until the LAST one finishes. Fired on
-        // whatever thread the transition happens on; MainWindow marshals to the
-        // UI thread. int + Interlocked keeps the raise/lower balanced without a
-        // lock.
+        // Busy indicator, raised/lowered around background click operations. A
+        // COUNTER not a bool: overlapping (superseded + replacement) ops can be in
+        // flight, so it must stay up until the last finishes. Interlocked, lock-free;
+        // fired on any thread and marshaled by MainWindow.
         public event Action<bool> BusyChanged;
         private int _busyCount;
 
@@ -621,16 +566,12 @@ namespace DinoLino.Utilities.Modes
             ClearPendingState();
             HandDraw.Reset();       // discards any open stroke AND the committed flag
             Smooth.ClearSnapshot(); // the outline is gone; never smooth from a ghost
-            ClearMetadata();
             ClearEFDPreview();
         }
 
-        // Esc (and any other CancelCurrentOperation caller) also discards an
-        // open hand-drawn stroke, as HandDrawTool.Cancel's docs promise — the
-        // wiring was missing. Safe against every ProcessClick's
-        // BeginOperation: a stroke can only be open while hand-draw is the
-        // active tool, whose presses bypass ProcessClick, and
-        // OnHandStrokeStarted runs BEFORE the tool marks the stroke active.
+        // CancelCurrentOperation (Esc) also discards an open hand-drawn stroke.
+        // Safe against BeginOperation: a stroke is only open while hand-draw is
+        // active, and those presses bypass ProcessClick.
         public override void CancelCurrentOperation()
         {
             base.CancelCurrentOperation();
@@ -655,19 +596,15 @@ namespace DinoLino.Utilities.Modes
         // SHARED CLICK-OPERATION SCAFFOLDING
         // ─────────────────────────────────────────────────────────────────────
 
-        // Cancellation is cooperative inside the body 
-        // (ThrowIfCancellationRequested), so the token is deliberately NOT
-        // passed to Task.Run — the delegate always runs and busy stays
-        // balanced.
+        // Cooperative cancellation inside the body, so the token is NOT passed
+        // to Task.Run — the delegate always runs and busy stays balanced.
         private void RunClickOperation(Func<ImageAnalysis, OutlineProcessor, CancellationToken, Task> body)
         {
             var analysisTask = _analysisTask;
             if (analysisTask == null) return;
 
-            // Newest click wins: supersede any in-flight computation instead of
-            // racing it. Combined with per-operation processors, this removes
-            // the buffer data race between overlapping clicks and stops
-            // superseded work from burning CPU to completion.
+            // Newest click wins: supersede any in-flight computation. Per-operation
+            // processors remove the buffer race between overlapping clicks.
             var superseded = _opCts;
             superseded?.Cancel();
             _opCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
@@ -704,9 +641,8 @@ namespace DinoLino.Utilities.Modes
         {
             var dispatcher = Application.Current?.Dispatcher;
             if (dispatcher == null) return; // application shutting down
-            // BeginInvoke, not Invoke: the worker never needs to wait for the
-            // apply, and an async post can never deadlock against a blocked
-            // UI thread. The stale-guard runs ON the UI thread either way.
+            // BeginInvoke not Invoke: the worker needn't wait and can't deadlock a
+            // blocked UI thread; the stale-guard still runs on the UI thread.
             dispatcher.BeginInvoke(new Action(() =>
             {
                 if (token.IsCancellationRequested || version != _imageVersion) return;
@@ -739,11 +675,9 @@ namespace DinoLino.Utilities.Modes
         {
             int sw = snap.Width, sh = snap.Height;
 
-            // Strip the 5-px border band ONLY when the mask occupies enough of it
-            // to look like background bleed. A subject that genuinely touches the
-            // frame in a small arc keeps its edge pixels instead of losing a slice
-            // (or being cut in two, after which "largest component" could keep the
-            // wrong half). The crack tracer stays in-bounds either way.
+            // Strip the 5-px border band only when the mask fills enough of it to
+            // look like background bleed, so a subject that genuinely touches the
+            // frame in a small arc keeps its edge pixels.
             const int band = 5;
             long bandFg = 0, bandTotal = 0;
             for (int i = 0; i < rawFull.Length; i++)
@@ -776,18 +710,16 @@ namespace DinoLino.Utilities.Modes
             bool[] traced;
             if (preserveMultipleComponents)
             {
-                // Clean every component independently (each in its own crop, with
-                // per-component scaled radii) and keep all that survive.
-                // No single-component collapse, no trace-seed dependence.
+                // Clean each component independently (own crop, scaled radii) and
+                // keep all survivors.
                 bool[] work = proc.CleanEachComponent(cropped, cw, ch, MinAreaPixels, token);
                 traced = proc.HasMinimumPixels(work, MinAreaPixels) ? work : cropped;
             }
             else
             {
-                // Scale the cleanup morphology to the object instead of fixed radii:
-                // a fixed radius-2 opening plus corridor-3 thinning deterministically
-                // deletes any feature under ~5 px wide — exactly an antenna or spine
-                // on a small specimen. Small blobs still get cleaned aggressively.
+                // Scale cleanup morphology to the object, not fixed radii: fixed
+                // radii would delete any feature under ~5 px (an antenna/spine on a
+                // small specimen).
                 int maskArea = proc.CountPixels(cropped);
                 double objScale = Math.Sqrt(Math.Max(1, maskArea));
                 // Floor restored to the ORIGINAL radius 2 (see the matching
@@ -802,10 +734,8 @@ namespace DinoLino.Utilities.Modes
 
                 token.ThrowIfCancellationRequested();
 
-                // Honor the click: if the component the user pointed at survived
-                // cleanup, keep THAT one. Fall back to "largest" only when it
-                // didn't — MorphOpen can split a mask, and the biggest fragment
-                // is not necessarily the one under the cursor.
+                // Keep the clicked component if it survived cleanup; fall back to
+                // "largest" only if it didn't (MorphOpen can split a mask).
                 int cseed = cpy * cw + cpx;
                 work = work[cseed]
                     ? proc.KeepComponentContainingSeed(work, cw, ch, cseed)
@@ -831,16 +761,11 @@ namespace DinoLino.Utilities.Modes
             var boundary = proc.TraceBoundary(cropped, cw, ch);
             if (boundary.Count < 8) return null;
 
-            // Boundary snap post-pass (conservative — see SnapBoundaryToGradient).
-            // Keep the unsnapped trace: if simplification of the snapped
-            // contour self-intersects, retry from the raw trace — which is
-            // simple by construction — effectively disabling the snap for that
-            // outline. The old fallback dumped the ENTIRE dense contour into
-            // the display polyline, which is exactly the "every pixel of
-            // jitter becomes a vertex" jaggedness this replaces.
-            // NOTE: in multi-click mode the stored pending MASK is not
-            // re-rasterized from the snapped contour — the ≤3 px divergence is
-            // immaterial for its two uses (click-inside test, merge base).
+            // Conservative boundary snap (see SnapBoundaryToGradient). If the
+            // snapped contour self-intersects on simplification, retry from the raw
+            // trace (simple by construction), disabling the snap for that outline.
+            // NOTE: multi-click leaves the pending MASK un-re-rasterized; the ≤3 px
+            // divergence is immaterial for its two uses (inside test, merge base).
             var rawBoundary = boundary;
             boundary = proc.SnapBoundaryToGradient(boundary, bx0, by0,
                 gradient, snap.Width, snap.Height, edgeGradThreshold);
@@ -861,28 +786,20 @@ namespace DinoLino.Utilities.Modes
             foreach (var p in boundary)
                 _activeDenseContourImage.Add(new Point(p.X + bx0, p.Y + by0));
 
-            // The destructive per-point border clamp that used to live here was
-            // REMOVED. The crack tracer only ever emits vertices at grid corners
-            // inside [0..w] x [0..h], so every traced point is in-bounds by
-            // construction — including now that CleanMaskFullSpace strips the
-            // border band only when it detects bleed, so masks CAN legitimately
-            // touch the edge. Clamping each point onto a box could collapse a
-            // near-edge concavity onto the box line and self-intersect the
-            // polygon — that was the source of the corrupted metadata.
+            // No per-point border clamp: the crack tracer only emits vertices at
+            // grid corners inside [0..w]x[0..h], so points are in-bounds already, and
+            // clamping near-edge concavities onto the box could self-intersect them.
 
             var poly = new Polyline
             {
-                // LineColor for BOTH states: the pending preview hardcoded
-                // OrangeRed and stopped matching once the user changed the
-                // line color — the dashes alone mark it as pending.
+                // LineColor for both states; the dashes alone mark it pending.
                 Stroke = this.LineColor,
                 StrokeThickness = 2,
                 FillRule = FillRule.EvenOdd
             };
             if (dashed) poly.StrokeDashArray = OutlineVisuals.PreviewDashes;
 
-            // (p.X + bx0, p.Y + by0) maps cropped coords back to full-image coords — the
-            // clamp loop used to apply this offset, so it must stay now that it's gone.
+            // (p.X + bx0, p.Y + by0) maps cropped coords back to full-image coords.
             foreach (var p in simplified)
                 poly.Points.Add(new Point((p.X + bx0) * ScaleX + OffsetX, (p.Y + by0) * ScaleY + OffsetY));
             poly.Points.Add(new Point((simplified[0].X + bx0) * ScaleX + OffsetX, (simplified[0].Y + by0) * ScaleY + OffsetY));
@@ -906,19 +823,15 @@ namespace DinoLino.Utilities.Modes
                 return new List<UIElement>();
             if (_cachedPixels == null || _analysisTask == null) return new List<UIElement>();
 
-            // Math.Floor, not a bare cast: truncation toward zero mapped a
-            // click up to one canvas pixel LEFT/ABOVE the image onto column/
-            // row 0 instead of failing the bounds check below.
+            // Math.Floor not a cast: truncation-toward-zero would map a click just
+            // left/above the image onto row/col 0 instead of failing bounds.
             int px = (int)Math.Floor((mousePos.X - OffsetX) / ScaleX);
             int py = (int)Math.Floor((mousePos.Y - OffsetY) / ScaleY);
             if ((uint)px >= _cachedWidth || (uint)py >= _cachedHeight)
                 return new List<UIElement>();
 
-            // pending state is stamped with the image
-            // version it was computed against (see SwapPending) and dropped on
-            // any mismatch. CacheSourcePixels
-            // also clears pending outright on image change, so this guard is
-            // belt-and-braces.
+            // Pending state is stamped with its image version (see SwapPending) and
+            // dropped on mismatch; belt-and-braces with CacheSourcePixels.
             if (_hasPending && (_pendingMask == null || _pendingImageVersion != _imageVersion))
                 ClearPendingState();
 
@@ -991,10 +904,8 @@ namespace DinoLino.Utilities.Modes
             int clickIdx = py * a.Width + px;
             bool clickOnBg = a.BackgroundMask != null && a.BackgroundMask[clickIdx];
 
-            // Rescue path: the click landed on a pixel the background model
-            // claimed, so the model is evidently wrong here. Run this operation
-            // without it rather than letting every flood/watershed step silently
-            // refuse to grow anywhere near the click.
+            // Rescue: the click hit a background-classified pixel, so the model is
+            // wrong here — run this operation without it.
             bool[] opBgMask = clickOnBg ? null : a.BackgroundMask;
             var snap = new ImageSnapshot(a.Pixels, opBgMask, a.Width, a.Height, a.Stride, a.Bpp);
             int[] opDist = clickOnBg ? null : a.DistToBackground; // null → watershed recomputes vs. border only
@@ -1016,10 +927,8 @@ namespace DinoLino.Utilities.Modes
                     _fillSensitivity, _fillSensitivity * 0.5, _edgeThreshold, token), sx, sy, snap);
             }
 
-            // Size veto threshold. Cap the peak distance so a sparse or failed
-            // background mask (large distances everywhere) can only WEAKEN the
-            // veto toward legacy behavior — never reject correct masks of
-            // ordinary size.
+            // Size-veto threshold. Cap peak distance so a sparse/failed background
+            // mask can only weaken the veto, never reject correct ordinary masks.
             int peakDist = clickOnBg ? 0 : a.DistToBackground[sy * a.Width + sx];
             peakDist = Math.Min(peakDist, Math.Min(a.Width, a.Height) / 8);
             int minPlausibleArea = Math.Max(MinAreaPixels,
@@ -1045,13 +954,9 @@ namespace DinoLino.Utilities.Modes
                 return s >= AcceptableMaskScore;
             }
 
-            // Item 7: GrabCut-style GMM refinement. A mixture fitted to the
-            // chosen mask covers what no single seed color can — a textured
-            // object's several color modes, or the lit and shadowed halves of
-            // one surface — so it recovers regions the coarse candidates missed
-            // and sheds background they grabbed. The refined mask must WIN on
-            // score (size veto included) to replace the coarse one, so this
-            // stage can only improve the result.
+            // GrabCut-style GMM refinement: a mixture fitted to the chosen mask
+            // covers multiple color modes a single seed can't. Replaces the coarse
+            // mask only if it scores strictly better (size veto included).
             (bool[] mask, int seedX, int seedY, ImageSnapshot snap) Finish(bool[] chosen)
             {
                 bool refinedWon = false;
@@ -1066,10 +971,8 @@ namespace DinoLino.Utilities.Modes
                     }
                 }
 
-                // One line per click answering "which engine produced this
-                // outline, and why": every candidate's score plus the winner.
-                // Visible in the debugger's Output window; also exposed via
-                // LastSegmentationInfo for an optional UI binding.
+                // One diagnostic line per click: every candidate's score + winner.
+                // In the Output window and via LastSegmentationInfo.
                 string info = $"[outline] click({px},{py}) {diag}winner={bestName}{(refinedWon ? "+gmm" : "")}";
                 System.Diagnostics.Debug.WriteLine(info);
                 LastSegmentationInfo = info;
@@ -1077,16 +980,10 @@ namespace DinoLino.Utilities.Modes
                 return (chosen, sx, sy, snap);
             }
 
-            // 0) Neural candidate: click-prompted SAM (MobileSAM-class) when a
-            //    model is installed. Tried FIRST because the encoder already
-            //    ran at image load and a decoder pass costs tens of
-            //    milliseconds — and it handles texture, clutter, and variable
-            //    lighting at a level the color heuristics below can't reach.
-            //    Deliberately NOT clamped by the background mask: the neural
-            //    mask's whole value is its independence from the color
-            //    background model, and the shared score, size veto, and
-            //    downstream cleanup arbitrate it like every other candidate.
-            //    The classical portfolio below remains the complete fallback.
+            // 0) Neural candidate: click-prompted SAM when a model is installed.
+            //    Tried first (encoder already ran at load; decoder is fast) and NOT
+            //    clamped by the background mask — its value is independence from it.
+            //    Arbitrated by the shared score/veto/cleanup like any candidate.
             if (a.SamState != null)
             {
                 try
@@ -1126,13 +1023,9 @@ namespace DinoLino.Utilities.Modes
             if (Consider("adaptive", adaptive)) return Finish(best);
             token.ThrowIfCancellationRequested();
 
-            // 3) Classic flood on the illumination-flattened copy, with the
-            //    background model rebuilt on that copy. Cancels vignetting and
-            //    lighting falloff that the chroma metric alone can't fix when
-            //    the BACKGROUND (not the object) carries the gradient. Scored
-            //    against the ORIGINAL image's edges like every other candidate,
-            //    and the winning mask feeds the normal downstream pipeline —
-            //    only the segmentation itself looks at flattened pixels.
+            // 3) Classic flood on the illumination-flattened copy (bg model rebuilt
+            //    on it) for when the BACKGROUND carries the gradient. Scored against
+            //    the original edges; only segmentation looks at flattened pixels.
             bool clickOnFlatBg = a.FlattenedBackgroundMask != null && a.FlattenedBackgroundMask[clickIdx];
             var flatSnap = new ImageSnapshot(a.FlattenedPixels,
                 clickOnFlatBg ? null : a.FlattenedBackgroundMask,
@@ -1170,9 +1063,8 @@ namespace DinoLino.Utilities.Modes
                 }
             }
 
-            // Nothing acceptable: best-scoring candidate wins; if even that was
-            // vetoed away, fall back to the classic flood so this never does
-            // worse than the original pipeline.
+            // Nothing acceptable: best-scoring candidate wins, or the classic flood
+            // if even that was vetoed.
             if (best == null || bestScore <= 0) best = classicFlood;
             return Finish(best);
         }
@@ -1229,8 +1121,7 @@ namespace DinoLino.Utilities.Modes
                     if (newFlood[i]) accumulated[i] = true;
 
                 const int bridgeRadius = 6; // tune to the largest gap you want to span
-                // Cropped close: the old full-frame MorphClose ran two
-                // full-image distance transforms per added click.
+                // Cropped close, avoiding two full-image distance transforms per click.
                 accumulated = proc.MorphCloseCropped(accumulated, a.Width, a.Height, bridgeRadius);
 
                 // Re-clean the union. Use the new click as the trace seed so
@@ -1307,11 +1198,8 @@ namespace DinoLino.Utilities.Modes
 
         #region MainWindow compatibility forwarders
 
-        // The erase / smooth / hand-draw implementations moved to the tool
-        // objects (Erase, Smooth, HandDraw above). These thin forwarders keep
-        // every existing MainWindow.Input call site compiling unchanged; new
-        // code should talk to the tools directly, and once MainWindow is
-        // updated these can simply be deleted.
+        // Thin forwarders to the tool objects (Erase, Smooth, HandDraw) for
+        // MainWindow.Input call sites; new code should call the tools directly.
         public void BeginHandStroke(Vector2 canvasPos) => HandDraw.BeginStroke(canvasPos);
         public void ProcessHandDrawDrag(Vector2 canvasPos) => HandDraw.ProcessDrag(canvasPos);
         public void EndHandStroke() => HandDraw.EndStroke();
@@ -1333,12 +1221,9 @@ namespace DinoLino.Utilities.Modes
         public void TakePreSmoothSnapshot() => Smooth.TakeSnapshot();
         public void ProcessLocalSmoothDrag(Vector2 mousePos) => Smooth.ProcessLocalDrag(mousePos);
 
-        // Tool-PARAMETER forwarders (same rationale as the method forwarders
-        // above): MainWindow.Input routes local-smooth drags via
-        // IsLocalSmoothSelected, and other partials may touch the rest. The
-        // updated panel binds the tool paths (Smooth.Strength, Erase.BrushRadius,
-        // ...) directly. NOTE: these wrappers do not raise MODE-level
-        // PropertyChanged — bind through the tool properties, not these names.
+        // Tool-parameter forwarders for MainWindow.Input; the panel binds the tool
+        // paths directly. NOTE: these do NOT raise mode-level PropertyChanged — bind
+        // through the tool properties, not these names.
         public double EraseBrushRadius
         {
             get => Erase.BrushRadius;
@@ -1400,17 +1285,13 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _efdCoefficientsResult, value);
         }
 
-        // Dense traced boundary of the current outline, in FULL-IMAGE space (no closure
-        // dup), captured before Douglas-Peucker simplification. EFA runs on this — resampled
-        // to ContourSampleCount points — so the harmonic spectrum reflects the true outline
-        // detail rather than the thinned display polyline. 
+        // Dense traced boundary in full-image space (no closure dup), before
+        // Douglas-Peucker. EFA runs on this (resampled to ContourSampleCount) so the
+        // spectrum reflects true detail, not the thinned display polyline.
         private List<Point> _activeDenseContourImage;
 
-        // Clears the cached dense EFA contour. Called (via the tools'
-        // OutlineEdited events) whenever erase or smooth changes the outline,
-        // so the NEXT GenerateMetadata analyzes the live edited polyline
-        // instead of the original auto-detected boundary. Cheap and
-        // idempotent; safe to fire on every drag event.
+        // Clears the cached dense EFA contour (via tools' OutlineEdited) so the
+        // next GenerateMetadata analyzes the edited polyline. Cheap, idempotent.
         private void InvalidateDenseContour() => _activeDenseContourImage = null;
 
         // How many equally-spaced points the dense contour is resampled to before computing 
@@ -1501,10 +1382,8 @@ namespace DinoLino.Utilities.Modes
             OnPropertyChanged(nameof(ScaleUnit));
         }
 
-        // Called by OutlineOperation.ApplyMetadataToMode on undo/redo so the
-        // scaled Perimeter/Area rows restore along with the ratio metrics —
-        // they were stamped onto the operation but never pushed back, leaving
-        // the panel at 0 / showing the previous outline's summary.
+        // Restores scaled Perimeter/Area on undo/redo (called by
+        // OutlineOperation.ApplyMetadataToMode) alongside the ratio metrics.
         public void RestoreScaledMeasurements(double canvasPerimeter, double canvasArea)
         {
             _lastCanvasPerimeter = canvasPerimeter;
@@ -1513,27 +1392,21 @@ namespace DinoLino.Utilities.Modes
             RecomputeScaledValues();
         }
 
-        // Dash pattern for the dashed polylines this mode creates (pending
-        // multi-click preview, blue EFD reconstruction): the shared frozen
-        // instance in OutlineVisuals.
+        // Shared frozen dash pattern (OutlineVisuals) for this mode's dashed polylines.
 
-        // Fired after metadata is generated and stamped onto the committed outline.
-        // MainWindow wires this to refresh the on-image operation counter: setting
-        // HasMetadata mutates the operation in place, which does NOT raise a history
-        // change, so the counter would otherwise not update until the next commit.
+        // Fired after metadata is stamped onto the committed outline. MainWindow
+        // refreshes the counter from this: flipping HasMetadata mutates the op in
+        // place and raises no history change, so nothing else would update it.
         public event Action MetadataGenerated;
 
 
-        // Called when the user selects Generate Metadata (the control panel's
-        // Checked handler — no longer a property-setter side effect) and by the
-        // EFA window when settings change.
+        // Called from the panel's Generate Metadata handler and by the EFA window
+        // when settings change.
         public void GenerateMetadata()
         {
-            // Refuse while a hand-drawn stroke is still open (not yet
-            // self-closed). Checked WITHOUT _handDrawMode: WPF unchecks the
-            // hand-draw radio (flipping the flag and auto-cancelling) BEFORE a
-            // sibling's Checked handler can run, and the EFA window can call
-            // in from any tool — the open stroke is the only reliable signal.
+            // Refuse while a hand-drawn stroke is still open. Checked WITHOUT
+            // _handDrawMode: WPF unchecks the hand-draw radio before a sibling's
+            // handler runs, so the open stroke is the only reliable signal.
             if (HandDraw.IsStrokeOpen)
             {
                 HandOutlineUnfinished?.Invoke();
@@ -1561,9 +1434,8 @@ namespace DinoLino.Utilities.Modes
             double perimeter = GeometryCalculations.Perimeter(imagePts);
             double area = GeometryCalculations.PolygonArea(imagePts);
 
-            // Scaled outputs use canvas-space measurements, matching the canvas-space
-            // calibration captured by the Scale Image tool (imagePts above stays image-space
-            // so the ratio metrics remain zoom-independent).
+            // Scaled outputs use canvas-space measurements (matching the Scale Image
+            // calibration); imagePts stays image-space so ratios are zoom-independent.
             double canvasPerimeter = GeometryCalculations.Perimeter(pts);
             double canvasArea = GeometryCalculations.PolygonArea(pts);
             _lastCanvasPerimeter = canvasPerimeter;
@@ -1583,24 +1455,17 @@ namespace DinoLino.Utilities.Modes
             SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(imagePts);
             TurningAngleLengthResult = GeometryCalculations.TurningAnglePerLength(SumTurningAnglesResult, perimeter);
 
-            // First metadata pass for a freshly committed outline: adopt the
-            // harmonic count the 99% power analysis recommends as the default.
-            // Skipped once resolved, and never overrides a manual choice.
+            // First metadata pass for a new outline: adopt the 99%-power harmonic
+            // count as default. Skipped once resolved; never overrides a manual choice.
             ApplyAutoHarmonicDefault();
 
             int harmonics = EfdHarmonics;
 
-            // Run EFA on the dense contour resampled to ContourSampleCount equally-spaced points,
-            // not the Douglas-Peucker display polyline (which drops the low-amplitude detail
-            // the higher harmonics are meant to capture).
-            //
-            // The dense contour is captured during AUTOMATIC detection and is
-            // cleared by InvalidateDenseContour the moment erase or smooth edits
-            // the outline (see the tool wiring in the constructor). So after an
-            // edit — and for hand-drawn outlines, which never populate it — this
-            // falls through to the live polyline, which IS the edited shape.
-            // Both branches resample to ContourSampleCount so harmonic precision
-            // is the same either way.
+            // Run EFA on the dense contour (resampled to ContourSampleCount), not the
+            // Douglas-Peucker polyline which drops detail the higher harmonics capture.
+            // The dense contour is cleared on edit and never set for hand-drawn
+            // outlines, so those fall through to the live polyline; both branches
+            // resample identically.
             List<Point> efaSource;
             if (_activeDenseContourImage != null && _activeDenseContourImage.Count >= 3)
             {
@@ -1611,9 +1476,8 @@ namespace DinoLino.Utilities.Modes
             }
             else
             {
-                // Live (possibly edited) polyline, in canvas space with the
-                // closure duplicate already stripped above — resampled the same
-                // way the dense path is, rather than fed in raw.
+                // Live (edited) polyline, canvas space, closure dup stripped, resampled
+                // like the dense path.
                 efaSource = pts.Count >= 3
                     ? GeometryCalculations.ResampleClosed(pts, ContourSampleCount)
                     : pts;
@@ -1652,9 +1516,8 @@ namespace DinoLino.Utilities.Modes
                 op.NormalizationWarning = NormalizationWarning;
                 op.HasMetadata = true;
 
-                // HasMetadata just flipped on an operation already sitting in history.
-                // Recompute the on-image counter now — mutating the op in place doesn't
-                // raise a history-changed event, so nothing else will trigger the refresh.
+                // HasMetadata flipped on an op already in history; recompute the counter
+                // now since an in-place mutation raises no history-changed event.
                 MetadataGenerated?.Invoke();
             }
 
@@ -1667,23 +1530,17 @@ namespace DinoLino.Utilities.Modes
         // =====================
         private readonly EllipticFourierAnalysis _efd = new EllipticFourierAnalysis();
 
-        // Session-level accumulator of EFD coefficient tables for multi-specimen CSV export.
-        // Deliberately NOT cleared in Reset(), so the batch survives opening new images and
-        // clearing the workspace within a session.
+        // Session accumulator of EFD coefficient tables for multi-specimen CSV
+        // export. NOT cleared in Reset(), so it survives new images / workspace clears.
         public EfdCsvCollector EfdCsv { get; } = new EfdCsvCollector();
 
-        // Default harmonic count. Once an outline exists it is replaced, per
-        // outline, by the count the 99% Harmonic Power analysis recommends (see
-        // ApplyAutoHarmonicDefault) — so the default adapts to each specimen's
-        // complexity instead of a fixed guess. A manual edit to EfdHarmonics
-        // opts that outline out of further auto-setting.
+        // Default harmonic count, replaced per outline by the 99%-power recommendation
+        // (see ApplyAutoHarmonicDefault). A manual edit opts that outline out.
         private const double AutoHarmonicPowerThreshold = 0.99;
         private int efdHarmonics = 10;
 
-        // True once the 99% default has been applied for the CURRENT outline, or
-        // once the user has manually set the count for it. Reset when a new
-        // outline is committed (see ResetHarmonicAutoDefault), so the next
-        // specimen gets its own recommendation.
+        // True once the 99% default is applied or the user sets the count for the
+        // current outline. Reset per new outline (see ResetHarmonicAutoDefault).
         private bool _harmonicsResolvedForOutline;
 
         // Distinguishes a user keystroke/slider change (which should stick) from
@@ -1714,11 +1571,9 @@ namespace DinoLino.Utilities.Modes
             _harmonicsResolvedForOutline = false;
         }
 
-        // Sets EfdHarmonics to the harmonic count the 99% cumulative-power
-        // threshold recommends for the current outline, unless the count has
-        // already been resolved (auto-set once, or manually chosen) for this
-        // outline. Returns true if it applied a new default. Runs AFTER the EFD
-        // coefficients exist for the outline, so the power analysis has data.
+        // Sets EfdHarmonics to the 99%-cumulative-power count unless already resolved
+        // for this outline. Returns true if applied. Runs after the EFD coefficients
+        // exist so the power analysis has data.
         private bool ApplyAutoHarmonicDefault()
         {
             if (_harmonicsResolvedForOutline) return false;
@@ -1757,9 +1612,8 @@ namespace DinoLino.Utilities.Modes
             int harmonics = Math.Min(EfdHarmonics, _efd.RawCoefficients.Length / 4);
             if (harmonics < 1) return;
 
-            // Reconstruct using the contour's own DC term (arc-length centroid) rather than a
-            // vertex average. Douglas-Peucker leaves vertices unevenly spaced, so the vertex
-            // average drifts toward densely-sampled regions; the arc-length centroid does not.
+            // Reconstruct about the arc-length centroid (the contour's DC term), not a
+            // vertex average, which Douglas-Peucker's uneven spacing would bias.
             var reconstructed = _efd.ReconstructCanonical(harmonics);
             if (reconstructed == null) return;
 
@@ -1777,9 +1631,8 @@ namespace DinoLino.Utilities.Modes
             EFDPreviewReady?.Invoke(previewLine);
         }
 
-        // ── Accessors for the consolidated Elliptic Fourier Analysis window ──
-        // Both return CANVAS-space points (the frame the workspace draws in),
-        // so the pair can be rescaled together for the image-free Outline tab.
+        // ── Accessors for the Elliptic Fourier Analysis window ──
+        // Both return canvas-space points so the pair can be rescaled together.
         public List<Point> GetActiveOutlinePoints()
         {
             if (_activePolyline == null || _activePolyline.Points.Count < 3) return null;
@@ -1801,14 +1654,12 @@ namespace DinoLino.Utilities.Modes
             _efd.Clear();
         }
 
-        // Number of harmonics computed when analyzing harmonic power. Independent of the display
-        // harmonic count (EfdHarmonics) so the cumulative-power curve has room to converge even
-        // when the user is viewing only a few harmonics.
+        // Harmonics computed for power analysis. Independent of the display count
+        // (EfdHarmonics) so the cumulative-power curve can converge.
         private const int HarmonicPowerAnalysisCeiling = 50;
 
-        // Runs a harmonic-power analysis on the current outline. threshold is a fraction in [0,1]
-        // (e.g. 0.99). Returns null when there is no usable outline. Does NOT change EfdHarmonics,
-        // the cached display coefficients, or the blue overlay.
+        // Harmonic-power analysis on the current outline; threshold in [0,1] (e.g.
+        // 0.99). Null when no usable outline. Does NOT change EfdHarmonics or overlays.
         public HarmonicPowerProfile AnalyzeHarmonicPower(double threshold, bool dropFirstHarmonic = true)
         {
             if (_activePolyline == null || _activePolyline.Points.Count < 3) return null;
@@ -1819,9 +1670,8 @@ namespace DinoLino.Utilities.Modes
             PolylineGeometry.StripClosureDuplicate(pts);
             if (pts.Count < 3) return null;
 
-            // Never request more harmonics than the vertex count can support (~Nyquist): a coarse,
-            // heavily-simplified outline can't meaningfully express dozens of harmonics, so the
-            // suggested count may be lower than EfdHarmonics' 100 ceiling for such outlines.
+            // Cap harmonics at ~Nyquist for the vertex count: a coarse outline can't
+            // express dozens, so the suggestion may fall below the 100 ceiling.
             int ceiling = Math.Min(HarmonicPowerAnalysisCeiling, Math.Max(1, pts.Count / 2));
             return _efd.AnalyzeHarmonicPower(pts, ceiling, threshold, dropFirstHarmonic);
         }
@@ -1831,32 +1681,16 @@ namespace DinoLino.Utilities.Modes
         public void ApplyHarmonicCount(int harmonics) => EfdHarmonics = harmonics;
 
         // ── Tips ──
-        // The five near-identical arrays used to be rebuilt inline on every
-        // GetTips call, duplicating each shared line up to six times. The
-        // shared lines are now single constants, the per-tool arrays are
-        // built once, and GetTips just returns the cached array.
+        // Outline-specific lines; the rest are inherited from WorkMode. Each tool's
+        // array is built once and GetTips returns the cached array. The tools pick
+        // their own trailers rather than the standard one, so these compose the Tip
+        // constants directly instead of calling BuildTips.
         private const string TipDecimate =
             "💡 To increase speed, try decimating pixel count using the Decimate function in the View menu.";
         private const string TipMultiClick =
             "💡 Use multi-click mode to merge multiple regions. To finalize an outline in multi-click mode, click inside the area bounded by a dashed line.";
         private const string TipSolidBackground =
             "💡 Outline mode performs best on unpatterned images with a solid background.";
-        private const string TipHelp =
-            "💡 The user guide and software information can be found in the Help menu.";
-        private const string TipUndo =
-            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.";
-        private const string TipRedo =
-            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.";
-        private const string TipClear =
-            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.";
-        private const string TipOpenImage =
-            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.";
-        private const string TipZoom =
-            "💡 Zoom in or out using the scroll wheel.";
-        private const string TipPan =
-            "💡 Press 'Ctrl' and left click to drag the image.";
-        private const string TipToggleTips =
-            "💡 Toggle tip visibility in the View menu.";
 
         // Automated Outline, legacy forced-watershed variant.
         private static readonly string[] DrawWatershedTips =

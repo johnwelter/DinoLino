@@ -77,6 +77,7 @@ namespace DinoLino.Utilities.Operations
             {
                 mode.TurningAngleArcRatioResult = TurningAngleArcRatio;
                 mode.SChordArcRatioResult = SChordArcRatio;
+                mode.RestoreScaledMeasurements(SplineLengthPixels);
             }
         }
     }
@@ -102,6 +103,7 @@ namespace DinoLino.Utilities.Operations
                 mode.AngleCResult = AngleC;
                 mode.TriAspectRatioResult = TriAspectRatio;
                 mode.RelativeAreaResult = RelativeArea;
+                mode.RestoreScaledMeasurements(TriArea);
             }
         }
     }
@@ -121,6 +123,7 @@ namespace DinoLino.Utilities.Operations
             {
                 mode.DrawAspectRatioResult = DrawAspectRatio;
                 mode.RelativeAreaResult = RelativeArea;
+                mode.RestoreShapeMeasurement(ShapeArea);
             }
         }
     }
@@ -138,6 +141,7 @@ namespace DinoLino.Utilities.Operations
             if (SourceMode is DrawMode mode)
             {
                 mode.LineLengthRatioResult = LineLengthRatio;
+                mode.RestoreLineMeasurement(LineLength);
             }
         }
     }

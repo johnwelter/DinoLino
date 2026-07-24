@@ -97,6 +97,59 @@ namespace DinoLino
         }
 
         // =====================
+        // Image cache
+        // =====================
+
+        /// <summary>
+        /// Removes every cached specimen image in one step, after confirming with the user.
+        /// </summary>
+        private void Menu_ClearImageCache(object sender, RoutedEventArgs e)
+        {
+            int cachedCount = SpecimenManager.CachedImageCount;
+
+            if (cachedCount == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "There are no cached images to clear.",
+                    "Clear Image Cache",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                this,
+                $"Remove all {cachedCount} cached image(s)?\n\n" +
+                "The specimen \u25b2/\u25bc arrows will no longer cycle through those images, " +
+                "and they cannot be brought back without re-opening their files.\n\n" +
+                "Specimen names and all measurements are kept, so the History window and " +
+                "exported tables are unaffected.",
+                "Clear Image Cache",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (confirm != MessageBoxResult.Yes) return;
+
+            SpecimenManager.ClearAllImages();
+        }
+
+        /// <summary>
+        /// Opens the cache roster so images can be removed one at a time.
+        /// </summary>
+        private void Menu_EditImageCache(object sender, RoutedEventArgs e)
+        {
+            var window = new EditImageCacheWindow(SpecimenManager)
+            {
+                Owner = this,
+                FontSize = _currentFontSize,
+                FontFamily = _currentFont
+            };
+
+            window.ShowDialog();
+        }
+
+        // =====================
         // Tips
         // =====================
 

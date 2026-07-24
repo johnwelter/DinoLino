@@ -18,18 +18,12 @@ namespace DinoLino.Utilities.Modes
         public override string TabName => "Curvature";
         public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
 
-        // While probing turning angle, a click inspects the finished spline and
-        // returns no new visuals — so the router must NOT clear the workspace,
-        // or the spline being probed vanishes on the first probe click. Paired
-        // with WorkMode.IsProbeInteraction (virtual): BOTH halves must exist.
-        // This pairing once fell out of sync across project copies, the guard
-        // silently read false, and that is exactly the "spline disappears after
-        // one measurement" bug. The input router also carries a concrete
-        // fallback check so a future mismatch cannot disable the safety again.
+        // A probe click measures the existing spline and adds nothing, so the
+        // router must not clear the workspace on it. Keep this in sync with the
+        // router's fallback probe check; either alone keeps the guard working.
         public override bool IsProbeInteraction =>
             CurrentMethod == CurvatureMethod.NPointSpline && FindTurningAngleMode;
 
-        // enums for toggling between curvature methods and spline methods
         public enum CurvatureMethod
         {
             None,
@@ -40,7 +34,6 @@ namespace DinoLino.Utilities.Modes
 
         public enum SplineAlgorithm { CatmullRom, Bezier }
 
-        // set default nethod to none until selection made
         private CurvatureMethod _currentMethod = CurvatureMethod.None;
         public CurvatureMethod CurrentMethod
         {
@@ -59,7 +52,6 @@ namespace DinoLino.Utilities.Modes
         public bool IsParabolicArcSelected => CurrentMethod == CurvatureMethod.ParabolicArc;
         public bool IsNPointSplineSelected => CurrentMethod == CurvatureMethod.NPointSpline;
 
-        // Current UI line to modify during mouse move
         private Line CurrentUILine = null;
 
         public void SelectCurvature(string option)
@@ -97,7 +89,6 @@ namespace DinoLino.Utilities.Modes
             };
         }
 
-        // no operation selected 
         public void SelectNone()
         {
             ExitFindTurningAngle();
@@ -107,8 +98,7 @@ namespace DinoLino.Utilities.Modes
 
         public override Vector2 ProcessMouseMovement(Vector2 mousePos)
         {
-            // "Find turning angle": lock the cursor circle to the nearest point on
-            // the most recent spline so the user can probe it without clicking.
+            // Snap the cursor to the nearest point on the last spline while probing.
             if (FindTurningAngleMode)
             {
                 if (TryProjectOntoSpline(mousePos, out Vector2 onCurve, out int idx))
@@ -135,10 +125,6 @@ namespace DinoLino.Utilities.Modes
 
                 case 2:
 
-                    // we want to lock everything to a given 2D vector
-                    // origin at the Midpoint, project down and across
-                    // we can do this by making a 2D vector of the mouse position, and dotting it to get the new magnitude
-                    // add normalized direction + scale to midpoint to get new point
 
                     Vector2 toMouse = mousePos - Midpoint;
                     double newMag = Orthogonal | toMouse;
@@ -165,22 +151,42 @@ namespace DinoLino.Utilities.Modes
             VertexCurvatureResult = 0;
             TurningAngleArcRatioResult = 0;
             SChordArcRatioResult = 0;
-            SplineLengthScaledResult = ScaledPlaceholder;
+            _canvasSplineLength = 0;
+            _hasCanvasSplineLength = false;
+            RecomputeScaledResults();
         }
 
         public override void RefreshScalePlaceholders()
         {
-            SplineLengthScaledResult = ScaledPlaceholder;
+            RecomputeScaledResults();
             OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
         }
 
-        // Resets the IN-PROGRESS drawing (partial clicks, live preview). Note it
-        // deliberately does NOT touch FindTurningAngleMode anymore: probing is a
-        // mode the user turns on/off explicitly, and having a generic
-        // drawing-state reset silently exit it (and thus, before Fix 1, wipe the
-        // spline) was the root of the disappearing-spline bug. Callers that truly
-        // need to leave probe mode do so explicitly (see SelectNone / the other
-        // Select* methods / Reset).
+        // Canvas-space length of the displayed spline, kept so the scaled row can be
+        // re-derived whenever the calibration changes or an undo restores a different
+        // spline.
+        private double _canvasSplineLength;
+        private bool _hasCanvasSplineLength;
+
+        private void RecomputeScaledResults()
+        {
+            SplineLengthScaledResult = FormatScaledLength(_canvasSplineLength, _hasCanvasSplineLength);
+        }
+
+        /// <summary>
+        /// Restores the canvas-space length behind the scaled row. Called by
+        /// SplineOperation.ApplyMetadataToMode when undo or redo changes which spline
+        /// is current.
+        /// </summary>
+        public void RestoreScaledMeasurements(double canvasLength)
+        {
+            _canvasSplineLength = canvasLength;
+            _hasCanvasSplineLength = true;
+            RecomputeScaledResults();
+        }
+
+        // Resets the in-progress drawing only. Does NOT exit FindTurningAngleMode:
+        // that is toggled explicitly (see ExitFindTurningAngle).
         public override void ResetDrawingState()
         {
             CurrentStep = 0;
@@ -188,12 +194,9 @@ namespace DinoLino.Utilities.Modes
             CurrentOperation.Clear();
             _splinePoints.Clear();
             _splinePreview = null;
-            _splineCurrentOperation.Clear();
         }
 
-        // Explicitly leaves Find-Turning-Angle probing (removes the oval, drops
-        // the readout). Called from the mode-changing Select* paths so switching
-        // to a different curvature tool ends probing cleanly.
+        // Leaves probe mode (removes the oval, clears the readout).
         private void ExitFindTurningAngle()
         {
             if (FindTurningAngleMode) FindTurningAngleMode = false;
@@ -202,8 +205,6 @@ namespace DinoLino.Utilities.Modes
         public override void Reset()
         {
             base.Reset();
-            ClearMetadata();
-            ResetDrawingState();
             _lastSplineDense = null;
             FindTurningAngleDisplay = "";
         }
@@ -212,10 +213,6 @@ namespace DinoLino.Utilities.Modes
         #region 3-Point Arc Section
         //-----THREE-POINT ARC SECTION-----//
 
-        // Tracking 3-click line groups 
-        private List<UIElement> CurrentOperation = new List<UIElement>();
-
-        // All major POIs in generating curvature
         public Vector2 PointA;
         public Vector2 PointB;
         public Vector2 Midpoint;
@@ -225,7 +222,6 @@ namespace DinoLino.Utilities.Modes
         public Vector2 ACMid;
         public Vector2 BCMid;
 
-        // Helper functions
         private void StartChord(Vector2 mousePos, List<UIElement> outputElements)
         {
             PointA = new Vector2(mousePos.X, mousePos.Y);
@@ -249,7 +245,6 @@ namespace DinoLino.Utilities.Modes
             outputElements.Add(CurrentUILine);
             CurrentOperation.Add(CurrentUILine);
 
-            // make the orthogonal
             Vector3 p1 = new Vector3(PointA.X, PointA.Y, 1);
             Vector3 p2 = new Vector3(PointB.X, PointB.Y, 1);
             Orthogonal = (p1 ^ p2).ToVector2();
@@ -262,8 +257,6 @@ namespace DinoLino.Utilities.Modes
         #region Circular Arc Section
         //-----CIRCULAR ARCS-----//
 
-        // Bindable results of curvature calculations
-        // private/public pair used to handle propagation of results to UI bindings
         private double _chordArcRatioResult;
         public double ChordArcRatioResult
         {
@@ -285,7 +278,6 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _aspectRatioResult, value);
         }
 
-        // switch to circular arc operation
         public void SelectCircularArc()
         {
             ExitFindTurningAngle();
@@ -314,14 +306,11 @@ namespace DinoLino.Utilities.Modes
 
                 case 2: // Send Bisector line, calculate all remaining POIs, and calculate the final results.
 
-                    // finish bisector
                     PointC = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
 
-                    //midpoints for those lines
                     ACMid = (PointA + PointC) * 0.5;
                     BCMid = (PointB + PointC) * 0.5;
 
-                    //generate the orthogonal lines, and find their intersection point
 
                     Vector2 Ray13 = (new Vector3(PointA.X, PointA.Y, 1) ^ new Vector3(PointC.X, PointC.Y, 1)).ToVector2();
                     Ray13.Normalize();
@@ -348,8 +337,7 @@ namespace DinoLino.Utilities.Modes
                     double radius = (PointA - Intersection).Magnitude();
                     var circularArc = MakeCircularArc(Intersection, PointA, PointB, radius);
 
-                    // add theta label at the intersection point
-                    var thetaLabel = MakeThetaLabel(Intersection);
+                    var thetaLabel = MakeLabel("\u03B8", Intersection, 22, -7, -30);
 
                     outputElements.Add(circularArc);
                     CurrentOperation.Add(circularArc);
@@ -371,23 +359,17 @@ namespace DinoLino.Utilities.Modes
 
                     CurrentStep++;
 
-                    // add to history
-                    CommitOperation(new CircularArcOperation
+                    CommitCurrentOperation(new CircularArcOperation
                     {
                         OperationKind = "Circular Arc",
-                        SourceMode = this,
-                        Elements = new List<UIElement>(CurrentOperation),
                         CentralAngle = CentralAngleResult,
                         AspectRatio = AspectRatioResult,
                         ChordArcRatio = ChordArcRatioResult
                     });
 
-                    CurrentOperation.Clear();
-
                     break;
                 case 3:
                     ResetDrawingState();
-                    // reuse this click as the first step
                     PointA = new Vector2(mousePos.X, mousePos.Y);
                     CurrentUILine = MakeLine(mousePos, mousePos);
                     outputElements.Add(CurrentUILine);
@@ -399,28 +381,12 @@ namespace DinoLino.Utilities.Modes
             return outputElements;
         }
 
-        // method to place theta label on central angle
-        private TextBlock MakeThetaLabel(Vector2 position)
-        {
-            TextBlock textBlock = new TextBlock();
-            textBlock.Text = "\u03B8"; // Unicode for Greek lowercase Theta
-            textBlock.Foreground = this.LineColor;
-            textBlock.FontSize = 22;
-            textBlock.FontWeight = FontWeights.Bold;
-            Canvas.SetLeft(textBlock, position.X - 7);
-            Canvas.SetTop(textBlock, position.Y - 30);
-            textBlock.TextAlignment = TextAlignment.Center;
-
-            return textBlock;
-        }
-
         private Path MakeCircularArc(Vector2 center, Vector2 start, Vector2 end, double radius)
         {
-            // SweepDirection 
             double crossProduct = (PointC.X - start.X) * (end.Y - start.Y) - (PointC.Y - start.Y) * (end.X - start.X);
             SweepDirection direction = crossProduct > 0 ? SweepDirection.Clockwise : SweepDirection.Counterclockwise;
 
-            // A 3-point arc is >180 degrees if the center point lies inside triangle ABC
+            // Arc exceeds 180° when the centre lies inside triangle ABC.
             bool isLargeArc = GeometryCalculations.IsPointInTriangle(center, start, end, PointC);
 
             var figure = new PathFigure();
@@ -449,7 +415,6 @@ namespace DinoLino.Utilities.Modes
             };
         }
 
-        // function to calculate results
         private void CalculateCircularArcResults()
         {
             CentralAngleResult = GeometryCalculations.CentralAngle(PointA, PointB, PointC, Intersection);
@@ -497,7 +462,6 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _vertexCurvatureResult, value);
         }
 
-        // switch to parabolic arc operation
         public void SelectParabolicArc()
         {
             ExitFindTurningAngle();
@@ -525,38 +489,29 @@ namespace DinoLino.Utilities.Modes
 
                 case 2: // finish Bisector line, calculate all remaining POIs, and calculate the final results.
 
-                    // finish bisector
                     PointC = new Vector2(CurrentUILine.X2, CurrentUILine.Y2);
 
-                    // draw parabolic arc through points A, B, and C
                     var parabola = MakeParabolicArc(PointA, PointB, PointC);
 
                     outputElements.Add(parabola);
                     CurrentOperation.Add(parabola);
 
-                    // calculate results
                     CalculateParabolicArcResults();
 
                     CurrentStep++;
 
-                    // add to history
-                    CommitOperation(new ParabolaOperation
+                    CommitCurrentOperation(new ParabolaOperation
                     {
                         OperationKind = "Parabolic Arc",
-                        SourceMode = this,
-                        Elements = new List<UIElement>(CurrentOperation),
                         XYFunction = XYFunctionResult,
                         RiseSpanRatio = RiseSpanRatioResult,
                         PChordArcRatio = PChordArcRatioResult,
                         VertexCurvature = VertexCurvatureResult
                     });
 
-                    CurrentOperation.Clear();
-
                     break;
                 case 3:
                     ResetDrawingState();
-                    // reuse this click as the first step
                     PointA = new Vector2(mousePos.X, mousePos.Y);
                     CurrentUILine = MakeLine(mousePos, mousePos);
                     outputElements.Add(CurrentUILine);
@@ -612,7 +567,6 @@ namespace DinoLino.Utilities.Modes
             return points;
         }
 
-        // function to calculate results
         private void CalculateParabolicArcResults()
         {
             double pChordLength = (PointB - PointA).Magnitude();
@@ -635,10 +589,8 @@ namespace DinoLino.Utilities.Modes
 
         #region n-point spline section
         //-----N-POINT SPLINE SECTION-----//
-        // Spline mode fields
         private List<Vector2> _splinePoints = new List<Vector2>();
         private UIElement _splinePreview = null;
-        private List<UIElement> _splineCurrentOperation = new List<UIElement>();
 
         private SplineAlgorithm _splineAlgorithm = SplineAlgorithm.CatmullRom;
         public SplineAlgorithm CurrentSplineAlgorithm
@@ -667,8 +619,6 @@ namespace DinoLino.Utilities.Modes
             set { if (value) CurrentSplineAlgorithm = SplineAlgorithm.Bezier; }
         }
 
-        // Bindable results of curvature calculations
-        // private/public pair used to handle propagation of results to UI bindings
         private double _turningAngleArcRatioResult;
         public double TurningAngleArcRatioResult
         {
@@ -698,67 +648,43 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _splineLengthScaledResult, value);
         }
 
-        private Ellipse MakeDot(Vector2 pos)
-        {
-            Ellipse dot = new Ellipse();
-            dot.Fill = this.LineColor;
-            dot.Width = 8;
-            dot.Height = 8;
-            Canvas.SetLeft(dot, pos.X - 4);
-            Canvas.SetTop(dot, pos.Y - 4);
-            return dot;
-        }
-
         private List<UIElement> ProcessSplineClick(Vector2 mousePos)
         {
             List<UIElement> output = new List<UIElement>();
             ClearElementsToRemove();
 
-            // First point of a brand-new spline: retire the previous finished
-            // spline's retained curve so Find-Turning-Angle can't later probe a
-            // stale shape. (The previous spline's committed visuals stay on the
-            // canvas and in history; this only drops the probe target.)
+            // New spline: drop the retained probe target (committed visuals stay).
             if (_splinePoints.Count == 0)
                 _lastSplineDense = null;
 
-            // add the point
             _splinePoints.Add(mousePos);
 
-            // draw a visible dot marker
             var dot = MakeDot(mousePos);
-            _splineCurrentOperation.Add(dot);
+            CurrentOperation.Add(dot);
             output.Add(dot);
 
-            // once we have at least 2 points, update the spline preview
             if (_splinePoints.Count >= 2)
             {
-                // remove old preview from operation list if it exists
                 if (_splinePreview != null)
                 {
                     AddElementsToRemove(_splinePreview);
-                    _splineCurrentOperation.Remove(_splinePreview);
+                    CurrentOperation.Remove(_splinePreview);
                 }
 
-                // generate new spline through all current points
                 _splinePreview = _splineAlgorithm == SplineAlgorithm.Bezier
                     ? MakeSchneiderBezierPath(_splinePoints)
                     : MakeCatmullRomPath(_splinePoints);
-                _splineCurrentOperation.Add(_splinePreview);
+                CurrentOperation.Add(_splinePreview);
                 output.Add(_splinePreview);
             }
 
             return output;
         }
 
-        // switch to n-point spline operation
         public void SelectNPointSpline()
         {
-            // Re-selecting the spline tool while a finished spline is available
-            // to probe must NOT discard it. The Find-Turning-Angle control lives
-            // under the spline sub-tool, so reaching for it can re-invoke this
-            // method; an unconditional ResetDrawingState() here is what made the
-            // drawn spline disappear. Only reset when actually (re)starting fresh
-            // — i.e. no probe-ready spline exists.
+            // Don't reset if a probe-ready spline exists: reaching the
+            // Find-Turning-Angle control re-invokes this and must not discard it.
             bool alreadySplineWithFinished =
                 CurrentMethod == CurvatureMethod.NPointSpline
                 && _lastSplineDense != null && _lastSplineDense.Count >= 3;
@@ -778,9 +704,7 @@ namespace DinoLino.Utilities.Modes
             && !FindTurningAngleMode
             && _splinePoints.Count >= 3;
 
-        // Finalizes the current spline: computes its metadata, commits it to history,
-        // and returns the committed elements. Triggered by the Enter key (wired in
-        // MainWindow). Returns an empty list if not enough points have been placed.
+        // Commits the spline and returns its elements (Enter key, wired in MainWindow).
         public List<UIElement> FinalizeSpline()
         {
             if (CurrentMethod != CurvatureMethod.NPointSpline)
@@ -792,53 +716,45 @@ namespace DinoLino.Utilities.Modes
             if (_splinePoints.Count < 3)
                 return new List<UIElement>();   // not enough points yet; keep what's there
 
-            // calculate results
             List<Vector2> splinePointsDense = _splineAlgorithm == SplineAlgorithm.Bezier
                     ? SplineFitting.GetSchneiderBezierPoints(_splinePoints, 50)
                     : SplineFitting.GetCatmullRomPoints(_splinePoints, 50);
             _lastSplineDense = splinePointsDense;   // keep for the Find-turning-angle tool
             double splineLength = GeometryCalculations.ArcLength(splinePointsDense);
-            SplineLengthScaledResult = Scale != null && Scale.IsCalibrated
-                ? $"{Scale.ToUnits(splineLength):F1} {Scale.Unit}"
-                : "Unscaled";
+            _canvasSplineLength = splineLength;
+            _hasCanvasSplineLength = true;
+            RecomputeScaledResults();
             TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 1);
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 1);
 
-            // store in history
-            CommitOperation(new SplineOperation
+            // Captured before the commit, which empties the accumulator.
+            var output = new List<UIElement>(CurrentOperation);
+
+            CommitCurrentOperation(new SplineOperation
             {
                 OperationKind = _splineAlgorithm == SplineAlgorithm.Bezier
                     ? "n-Point Bezier Spline"
                     : "n-Point Catmull-Rom Spline",
-                SourceMode = this,
-                Elements = new List<UIElement>(_splineCurrentOperation),
                 TurningAngleArcRatio = TurningAngleArcRatioResult,
                 SChordArcRatio = SChordArcRatioResult,
                 SplineLengthPixels = splineLength
             });
 
-            var output = new List<UIElement>(_splineCurrentOperation);
-
-            // reset drawing state for next spline
             _splinePoints.Clear();
             _splinePreview = null;
-            _splineCurrentOperation.Clear();
 
             return output;
         }
 
         // ---- Find turning angle (probe the most recent spline) ----
 
-        // Dense samples of the most recently finished spline, retained so the
-        // "Find turning angle" tool can snap to it and measure local bend.
+        // Dense samples of the last spline, retained for the probe tool.
         private List<Vector2> _lastSplineDense = null;
 
         // Index on _lastSplineDense the oval is currently centred on.
         private int _turningIndex = 0;
 
-        // Half-width of the measured section, in dense-polyline samples. The angle is
-        // measured between the curve direction this many samples before and after the
-        // centre, and the oval is drawn to enclose exactly that span.
+        // Half-width of the probed section, in dense-polyline samples.
         private int _turningAngleWindow = 5;
         public int TurningAngleWindow
         {
@@ -869,10 +785,7 @@ namespace DinoLino.Utilities.Modes
             get => _findTurningAngleMode;
             set
             {
-                // No finished spline to probe: refuse the check and snap the
-                // CheckBox back (raising PropertyChanged makes the TwoWay
-                // binding re-read the still-false value). Prevents a dead
-                // probe state where canvas clicks silently do nothing.
+                // No spline to probe: refuse and snap the CheckBox back.
                 if (value && (_lastSplineDense == null || _lastSplineDense.Count < 3))
                 {
                     OnPropertyChanged(nameof(FindTurningAngleMode));
@@ -886,12 +799,10 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // MainWindow wires these: Ready adds the oval to the canvas (and hides the dot
-        // cursor); Clear removes it (and restores the cursor).
+        // MainWindow wires these to add/remove the oval on the canvas.
         public event Action<UIElement> TurningWindowReady;
         public event Action<UIElement> TurningWindowClear;
 
-        // The oriented oval that wraps the measured section of the spline.
         private Ellipse _windowOval;
         private System.Windows.Media.RotateTransform _windowOvalRotate;
 
@@ -937,8 +848,7 @@ namespace DinoLino.Utilities.Modes
             return new List<UIElement>();
         }
 
-        // Projects `mouse` onto the dense spline polyline, returning the closest point on
-        // the curve and the index of the nearest dense vertex (the section centre).
+        // Returns the closest point on the spline and its nearest dense-vertex index.
         private bool TryProjectOntoSpline(Vector2 mouse, out Vector2 onCurve, out int nearestIndex)
         {
             onCurve = mouse;
@@ -967,8 +877,7 @@ namespace DinoLino.Utilities.Modes
             return nearestIndex >= 0;
         }
 
-        // The sample span [i0, i1] used for both the angle and the oval, centred on
-        // `index` with a half-width of `window` samples (clamped to the polyline ends).
+        // Clamped sample span [i0, i1] centred on index, half-width `window`.
         private static (int i0, int i1) TurningWindowBounds(int count, int index, int window)
         {
             int i0 = Math.Max(0, index - window);
@@ -978,21 +887,8 @@ namespace DinoLino.Utilities.Modes
             return (i0, i1);
         }
 
-        // Sum of turning angles over the window, per unit arc length — the SAME
-        // quantity as the committed "Turn/Length" metric
-        // (GeometryCalculations.TurningAnglePerUnitLength), restricted to the
-        // probed span. Sums |angle between consecutive segments| at every
-        // interior vertex of pts[i0..i1] and returns it together with the
-        // window's true arc length; the caller divides. The guards mirror the
-        // committed function exactly, so a window that covers the whole spline
-        // reproduces the committed value to rounding.
-        //
-        // (The previous implementation measured ONE net angle between the two
-        // half-window chords. For a circular arc a chord's direction equals the
-        // tangent at the chord's arc midpoint, so that net angle is exactly
-        // HALF the window's swept turning — and even less for S-shapes, where
-        // opposite turns cancel. That is why a full-spline window read ~0.26
-        // against a committed 0.4.)
+        // Turning angle and arc length over the probed span; matches the committed
+        // Turn/Length metric restricted to that span (caller divides).
         private static (double angleDeg, double arcLenPx) LocalTurningAngleArcLength(
             List<Vector2> pts, int index, int window)
         {
@@ -1018,15 +914,7 @@ namespace DinoLino.Utilities.Modes
             return (totalTurning, arc);
         }
 
-        // Formats the hover readout. Deliberately ALWAYS degrees-per-PIXEL:
-        // the committed "Turn/Length" column is also °/px — its angles
-        // come from Vector2.AngleBetween (degrees) and its length is raw
-        // pixels; it just displays without a unit label — and this readout must
-        // be directly comparable with it and with previously recorded data.
-        // Converting only one of the pair to calibrated units was itself a
-        // source of confusion. If calibrated reporting is ever wanted, convert
-        // BOTH together. Full precision is kept internally; only the display
-        // is rounded.
+        // Hover readout in °/px, matching the committed Turn/Length column's units.
         private string FormatTurningReadout(List<Vector2> pts, int index, int window)
         {
             var (angleDeg, arcLenPx) = LocalTurningAngleArcLength(pts, index, window);
@@ -1034,9 +922,7 @@ namespace DinoLino.Utilities.Modes
             return $"{angleDeg / arcLenPx:F2}\u00B0/px";
         }
 
-        // Sizes and orients the oval so it encloses the measured span pts[i0..i1]:
-        // major axis along the span's chord, minor axis covering how far the arc bows
-        // off that chord, rotated to match.
+        // Sizes and rotates the oval to enclose the probed span.
         private void UpdateWindowOval(int index)
         {
             if (_windowOval == null || _lastSplineDense == null) return;
@@ -1072,7 +958,6 @@ namespace DinoLino.Utilities.Modes
             _windowOvalRotate.Angle = Math.Atan2(chord.Y, chord.X) * 180.0 / Math.PI;
         }
 
-        // Builds a WPF Path from the dense Catmull-Rom samples produced by SplineFitting.
         private Path MakeCatmullRomPath(List<Vector2> controlPoints)
         {
             if (controlPoints.Count < 2) return null;
@@ -1091,7 +976,6 @@ namespace DinoLino.Utilities.Modes
             return new Path { Stroke = this.LineColor, StrokeThickness = 2, Data = geometry };
         }
 
-        // Builds a WPF Path from the cubic Bézier segments fitted by SplineFitting.
         private Path MakeSchneiderBezierPath(List<Vector2> controlPoints, double tolerance = 2.0)
         {
             if (controlPoints == null || controlPoints.Count < 2) return null;
@@ -1123,17 +1007,12 @@ namespace DinoLino.Utilities.Modes
         #endregion
 
         #region Operation averages
-        // Live averages of each numeric output across all attempts of that operation type,
-        // read straight from the undo/redo history so they stay correct as operations are
-        // committed, undone, redone, or cleared. The parabola formula is intentionally
-        // excluded — it isn't a single number to average.
+        // Live per-type averages from history. The parabola formula is excluded
+        // (not a single number to average).
 
-        private IEnumerable<CircularArcOperation> CircularArcOps =>
-            UndoRedoManager?.History.OfType<CircularArcOperation>() ?? Enumerable.Empty<CircularArcOperation>();
-        private IEnumerable<ParabolaOperation> ParabolaOps =>
-            UndoRedoManager?.History.OfType<ParabolaOperation>() ?? Enumerable.Empty<ParabolaOperation>();
-        private IEnumerable<SplineOperation> SplineOps =>
-            UndoRedoManager?.History.OfType<SplineOperation>() ?? Enumerable.Empty<SplineOperation>();
+        private IEnumerable<CircularArcOperation> CircularArcOps => OperationsOfKind<CircularArcOperation>();
+        private IEnumerable<ParabolaOperation> ParabolaOps => OperationsOfKind<ParabolaOperation>();
+        private IEnumerable<SplineOperation> SplineOps => OperationsOfKind<SplineOperation>();
 
         // Circular arc
         public string AvgCentralAngleResult => FormatAverage(CircularArcOps.Select(o => o.CentralAngle));
@@ -1150,25 +1029,7 @@ namespace DinoLino.Utilities.Modes
         public string AvgSChordArcRatioResult => FormatAverage(SplineOps.Select(o => o.SChordArcRatio));
         public string AvgSplineLengthScaledResult => FormatScaledLengthAverage(SplineOps.Select(o => o.SplineLengthPixels));
 
-        // Mean of a value series to 2 dp, or "N/A" when there are no attempts.
-        private static string FormatAverage(IEnumerable<double> values)
-        {
-            var list = values.ToList();
-            if (list.Count == 0) return "N/A";
-            return Math.Round(list.Average(), 1).ToString();
-        }
-
-        // Mean of a raw pixel-length series in calibrated units, or "N/A" when there are no
-        // attempts or the image hasn't been scaled.
-        private string FormatScaledLengthAverage(IEnumerable<double> pixelValues)
-        {
-            var list = pixelValues.ToList();
-            if (list.Count == 0) return "N/A";
-            if (Scale == null || !Scale.IsCalibrated) return "N/A";
-            return $"{Scale.ToUnits(list.Average()):F2} {Scale.Unit}";
-        }
-
-        private void RecomputeAverages()
+        protected override void RecomputeAverages()
         {
             OnPropertyChanged(nameof(AvgCentralAngleResult));
             OnPropertyChanged(nameof(AvgChordArcRatioResult));
@@ -1180,12 +1041,6 @@ namespace DinoLino.Utilities.Modes
             OnPropertyChanged(nameof(AvgSChordArcRatioResult));
             OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
         }
-
-        internal override void OnHistoryChanged()
-        {
-            base.OnHistoryChanged();
-            RecomputeAverages();
-        }
         #endregion
 
         #region results and tips
@@ -1196,74 +1051,42 @@ namespace DinoLino.Utilities.Modes
             return GeometryCalculations.ArcChordRatio(arcLength, chordLength);
         }
 
-        public override string[] GetTips()
-        {
-            if (IsCircularArcSelected)
-                return new[]
-                {
+        private static readonly string[] CircularArcTips = BuildTips(
             "💡 Approximate a curve as the arc of a circle. First click each endpoint of the arc, then click its midpoint.",
             "💡 Central angle measures the angle between the radii that define the circular arc. Higher angles correspond to larger arcs.",
             "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
-            "💡 Rise/span ratio measures how tall an arc is relative to its width.",
-            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-            "💡 Zoom in or out using the scroll wheel.",
-            "💡 Toggle tip visibility in the View menu."
-        };
-            if (IsParabolicArcSelected)
-                return new[]
-                {
+            "💡 Rise/span ratio measures how tall an arc is relative to its width.");
+
+        private static readonly string[] ParabolicArcTips = BuildTips(
             "💡 Approximate a curve as a parabolic arc. First click each endpoint of the arc, then click its midpoint.",
             "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
             "💡 Rise/span ratio measures how tall an arc is relative to its width.",
-            "💡 Vertex curvature describes sharpness of the curve at its peak. This is the 'm' of 'y=mx^2'.",
-            "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-            "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-            "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-            "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-            "💡 Zoom in or out using the scroll wheel.",
-            "💡 Toggle tip visibility in the View menu."
-        };
-            if (IsNPointSplineSelected)
-                return IsCatmullRomSelected
-                    ? new[]
-                {
-                    "💡 Draw a curve of any shape using any number of points. Press 'Enter' to finish drawing.",
-                    "💡 Catmull-Rom splines use local smoothing and must pass through every clicked point. This operation draws a centripetal Catmull-Rom spline.",
-                    "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
-                    "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
-                    "💡 Turn/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
-                    "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-                    "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                    "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Toggle tip visibility in the View menu."
-                }
-            : new[]
-                {
-                    "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
-                    "💡 This operation uses Schneider's Bézier fitting to convert points into one or more smooth cubic Bézier segments.",
-                    "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
-                    "💡 Turn/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.",
-                    "💡 Press 'Ctrl+Z' to undo the current operation, or select 'Undo' in the Edit menu.",
-                    "💡 Press 'Ctrl+Y' to redo an undone operation, or select 'Redo' in the Edit menu.",
-                    "💡 Press 'Ctrl+C' to clear all operations, or click 'Clear' in the sidebar.",
-                    "💡 Press 'Ctrl+F' to open a new image, or select 'Open Image' in the File menu.",
-                    "💡 Zoom in or out using the scroll wheel.",
-                    "💡 Toggle tip visibility in the View menu."
-                };
-            return new[]
+            "💡 Vertex curvature describes sharpness of the curve at its peak. This is the 'm' of 'y=mx^2'.");
+
+        private static readonly string[] CatmullRomTips = BuildTips(
+            "💡 Draw a curve of any shape using any number of points. Press 'Enter' to finish drawing.",
+            "💡 Catmull-Rom splines use local smoothing and must pass through every clicked point. This operation draws a centripetal Catmull-Rom spline.",
+            "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
+            "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
+            "💡 Turn/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.");
+
+        private static readonly string[] BezierTips = BuildTips(
+            "💡 Bézier splines use global smoothing and may not pass through every clicked point. Points are used to approximate a smooth curve.",
+            "💡 This operation uses Schneider's Bézier fitting to convert points into one or more smooth cubic Bézier segments.",
+            "💡 Chord/arc ratio approaches 1 for shallow arcs and decreases as the arc becomes more curved.",
+            "💡 Turn/Length (Turning angle - spline length ratio) measures how sharply the curve bends, on average, along its length.");
+
+        private static readonly string[] NoMethodTips = BuildTips(
+            "💡 Select a curvature method to begin.");
+
+        public override string[] GetTips()
         {
-                "💡 Select a curvature method to begin.",
-                "💡 The user guide and software information can be found in the Help menu.",
-                "💡 Press 'Ctrl+F' to open an image, or select 'Open Image' in the File menu.",
-                "💡 Zoom in or out using the scroll wheel.",
-                "💡 Toggle tip visibility in the View menu."
-            };
+            if (IsCircularArcSelected) return CircularArcTips;
+            if (IsParabolicArcSelected) return ParabolicArcTips;
+            if (IsNPointSplineSelected) return IsCatmullRomSelected ? CatmullRomTips : BezierTips;
+            return NoMethodTips;
         }
+
         #endregion
 
     }
