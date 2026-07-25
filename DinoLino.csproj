@@ -123,7 +123,6 @@
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineToolSupport.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\PolylineGeometry.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\SmoothTool.cs" />
-    <Compile Include="Utilities\Modes\OutlineModeFiles\ViewTransform.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineControlPanel.xaml.cs">
       <DependentUpon>OutlineControlPanel.xaml</DependentUpon>

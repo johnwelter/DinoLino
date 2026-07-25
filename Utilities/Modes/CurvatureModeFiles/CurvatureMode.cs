@@ -18,9 +18,8 @@ namespace DinoLino.Utilities.Modes
         public override string TabName => "Curvature";
         public override bool IsStartingNewOperation => CurrentStep == 0 || CurrentStep == 3;
 
-        // A probe click measures the existing spline and adds nothing, so the
-        // router must not clear the workspace on it. Keep this in sync with the
-        // router's fallback probe check; either alone keeps the guard working.
+        // A probe click measures the existing spline and adds nothing, so the router
+        // must not clear the workspace on it.
         public override bool IsProbeInteraction =>
             CurrentMethod == CurvatureMethod.NPointSpline && FindTurningAngleMode;
 
@@ -173,11 +172,7 @@ namespace DinoLino.Utilities.Modes
             SplineLengthScaledResult = FormatScaledLength(_canvasSplineLength, _hasCanvasSplineLength);
         }
 
-        /// <summary>
-        /// Restores the canvas-space length behind the scaled row. Called by
-        /// SplineOperation.ApplyMetadataToMode when undo or redo changes which spline
-        /// is current.
-        /// </summary>
+        /// <summary>Restores the canvas-space length behind the scaled row.</summary>
         public void RestoreScaledMeasurements(double canvasLength)
         {
             _canvasSplineLength = canvasLength;

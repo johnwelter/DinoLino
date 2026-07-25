@@ -7,46 +7,30 @@ using DinoLino.DataTypes;
 
 namespace DinoLino.Utilities.Modes
 {
-    /// <summary>
-    /// Free-hand outline tool.
-    /// </summary>
+    /// <summary>Free-hand outline tool.</summary>
     public sealed class HandDrawTool : ObservableToolBase
     {
         private readonly IOutlineToolContext _context;
 
-        /// <summary>
-        /// Stores raw stroke points in canvas space until the outline closes.
-        /// </summary>
+        /// <summary>Stores raw stroke points in canvas space until the outline closes.</summary>
         private readonly List<Point> _stroke = new List<Point>();
 
-        /// <summary>
-        /// Live preview polyline shown while the stroke is open.
-        /// </summary>
+        /// <summary>Live preview polyline shown while the stroke is open.</summary>
         private Polyline _previewPolyline = null;
 
-        /// <summary>
         /// True between the first press and the final self-closing intersection.
-        /// </summary>
         private bool _drawingActive = false;
 
-        /// <summary>
-        /// Raised when the live preview should be shown or replaced.
-        /// </summary>
+        /// <summary>Raised when the live preview should be shown or replaced.</summary>
         public event Action<Polyline> PreviewReady;
 
-        /// <summary>
-        /// Raised when the live preview should be removed.
-        /// </summary>
+        /// <summary>Raised when the live preview should be removed.</summary>
         public event Action<Polyline> PreviewClear;
 
-        /// <summary>
-        /// Minimum distance between accepted stroke points, in canvas pixels.
-        /// </summary>
+        /// <summary>Minimum distance between accepted stroke points, in canvas pixels.</summary>
         private const double MinPointSpacing = 2.0;
 
-        /// <summary>
-        /// True after this tool has committed a closed outline.
-        /// </summary>
+        /// <summary>True after this tool has committed a closed outline.</summary>
         private bool _outlineCommitted = false;
 
         public bool HasCommittedOutline => _outlineCommitted;
@@ -59,13 +43,9 @@ namespace DinoLino.Utilities.Modes
             _context = context ?? throw new ArgumentNullException(nameof(context));
         }
 
-        // =====================
-        // Stroke lifecycle
-        // =====================
+        // ---- Stroke lifecycle ----
 
-        /// <summary>
-        /// Starts or continues a stroke on mouse down.
-        /// </summary>
+        /// <summary>Starts or continues a stroke on mouse down.</summary>
         public void BeginStroke(Vector2 canvasPos)
         {
             if (!_context.IsHandDrawActive) return;
@@ -84,25 +64,19 @@ namespace DinoLino.Utilities.Modes
             AppendPoint(new Point(canvasPos.X, canvasPos.Y));
         }
 
-        /// <summary>
-        /// Appends points while the left button is held down.
-        /// </summary>
+        /// <summary>Appends points while the left button is held down.</summary>
         public void ProcessDrag(Vector2 canvasPos)
         {
             if (!_context.IsHandDrawActive || !_drawingActive) return;
             AppendPoint(new Point(canvasPos.X, canvasPos.Y));
         }
 
-        /// <summary>
-        /// Leaves the stroke open so drawing can resume on the next press.
-        /// </summary>
+        /// <summary>Leaves the stroke open so drawing can resume on the next press.</summary>
         public void EndStroke()
         {
         }
 
-        /// <summary>
-        /// Discards the current in-progress stroke.
-        /// </summary>
+        /// <summary>Discards the current in-progress stroke.</summary>
         public void Cancel()
         {
             _drawingActive = false;
@@ -110,22 +84,17 @@ namespace DinoLino.Utilities.Modes
             ClearPreview();
         }
 
-        /// <summary>
-        /// Resets the tool and clears the committed-outline flag.
-        /// </summary>
+        /// <summary>Resets the tool and clears the committed-outline flag.</summary>
         public void Reset()
         {
             Cancel();
             _outlineCommitted = false;
         }
 
-        // =====================
-        // Point handling
-        // =====================
+        // ---- Point handling ----
 
-        /// <summary>
-        /// Adds a point if it is far enough from the previous one, then tests for closure.
-        /// </summary>
+        /// Adds a point if it is far enough from the previous one, then tests for
+        /// closure.
         private void AppendPoint(Point p)
         {
             if (_stroke.Count > 0)
@@ -144,9 +113,7 @@ namespace DinoLino.Utilities.Modes
             RefreshPreview();
         }
 
-        /// <summary>
-        /// Rebuilds the dashed preview polyline from the current stroke.
-        /// </summary>
+        /// <summary>Rebuilds the dashed preview polyline from the current stroke.</summary>
         private void RefreshPreview()
         {
             if (_stroke.Count < 2)
@@ -155,13 +122,7 @@ namespace DinoLino.Utilities.Modes
                 return;
             }
 
-            var line = new Polyline
-            {
-                Stroke = _context.LineColor,
-                StrokeThickness = 2,
-                StrokeDashArray = OutlineVisuals.PreviewDashes,
-                FillRule = FillRule.EvenOdd
-            };
+            var line = OutlineVisuals.CreateOutlinePolyline(_context.LineColor, dashed: true);
 
             foreach (var sp in _stroke)
                 line.Points.Add(sp);
@@ -174,9 +135,7 @@ namespace DinoLino.Utilities.Modes
                 PreviewClear?.Invoke(old);
         }
 
-        /// <summary>
-        /// Removes the current preview polyline from the canvas.
-        /// </summary>
+        /// <summary>Removes the current preview polyline from the canvas.</summary>
         private void ClearPreview()
         {
             if (_previewPolyline != null)
@@ -186,13 +145,9 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // =====================
-        // Loop closure
-        // =====================
+        // ---- Loop closure ----
 
-        /// <summary>
-        /// Closes the outline when the newest segment crosses an earlier one.
-        /// </summary>
+        /// <summary>Closes the outline when the newest segment crosses an earlier one.</summary>
         private bool TryCloseLoop()
         {
             int n = _stroke.Count;
@@ -223,26 +178,11 @@ namespace DinoLino.Utilities.Modes
             return false;
         }
 
-        /// <summary>
-        /// Simplifies and commits a closed hand-drawn loop.
-        /// </summary>
+        /// <summary>Simplifies and commits a closed hand-drawn loop.</summary>
         private void CommitLoop(List<Point> loopCanvas)
         {
-            // Remove duplicate consecutive points before simplification.
-            var cleaned = new List<Point>(loopCanvas.Count);
-            foreach (var p in loopCanvas)
-            {
-                if (cleaned.Count == 0)
-                {
-                    cleaned.Add(p);
-                    continue;
-                }
-
-                Point l = cleaned[cleaned.Count - 1];
-                double dx = p.X - l.X, dy = p.Y - l.Y;
-                if (dx * dx + dy * dy >= 0.25)
-                    cleaned.Add(p);
-            }
+            // Drop near-identical neighbours before simplification.
+            var cleaned = PolylineGeometry.RemoveConsecutiveDuplicates(loopCanvas, 0.5);
 
             if (cleaned.Count < 3)
             {
@@ -259,12 +199,7 @@ namespace DinoLino.Utilities.Modes
             if (PolylineGeometry.HasSelfIntersection(simplified))
                 simplified = cleaned;
 
-            var poly = new Polyline
-            {
-                Stroke = _context.LineColor,
-                StrokeThickness = 2,
-                FillRule = FillRule.EvenOdd
-            };
+            var poly = OutlineVisuals.CreateOutlinePolyline(_context.LineColor);
 
             foreach (var p in simplified)
                 poly.Points.Add(p);

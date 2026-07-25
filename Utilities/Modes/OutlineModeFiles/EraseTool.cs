@@ -6,9 +6,8 @@ using DinoLino.DataTypes;
 
 namespace DinoLino.Utilities.Modes
 {
-    /// <summary>
-    /// Erases part of the active outline by carving away the brush area and re-tracing the result.
-    /// </summary>
+    /// Erases part of the active outline by carving away the brush area and re-tracing
+    /// the result.
     public sealed class EraseTool : ObservableToolBase
     {
         private readonly IOutlineToolContext _context;
@@ -21,37 +20,28 @@ namespace DinoLino.Utilities.Modes
             _context = context ?? throw new ArgumentNullException(nameof(context));
         }
 
-        /// <summary>
-        /// Raised after the outline geometry has been modified by a drag.
-        /// </summary>
+        /// <summary>Raised after the outline geometry has been modified by a drag.</summary>
         public event Action OutlineEdited;
 
         private double _brushRadius = 20;
 
-        /// <summary>
-        /// Brush radius in canvas pixels.
-        /// </summary>
+        /// <summary>Brush radius in canvas pixels.</summary>
         public double BrushRadius
         {
             get => _brushRadius;
             set => SetField(ref _brushRadius, value);
         }
 
-        private bool _dragInProgress = false;
-
-        /// <summary>
-        /// Applies an erase stroke at the current mouse position.
-        /// </summary>
+        /// <summary>Applies an erase stroke at the current mouse position.</summary>
         public void ProcessDrag(Vector2 mousePos)
         {
             var polyline = _context.ActivePolyline;
             if (polyline == null) return;
-            if (_dragInProgress) return;
 
             var t = _context.Transform;
             if (!t.IsValid) return;
 
-            _dragInProgress = true;
+            if (!TryBeginDrag()) return;
             try
             {
                 var srcPoints = polyline.Points;
@@ -89,8 +79,9 @@ namespace DinoLino.Utilities.Modes
 
                 // Clear pixels inside the brush disc using canvas-space distance so the brush stays circular on screen.
                 double rCanvas2 = BrushRadius * BrushRadius;
-                double cImgX = (mousePos.X - t.OffsetX) / t.ScaleX - ox;
-                double cImgY = (mousePos.Y - t.OffsetY) / t.ScaleY - oy;
+                Point brushCrop = t.CanvasToImage(new Point(mousePos.X, mousePos.Y), ox, oy);
+                double cImgX = brushCrop.X;
+                double cImgY = brushCrop.Y;
                 int bx0 = Math.Max(0, (int)Math.Floor(cImgX - rImgX) - 1);
                 int bx1 = Math.Min(w - 1, (int)Math.Ceiling(cImgX + rImgX) + 1);
                 int by0 = Math.Max(0, (int)Math.Floor(cImgY - rImgY) - 1);
@@ -103,10 +94,9 @@ namespace DinoLino.Utilities.Modes
                     {
                         if (!mask[y * w + x]) continue;
 
-                        double canX = (x + ox + 0.5) * t.ScaleX + t.OffsetX;
-                        double canY = (y + oy + 0.5) * t.ScaleY + t.OffsetY;
-                        double dx = canX - mousePos.X;
-                        double dy = canY - mousePos.Y;
+                        Point canvasPixel = t.ImageToCanvas(new Point(x + 0.5, y + 0.5), ox, oy);
+                        double dx = canvasPixel.X - mousePos.X;
+                        double dy = canvasPixel.Y - mousePos.Y;
 
                         if (dx * dx + dy * dy <= rCanvas2)
                         {
@@ -140,24 +130,20 @@ namespace DinoLino.Utilities.Modes
                 // Rebuild the live polyline in canvas space and restore closure.
                 srcPoints.Clear();
                 foreach (var p in newLocal)
-                    srcPoints.Add(new Point((p.X + ox) * t.ScaleX + t.OffsetX, (p.Y + oy) * t.ScaleY + t.OffsetY));
-                srcPoints.Add(new Point((newLocal[0].X + ox) * t.ScaleX + t.OffsetX, (newLocal[0].Y + oy) * t.ScaleY + t.OffsetY));
+                    srcPoints.Add(t.ImageToCanvas(p, ox, oy));
+                srcPoints.Add(t.ImageToCanvas(newLocal[0], ox, oy));
 
                 OutlineEdited?.Invoke();
             }
             finally
             {
-                _dragInProgress = false;
+                EndDrag();
             }
         }
 
-        // =====================
-        // Arc splicing
-        // =====================
+        // ---- Arc splicing ----
 
-        /// <summary>
-        /// Replaces only the outline arc affected by the brush.
-        /// </summary>
+        /// <summary>Replaces only the outline arc affected by the brush.</summary>
         private List<Point> SpliceErasedArc(List<Point> oldLocal, List<Point> dense,
             Vector2 mouseCanvas, int ox, int oy, ViewTransform t)
         {
@@ -170,10 +156,9 @@ namespace DinoLino.Utilities.Modes
 
             bool UnderBrush(Point pLocal)
             {
-                double canX = (pLocal.X + ox) * t.ScaleX + t.OffsetX;
-                double canY = (pLocal.Y + oy) * t.ScaleY + t.OffsetY;
-                double dx = canX - mouseCanvas.X;
-                double dy = canY - mouseCanvas.Y;
+                Point canvasPoint = t.ImageToCanvas(pLocal, ox, oy);
+                double dx = canvasPoint.X - mouseCanvas.X;
+                double dy = canvasPoint.Y - mouseCanvas.Y;
                 return dx * dx + dy * dy <= rTest2;
             }
 
@@ -256,14 +241,14 @@ namespace DinoLino.Utilities.Modes
             return result;
         }
 
-        /// <summary>
-        /// Squared canvas-space distance from the brush center to a segment.
-        /// </summary>
+        /// <summary>Squared canvas-space distance from the brush center to a segment.</summary>
         private static double PointToSegmentCanvasDist2(Point p0, Point p1, Vector2 mouseCanvas,
             int ox, int oy, ViewTransform t)
         {
-            double ax = (p0.X + ox) * t.ScaleX + t.OffsetX, ay = (p0.Y + oy) * t.ScaleY + t.OffsetY;
-            double bx = (p1.X + ox) * t.ScaleX + t.OffsetX, by = (p1.Y + oy) * t.ScaleY + t.OffsetY;
+            Point a = t.ImageToCanvas(p0, ox, oy);
+            Point b = t.ImageToCanvas(p1, ox, oy);
+            double ax = a.X, ay = a.Y;
+            double bx = b.X, by = b.Y;
             double vx = bx - ax, vy = by - ay;
             double wx = mouseCanvas.X - ax, wy = mouseCanvas.Y - ay;
             double len2 = vx * vx + vy * vy;
@@ -274,9 +259,7 @@ namespace DinoLino.Utilities.Modes
             return dx * dx + dy * dy;
         }
 
-        /// <summary>
-        /// Picks the arc whose interior is actually under the brush.
-        /// </summary>
+        /// <summary>Picks the arc whose interior is actually under the brush.</summary>
         private static List<Point> ChooseUnderBrushArc(List<Point> a, List<Point> b, Func<Point, bool> underBrush)
         {
             double FracUnder(List<Point> arc)

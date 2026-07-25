@@ -9,10 +9,8 @@ using System.Windows.Shapes;
 
 namespace DinoLino.Utilities.Modes
 {
-    /// <summary>
-    /// Three-click triangle measurement: interior angles, aspect ratio, area, and
-    /// the area relative to the previous triangle.
-    /// </summary>
+    /// Three-click triangle measurement: interior angles, aspect ratio, area, and the
+    /// area relative to the previous triangle.
     public class GetAngleMode : WorkMode
     {
         #region Mode identity
@@ -99,11 +97,7 @@ namespace DinoLino.Utilities.Modes
             TriAreaScaledResult = FormatScaledArea(_canvasArea, _hasCanvasArea);
         }
 
-        /// <summary>
-        /// Restores the canvas-space area behind the scaled row. Called by
-        /// GetAngleOperation.ApplyMetadataToMode when undo or redo changes which
-        /// triangle is current.
-        /// </summary>
+        /// <summary>Restores the canvas-space area behind the scaled row.</summary>
         public void RestoreScaledMeasurements(double canvasArea)
         {
             _canvasArea = canvasArea;

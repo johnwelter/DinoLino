@@ -9,14 +9,10 @@ using System.Windows.Shapes;
 
 namespace DinoLino.Utilities.Modes
 {
-    /// <summary>
-    /// Draw mode for creating constrained shapes and lines on the canvas.
-    /// </summary>
+    /// <summary>Draw mode for creating constrained shapes and lines on the canvas.</summary>
     public class DrawMode : WorkMode
     {
-        // =====================
-        // Shared draw state
-        // =====================
+        // ---- Shared draw state ----
 
         public override UserControl CreateControlPanel() => new DrawControlPanel(this);
         public override string TabName => "Draw";
@@ -114,9 +110,7 @@ namespace DinoLino.Utilities.Modes
             CurrentOperation.Clear();
         }
 
-        // =====================
-        // Scaled measurements
-        // =====================
+        // ---- Scaled measurements ----
 
         // Canvas-space measurements behind the scaled rows, kept so those rows can be
         // re-derived whenever the calibration changes or an undo restores a different
@@ -132,11 +126,7 @@ namespace DinoLino.Utilities.Modes
             LineLengthScaledResult = FormatScaledLength(_canvasLineLength, _hasCanvasLineLength);
         }
 
-        /// <summary>
-        /// Restores the canvas-space area behind the shape row. Called by
-        /// ShapeOperation.ApplyMetadataToMode when undo or redo changes which shape
-        /// is current.
-        /// </summary>
+        /// <summary>Restores the canvas-space area behind the shape row.</summary>
         public void RestoreShapeMeasurement(double canvasArea)
         {
             _canvasShapeArea = canvasArea;
@@ -144,11 +134,7 @@ namespace DinoLino.Utilities.Modes
             RecomputeScaledResults();
         }
 
-        /// <summary>
-        /// Restores the canvas-space length behind the line row. Called by
-        /// LineOperation.ApplyMetadataToMode when undo or redo changes which line is
-        /// current.
-        /// </summary>
+        /// <summary>Restores the canvas-space length behind the line row.</summary>
         public void RestoreLineMeasurement(double canvasLength)
         {
             _canvasLineLength = canvasLength;
@@ -173,9 +159,7 @@ namespace DinoLino.Utilities.Modes
             RecomputeScaledResults();
         }
 
-        // =====================
-        // Shape tools
-        // =====================
+        // ---- Shape tools ----
 
         public enum ShapeConstraint
         {
@@ -322,9 +306,7 @@ namespace DinoLino.Utilities.Modes
             return shape;
         }
 
-        // =====================
-        // Line tools
-        // =====================
+        // ---- Line tools ----
 
         public enum LineConstraint
         {
@@ -523,9 +505,7 @@ namespace DinoLino.Utilities.Modes
             return new Vector2(origin.X + direction.X * magnitude, origin.Y + direction.Y * magnitude);
         }
 
-        // =====================
-        // Results and tips
-        // =====================
+        // ---- Results and tips ----
 
         private void CalculateAndUpdateResults(double width, double height)
         {

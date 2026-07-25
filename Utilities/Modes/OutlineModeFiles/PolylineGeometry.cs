@@ -4,23 +4,16 @@ using System.Windows;
 
 namespace DinoLino.Utilities
 {
-    /// <summary>
-    /// Shared 2D polyline and polygon helpers used by the outline tools.
-    /// </summary>
+    /// <summary>Shared 2D polyline and polygon helpers used by the outline tools.</summary>
     public static class PolylineGeometry
     {
-        /// <summary>
         /// Squared distance threshold for treating two vertices as the same point.
-        /// </summary>
         public const double ClosureEpsilonSquared = 1.0;
 
-        // =====================
-        // Closure helpers
-        // =====================
+        // ---- Closure helpers ----
 
-        /// <summary>
-        /// Returns true when the last point duplicates the first within closure tolerance.
-        /// </summary>
+        /// Returns true when the last point duplicates the first within closure
+        /// tolerance.
         public static bool HasClosureDuplicate(IList<Point> pts)
         {
             if (pts == null || pts.Count < 2) return false;
@@ -29,9 +22,7 @@ namespace DinoLino.Utilities
             return dx * dx + dy * dy < ClosureEpsilonSquared;
         }
 
-        /// <summary>
-        /// Removes a trailing closure point in place, if present.
-        /// </summary>
+        /// <summary>Removes a trailing closure point in place, if present.</summary>
         public static bool StripClosureDuplicate(List<Point> pts)
         {
             if (!HasClosureDuplicate(pts)) return false;
@@ -39,13 +30,83 @@ namespace DinoLino.Utilities
             return true;
         }
 
-        // =====================
-        // Rasterization
-        // =====================
+        /// Returns a copy with consecutive points closer together than minSpacing
+        /// removed, so downstream simplification is not fed near-identical vertices.
+        public static List<Point> RemoveConsecutiveDuplicates(IList<Point> pts, double minSpacing)
+        {
+            var cleaned = new List<Point>(pts?.Count ?? 0);
+            if (pts == null) return cleaned;
+
+            double minSpacingSquared = minSpacing * minSpacing;
+            foreach (var p in pts)
+            {
+                if (cleaned.Count == 0)
+                {
+                    cleaned.Add(p);
+                    continue;
+                }
+
+                Point last = cleaned[cleaned.Count - 1];
+                double dx = p.X - last.X, dy = p.Y - last.Y;
+                if (dx * dx + dy * dy >= minSpacingSquared)
+                    cleaned.Add(p);
+            }
+
+            return cleaned;
+        }
+
+        // ---- Smoothing ----
 
         /// <summary>
-        /// Rasterizes a closed polygon into a boolean mask using even-odd fill.
+        /// Applies Laplacian smoothing passes in place to a closed ring of distinct
+        /// vertices, wrapping at both ends. Each pass moves every vertex a quarter of
+        /// the way toward its two neighbours.
         /// </summary>
+        /// <param name="weights">
+        /// Optional per-vertex movement scale: 0 pins a vertex, 1 moves it the full
+        /// amount, and values between blend the two. A null array moves every vertex
+        /// fully, which is the whole-outline case.
+        /// </param>
+        public static void SmoothClosedRing(IList<Point> ring, int passes, double[] weights = null)
+        {
+            if (ring == null) return;
+
+            int n = ring.Count;
+            if (n < 3 || passes <= 0) return;
+
+            var next = new Point[n];
+            for (int pass = 0; pass < passes; pass++)
+            {
+                // Every vertex reads the previous pass, so the whole ring advances together.
+                for (int i = 0; i < n; i++)
+                {
+                    double w = weights == null ? 1.0 : weights[i];
+                    Point b = ring[i];
+
+                    if (w <= 0)
+                    {
+                        next[i] = b;
+                        continue;
+                    }
+
+                    Point a = ring[(i - 1 + n) % n];
+                    Point c = ring[(i + 1) % n];
+                    double tx = (a.X + 2 * b.X + c.X) / 4.0;
+                    double ty = (a.Y + 2 * b.Y + c.Y) / 4.0;
+
+                    next[i] = w >= 1.0
+                        ? new Point(tx, ty)
+                        : new Point(b.X + (tx - b.X) * w, b.Y + (ty - b.Y) * w);
+                }
+
+                for (int i = 0; i < n; i++)
+                    ring[i] = next[i];
+            }
+        }
+
+        // ---- Rasterization ----
+
+        /// <summary>Rasterizes a closed polygon into a boolean mask using even-odd fill.</summary>
         public static bool[] RasterizePolygon(List<Point> pts, int w, int h)
         {
             var mask = new bool[w * h];
@@ -89,13 +150,9 @@ namespace DinoLino.Utilities
             return mask;
         }
 
-        // =====================
-        // Intersection tests
-        // =====================
+        // ---- Intersection tests ----
 
-        /// <summary>
         /// Returns true when any non-adjacent segments of a closed polyline cross.
-        /// </summary>
         public static bool HasSelfIntersection(IList<Point> pts)
         {
             int n = pts.Count;
@@ -117,9 +174,7 @@ namespace DinoLino.Utilities
             return false;
         }
 
-        /// <summary>
-        /// Returns true when two line segments cross.
-        /// </summary>
+        /// <summary>Returns true when two line segments cross.</summary>
         public static bool SegmentsIntersect(Point p1, Point p2, Point p3, Point p4)
         {
             double d1 = Cross(p3, p4, p1);
@@ -131,9 +186,7 @@ namespace DinoLino.Utilities
                    ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
         }
 
-        /// <summary>
-        /// Computes the intersection point for two crossing segments.
-        /// </summary>
+        /// <summary>Computes the intersection point for two crossing segments.</summary>
         public static bool TryGetSegmentIntersection(Point p1, Point p2, Point p3, Point p4, out Point hit)
         {
             hit = default;
@@ -152,19 +205,13 @@ namespace DinoLino.Utilities
             return true;
         }
 
-        /// <summary>
-        /// Cross product used by the segment orientation test.
-        /// </summary>
+        /// <summary>Cross product used by the segment orientation test.</summary>
         public static double Cross(Point a, Point b, Point c)
             => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
 
-        // =====================
-        // Arc utilities
-        // =====================
+        // ---- Arc utilities ----
 
-        /// <summary>
-        /// Returns the index of the point closest to the target.
-        /// </summary>
+        /// <summary>Returns the index of the point closest to the target.</summary>
         public static int NearestIndex(List<Point> pts, Point target)
         {
             int best = -1;
@@ -180,9 +227,7 @@ namespace DinoLino.Utilities
             return best;
         }
 
-        /// <summary>
-        /// Extracts one arc from a cyclic point list, including both endpoints.
-        /// </summary>
+        /// <summary>Extracts one arc from a cyclic point list, including both endpoints.</summary>
         public static List<Point> ExtractArc(List<Point> pts, int i, int j, bool forward)
         {
             int n = pts.Count;
@@ -198,13 +243,9 @@ namespace DinoLino.Utilities
             return arc;
         }
 
-        // =====================
-        // Uniform resampling
-        // =====================
+        // ---- Uniform resampling ----
 
-        /// <summary>
         /// Resamples a closed polyline to roughly uniform spacing along its perimeter.
-        /// </summary>
         public static List<Point> ResampleClosedUniformSpacing(List<Point> points, double targetSpacing)
         {
             if (points == null || points.Count < 3) return points;

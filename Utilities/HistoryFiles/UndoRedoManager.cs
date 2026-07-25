@@ -5,19 +5,13 @@ using System.Linq;
 
 namespace DinoLino.Utilities
 {
-    /// <summary>
-    /// A per-specimen snapshot of committed operations.
-    /// Each specimen owns one record for the session, and the record stores the specimen's
-    /// display name, creation order, and committed operations.
-    /// </summary>
+    // A per-specimen snapshot of committed operations.
     public class SpecimenRecord
     {
         public string SpecimenName { get; set; }
         public List<WorkOperation> Operations { get; set; } = new();
 
-        /// <summary>
-        /// The specimen's creation order in the session.
-        /// </summary>
+        // Creation order of the owning specimen.
         public int Ordinal { get; set; }
     }
 
@@ -26,10 +20,9 @@ namespace DinoLino.Utilities
         private readonly List<WorkOperation> _history = new();
         private readonly List<WorkOperation> _redoStack = new();
 
-        /// <summary>
-        /// Archived records for specimens that are not currently active.
-        /// The active specimen's operations live in <see cref="_history"/>.
-        /// </summary>
+        // Ordered records of every INACTIVE specimen (the active specimen's operations
+        // are the live _history; its record — if it has ever departed — is parked on
+        // its Specimen and re-inserted here at the next departure).
         private readonly List<SpecimenRecord> _archive = new();
         public IReadOnlyList<SpecimenRecord> Archive => _archive;
 
@@ -51,7 +44,7 @@ namespace DinoLino.Utilities
             OnPropertyChanged(nameof(CanUndo));
             OnPropertyChanged(nameof(CanRedo));
 
-            // The newest committed operation defines the active metadata state.
+            // Optionally notify mode to apply metadata
             operation.ApplyMetadataToMode();
             operation.SourceMode?.OnHistoryChanged();
         }
@@ -64,7 +57,7 @@ namespace DinoLino.Utilities
             _history.RemoveAt(_history.Count - 1);
             _redoStack.Add(last);
 
-            // Restore metadata from the new top of history, or clear it if history is empty.
+            // Apply metadata from new top of history
             if (_history.Count > 0)
             {
                 var newTop = _history.Last();
@@ -72,6 +65,7 @@ namespace DinoLino.Utilities
             }
             else
             {
+                // No history left, clear metadata in all modes
                 last.SourceMode?.ClearMetadata();
             }
 
@@ -89,7 +83,7 @@ namespace DinoLino.Utilities
             _redoStack.RemoveAt(_redoStack.Count - 1);
             _history.Add(op);
 
-            // Redo restores the operation to the active history and re-applies its metadata.
+            // Apply metadata from redone operation
             op.ApplyMetadataToMode();
             op.SourceMode?.OnHistoryChanged();
 
@@ -98,10 +92,11 @@ namespace DinoLino.Utilities
             return op;
         }
 
-        /// <summary>
-        /// Stashes the departing specimen's live history into its record and clears the active stacks.
-        /// The record is created on first departure and then updated in place on later departures.
-        /// </summary>
+        // ---- Per-specimen history contexts ----
+        // The live history always holds the ACTIVE specimen's working set.
+
+        // Saves the live working set into the departing specimen's record and clears
+        // the live lists (the redo stack does not survive leaving a specimen).
         public void StashActiveSpecimen(Specimen departing, string departingName)
         {
             if (departing == null) return;
@@ -112,11 +107,11 @@ namespace DinoLino.Utilities
                 record = new SpecimenRecord { Ordinal = departing.Ordinal };
                 departing.Record = record;
             }
-
             record.SpecimenName = departingName;
             record.Operations = new List<WorkOperation>(_history);
 
-            // Keep archived records in specimen-creation order.
+            // Re-insert in specimen-creation order (the record was taken out of the
+            // archive when this specimen became active).
             if (!_archive.Contains(record))
             {
                 int at = 0;
@@ -133,7 +128,8 @@ namespace DinoLino.Utilities
             _history.Clear();
             _redoStack.Clear();
 
-            // Clear the departing specimen's results so the next specimen starts cleanly.
+            // Blank the departing specimen's on-panel results so the next specimen
+            // never shows numbers that belong to this one.
             foreach (var mode in affectedModes)
             {
                 mode.ClearMetadata();
@@ -144,9 +140,9 @@ namespace DinoLino.Utilities
             OnPropertyChanged(nameof(CanRedo));
         }
 
-        /// <summary>
-        /// Switches the active specimen by stashing the departing one and restoring the arriving one.
-        /// </summary>
+        // Arrow navigation: stash the departing specimen, then restore the arriving
+        // specimen's record as the live working set and re-apply its metadata to the
+        // mode panels.
         public void SwitchActiveSpecimen(Specimen departing, string departingName, Specimen arriving)
         {
             if (arriving == null || ReferenceEquals(departing, arriving)) return;
@@ -156,7 +152,7 @@ namespace DinoLino.Utilities
             var record = arriving.Record;
             if (record != null)
             {
-                _archive.Remove(record); // Active specimens are represented by _history, not the archive.
+                _archive.Remove(record);   // active specimen lives in _history, not the archive
                 _history.AddRange(record.Operations);
             }
 
@@ -170,9 +166,8 @@ namespace DinoLino.Utilities
             OnPropertyChanged(nameof(CanRedo));
         }
 
-        /// <summary>
-        /// Clears the active specimen's live history and redo stack without changing archived specimens.
-        /// </summary>
+        // Clears all live history and redo state — a hard reset used by "Clear All" /
+        // Ctrl+C.
         public void Clear()
         {
             var affectedModes = _history.Concat(_redoStack)

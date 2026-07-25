@@ -14,49 +14,32 @@ using System.Windows.Shapes;
 
 namespace DinoLino.Utilities.Modes
 {
-    /// <summary>
-    /// Base class for interactive work modes. Owns the click/step lifecycle, the
-    /// element accumulator for the operation being drawn, the canvas element
-    /// factories, scaled-measurement formatting, history-driven averages, and the
-    /// tip lines shared by every mode.
-    /// </summary>
+    /// <summary>Base class for interactive work modes.</summary>
     public abstract class WorkMode : INotifyPropertyChanged
     {
         #region Identity and lifecycle
 
         public abstract UserControl CreateControlPanel();
 
-        /// <summary>
-        /// The tab header used to match this mode to its UI tab.
-        /// </summary>
+        /// <summary>The tab header used to match this mode to its UI tab.</summary>
         public abstract string TabName { get; }
 
-        /// <summary>
-        /// True when the mode is ready to begin a new operation.
-        /// </summary>
+        /// <summary>True when the mode is ready to begin a new operation.</summary>
         public virtual bool IsStartingNewOperation => CurrentStep == 0;
 
-        /// <summary>
-        /// True for probe-style interactions that inspect or adjust an existing operation
-        /// instead of starting a new one.
-        /// </summary>
+        /// True for probe-style interactions that inspect or adjust an existing
+        /// operation instead of starting a new one.
         public virtual bool IsProbeInteraction => false;
 
-        /// <summary>
-        /// Index of the current step within the active operation.
-        /// </summary>
+        /// <summary>Index of the current step within the active operation.</summary>
         public int CurrentStep { get; set; } = 0;
 
         public UndoRedoManager UndoRedoManager { get; set; }
 
-        /// <summary>
-        /// Shared scale calibration supplied by the main window.
-        /// </summary>
+        /// <summary>Shared scale calibration supplied by the main window.</summary>
         public ScaleCalibration Scale { get; set; }
 
-        /// <summary>
-        /// Controls whether previously drawn operations remain visible.
-        /// </summary>
+        /// <summary>Controls whether previously drawn operations remain visible.</summary>
         public bool SeePreviousOperations { get; set; } = false;
 
         public WorkMode()
@@ -64,28 +47,17 @@ namespace DinoLino.Utilities.Modes
             ElementsToRemove = new ReadOnlyObservableCollection<UIElement>(_elementsToRemove);
         }
 
-        /// <summary>
-        /// Processes mouse movement in mode-specific coordinates.
-        /// </summary>
+        /// <summary>Processes mouse movement in mode-specific coordinates.</summary>
         public virtual Vector2 ProcessMouseMovement(Vector2 mousePos) { return mousePos; }
 
-        /// <summary>
-        /// Processes a click and returns any UI elements created by that click.
-        /// </summary>
+        /// <summary>Processes a click and returns any UI elements created by that click.</summary>
         public virtual List<UIElement> ProcessClick(Vector2 mousePos) { return null; }
 
-        /// <summary>
-        /// Clears transient state used while an operation is in progress. Called on
-        /// tab switch, so it must leave committed results and any retained probe
-        /// target alone.
-        /// </summary>
+        /// <summary>Clears transient state used while an operation is in progress.</summary>
         public virtual void ResetDrawingState() { }
 
-        /// <summary>
         /// Returns the mode to a fresh workspace context: refreshes undo/redo state,
-        /// clears displayed results, and drops any in-progress drawing. Overrides
-        /// should call base and then clear state specific to the mode.
-        /// </summary>
+        /// clears displayed results, and drops any in-progress drawing.
         public virtual void Reset()
         {
             UpdateUndoRedoState();
@@ -93,9 +65,7 @@ namespace DinoLino.Utilities.Modes
             ResetDrawingState();
         }
 
-        /// <summary>
-        /// Clears the results the control panel displays.
-        /// </summary>
+        /// <summary>Clears the results the control panel displays.</summary>
         public virtual void ClearMetadata() { }
 
         #endregion
@@ -107,18 +77,14 @@ namespace DinoLino.Utilities.Modes
         public CancellationToken CancellationToken =>
             _operationCTS?.Token ?? CancellationToken.None;
 
-        /// <summary>
-        /// Starts a new cancellable operation and cancels any previous one.
-        /// </summary>
+        /// <summary>Starts a new cancellable operation and cancels any previous one.</summary>
         public virtual void BeginOperation()
         {
             CancelCurrentOperation();
             _operationCTS = new CancellationTokenSource();
         }
 
-        /// <summary>
-        /// Cancels the current operation, if one is active.
-        /// </summary>
+        /// <summary>Cancels the current operation, if one is active.</summary>
         public virtual void CancelCurrentOperation()
         {
             if (_operationCTS != null)
@@ -137,9 +103,7 @@ namespace DinoLino.Utilities.Modes
 
         private Brush _lineColor = Brushes.OrangeRed;
 
-        /// <summary>
-        /// Current drawing color for newly created elements.
-        /// </summary>
+        /// <summary>Current drawing color for newly created elements.</summary>
         public Brush LineColor
         {
             get => _lineColor;
@@ -153,26 +117,19 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        /// <summary>
-        /// Elements drawn by the operation in progress. CommitCurrentOperation moves
-        /// them onto the committed WorkOperation and empties the list.
-        /// </summary>
+        /// <summary>Elements drawn by the operation in progress.</summary>
         protected readonly List<UIElement> CurrentOperation = new();
 
         private readonly ObservableCollection<UIElement> _elementsToRemove = new();
         public ReadOnlyObservableCollection<UIElement> ElementsToRemove { get; }
 
-        /// <summary>
-        /// Queues an element to be removed from the workspace.
-        /// </summary>
+        /// <summary>Queues an element to be removed from the workspace.</summary>
         public void AddElementsToRemove(UIElement element)
         {
             _elementsToRemove.Add(element);
         }
 
-        /// <summary>
-        /// Clears the pending removal list.
-        /// </summary>
+        /// <summary>Clears the pending removal list.</summary>
         public void ClearElementsToRemove()
         {
             _elementsToRemove.Clear();
@@ -188,9 +145,7 @@ namespace DinoLino.Utilities.Modes
             Y2 = b.Y,
         };
 
-        /// <summary>
         /// Bold canvas label in the current line color, offset from the given point.
-        /// </summary>
         protected TextBlock MakeLabel(string text, Vector2 pos, double fontSize = 28,
             double offsetX = 5, double offsetY = 5)
         {
@@ -208,9 +163,7 @@ namespace DinoLino.Utilities.Modes
             return label;
         }
 
-        /// <summary>
         /// Filled marker dot in the current line color, centred on the given point.
-        /// </summary>
         protected Ellipse MakeDot(Vector2 pos, double diameter = 8)
         {
             var dot = new Ellipse
@@ -234,10 +187,8 @@ namespace DinoLino.Utilities.Modes
             UndoRedoManager?.Commit(operation);
         }
 
-        /// <summary>
         /// Stamps the operation with this mode and the accumulated elements, commits
         /// it, and empties the accumulator ready for the next operation.
-        /// </summary>
         protected void CommitCurrentOperation(WorkOperation operation)
         {
             if (operation == null) return;
@@ -276,81 +227,58 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        /// <summary>
-        /// Synchronizes the mode's undo/redo state with the shared manager.
-        /// </summary>
+        /// <summary>Synchronizes the mode's undo/redo state with the shared manager.</summary>
         protected void UpdateUndoRedoState()
         {
             CanUndo = UndoRedoManager?.CanUndo == true;
             CanRedo = UndoRedoManager?.CanRedo == true;
         }
 
-        /// <summary>
         /// Called after undo/redo changes the active history so the mode can refresh
-        /// any state derived from that history. Overrides must call base to keep the
-        /// averages in sync.
-        /// </summary>
+        /// any state derived from that history.
         internal virtual void OnHistoryChanged()
         {
             RecomputeAverages();
         }
 
-        /// <summary>
-        /// Raises PropertyChanged for the mode's Avg* properties. Modes that display
-        /// averages override this; the base call from OnHistoryChanged keeps them
-        /// current through commit, undo, redo, and clear.
-        /// </summary>
+        /// <summary>Raises PropertyChanged for the mode's Avg* properties.</summary>
         protected virtual void RecomputeAverages() { }
 
         #endregion
 
         #region Scaled measurements
 
-        /// <summary>
         /// Placeholder shown in place of a scaled value when the mode holds no
         /// measurement, or holds one the image calibration cannot convert.
-        /// </summary>
         protected string ScaledPlaceholder =>
             Scale != null && Scale.IsCalibrated ? "N/A" : "Unscaled";
 
-        /// <summary>
-        /// True when the shared calibration can convert canvas measurements.
-        /// </summary>
+        /// <summary>True when the shared calibration can convert canvas measurements.</summary>
         protected bool IsScaleUsable => Scale != null && Scale.IsCalibrated;
 
-        /// <summary>
         /// Formats a canvas-space length in calibrated units. hasMeasurement is false
         /// before anything has been measured, which yields the placeholder instead.
-        /// </summary>
         protected string FormatScaledLength(double canvasLength, bool hasMeasurement = true) =>
             hasMeasurement && IsScaleUsable
                 ? $"{Scale.ToUnits(canvasLength):F2} {Scale.Unit}"
                 : ScaledPlaceholder;
 
-        /// <summary>
         /// Formats a canvas-space area in calibrated square units. hasMeasurement is
         /// false before anything has been measured, which yields the placeholder.
-        /// </summary>
         protected string FormatScaledArea(double canvasArea, bool hasMeasurement = true) =>
             hasMeasurement && IsScaleUsable
                 ? $"{Scale.ToUnitsArea(canvasArea):F2} {Scale.Unit}\u00B2"
                 : ScaledPlaceholder;
 
-        /// <summary>
         /// Re-derives every scaled value the mode displays from the canvas-space
-        /// measurements it has stored. Called when the calibration is set, changed,
-        /// or cleared, so existing measurements convert to the new units rather than
-        /// reverting to the placeholder.
-        /// </summary>
+        /// measurements it has stored.
         public virtual void RefreshScalePlaceholders() { }
 
         #endregion
 
         #region Averages
 
-        /// <summary>
         /// Mean of a value series to one decimal place, or "N/A" with no attempts.
-        /// </summary>
         protected static string FormatAverage(IEnumerable<double> values)
         {
             var list = values.ToList();
@@ -358,10 +286,8 @@ namespace DinoLino.Utilities.Modes
             return Math.Round(list.Average(), 1).ToString();
         }
 
-        /// <summary>
         /// Mean of a canvas-space length series in calibrated units, or "N/A" with no
         /// attempts or no calibration.
-        /// </summary>
         protected string FormatScaledLengthAverage(IEnumerable<double> canvasLengths)
         {
             var list = canvasLengths.ToList();
@@ -369,10 +295,8 @@ namespace DinoLino.Utilities.Modes
             return $"{Scale.ToUnits(list.Average()):F2} {Scale.Unit}";
         }
 
-        /// <summary>
-        /// Mean of a canvas-space area series in calibrated square units, or "N/A"
-        /// with no attempts or no calibration.
-        /// </summary>
+        /// Mean of a canvas-space area series in calibrated square units, or "N/A" with
+        /// no attempts or no calibration.
         protected string FormatScaledAreaAverage(IEnumerable<double> canvasAreas)
         {
             var list = canvasAreas.ToList();
@@ -380,10 +304,8 @@ namespace DinoLino.Utilities.Modes
             return $"{Scale.ToUnitsArea(list.Average()):F2} {Scale.Unit}\u00B2";
         }
 
-        /// <summary>
         /// Committed operations of one kind from the live history, empty when no
         /// history is attached.
-        /// </summary>
         protected IEnumerable<TOperation> OperationsOfKind<TOperation>() where TOperation : WorkOperation =>
             UndoRedoManager?.History.OfType<TOperation>() ?? Enumerable.Empty<TOperation>();
 
@@ -410,18 +332,13 @@ namespace DinoLino.Utilities.Modes
         protected const string TipToggleTips =
             "💡 Toggle tip visibility in the View menu.";
 
-        /// <summary>
-        /// Trailer appended by BuildTips. Modes needing a different trailer compose
-        /// their arrays from the Tip constants directly.
-        /// </summary>
+        /// <summary>Trailer appended by BuildTips.</summary>
         private static readonly string[] CommonTipTail =
         {
             TipUndo, TipRedo, TipClear, TipOpenImage, TipZoom, TipPan, TipHelp, TipToggleTips
         };
 
-        /// <summary>
         /// Builds a tip list from the mode's own lines followed by the shared trailer.
-        /// </summary>
         protected static string[] BuildTips(params string[] modeTips) =>
             modeTips.Concat(CommonTipTail).ToArray();
 

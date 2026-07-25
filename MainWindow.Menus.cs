@@ -11,14 +11,11 @@ using System.Windows.Threading;
 
 namespace DinoLino
 {
-    /// <summary>
-    /// Menu handlers, tip rotation, undo/redo bindings, and shared view toggles for the main window.
-    /// </summary>
+    /// Menu handlers, tip rotation, undo/redo bindings, and shared view toggles for the
+    /// main window.
     public partial class MainWindow
     {
-        // =====================
-        // Dialogs
-        // =====================
+        // ---- Dialogs ----
 
         private void Menu_About(object sender, RoutedEventArgs e)
         {
@@ -40,9 +37,7 @@ namespace DinoLino
             userguide.ShowDialog();
         }
 
-        // =====================
-        // Undo / Redo
-        // =====================
+        // ---- Undo / Redo ----
 
         private void Menu_Undo(object sender, RoutedEventArgs e)
         {
@@ -73,9 +68,7 @@ namespace DinoLino
             UI_MenuRedo.SetBinding(MenuItem.IsEnabledProperty, redoBinding);
         }
 
-        // =====================
-        // History
-        // =====================
+        // ---- History ----
 
         private void Menu_SeeHistory(object sender, RoutedEventArgs e)
         {
@@ -96,13 +89,10 @@ namespace DinoLino
                 ScaleCalibration);
         }
 
-        // =====================
-        // Image cache
-        // =====================
+        // ---- Image cache ----
 
-        /// <summary>
-        /// Removes every cached specimen image in one step, after confirming with the user.
-        /// </summary>
+        /// Removes every cached specimen image in one step, after confirming with the
+        /// user.
         private void Menu_ClearImageCache(object sender, RoutedEventArgs e)
         {
             int cachedCount = SpecimenManager.CachedImageCount;
@@ -134,9 +124,7 @@ namespace DinoLino
             SpecimenManager.ClearAllImages();
         }
 
-        /// <summary>
-        /// Opens the cache roster so images can be removed one at a time.
-        /// </summary>
+        /// <summary>Opens the cache roster so images can be removed one at a time.</summary>
         private void Menu_EditImageCache(object sender, RoutedEventArgs e)
         {
             var window = new EditImageCacheWindow(SpecimenManager)
@@ -149,9 +137,7 @@ namespace DinoLino
             window.ShowDialog();
         }
 
-        // =====================
-        // Tips
-        // =====================
+        // ---- Tips ----
 
         private bool _tipsVisible = true;
         private DispatcherTimer _tipCycleTimer;
@@ -176,9 +162,8 @@ namespace DinoLino
             FadeTip(tips[_tipIndex]);
         }
 
-        /// <summary>
-        /// Displays the first tip for the active mode and starts cycling if more tips exist.
-        /// </summary>
+        /// Displays the first tip for the active mode and starts cycling if more tips
+        /// exist.
         public void UpdateTip()
         {
             if (!_tipsVisible) return;
@@ -220,9 +205,7 @@ namespace DinoLino
             UI_TipText.BeginAnimation(TextBlock.OpacityProperty, fadeOut);
         }
 
-        // =====================
-        // Workspace display
-        // =====================
+        // ---- Workspace display ----
 
         private void Menu_SeePrevOps(object sender, RoutedEventArgs e)
         {
@@ -260,9 +243,7 @@ namespace DinoLino
             }
         }
 
-        // =====================
-        // Font
-        // =====================
+        // ---- Font ----
 
         private void Menu_Font(object sender, RoutedEventArgs e)
         {

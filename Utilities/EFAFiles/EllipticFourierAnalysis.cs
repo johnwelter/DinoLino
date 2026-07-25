@@ -4,9 +4,7 @@ using System.Windows;
 
 namespace DinoLino.Utilities
 {
-    /// <summary>
-    /// Reliability flag for EFD normalization.
-    /// </summary>
+    /// <summary>Reliability flag for EFD normalization.</summary>
     public enum EfdNormalizationStatus
     {
         /// <summary>First-harmonic ellipse is well-formed.</summary>
@@ -17,9 +15,7 @@ namespace DinoLino.Utilities
         Degenerate
     }
 
-    /// <summary>
-    /// Raw elliptic Fourier coefficients for one outline, plus the DC term.
-    /// </summary>
+    /// <summary>Raw elliptic Fourier coefficients for one outline, plus the DC term.</summary>
     public sealed class EfdCoefficients
     {
         /// <summary>Number of harmonics represented.</summary>
@@ -47,9 +43,7 @@ namespace DinoLino.Utilities
         }
     }
 
-    /// <summary>
     /// Normalized EFD coefficients plus the diagnostics needed to judge stability.
-    /// </summary>
     public sealed class EfdNormalizationResult
     {
         /// <summary>Normalized coefficients, four per harmonic.</summary>
@@ -70,7 +64,6 @@ namespace DinoLino.Utilities
         /// <summary>Rotation removed to align the first-harmonic major axis with +X.</summary>
         public double Orientation { get; }
 
-        /// <summary>Minor-to-major ratio of the first harmonic.</summary>
         public double AxisRatio => FirstHarmonicMajor > 1e-12 ? FirstHarmonicMinor / FirstHarmonicMajor : 1.0;
 
         public EfdNormalizationResult(
@@ -87,9 +80,7 @@ namespace DinoLino.Utilities
         }
     }
 
-    /// <summary>
-    /// Computes raw EFD coefficients and the DC term for a closed outline.
-    /// </summary>
+    /// <summary>Computes raw EFD coefficients and the DC term for a closed outline.</summary>
     public static class EllipticFourierCalculator
     {
         public static EfdCoefficients Compute(IReadOnlyList<Point> pts, int harmonics, bool canonicalizeWinding = true)
@@ -189,9 +180,7 @@ namespace DinoLino.Utilities
         }
     }
 
-    /// <summary>
     /// Normalizes raw EFD coefficients for size, rotation, and start-point dependence.
-    /// </summary>
     public static class EllipticFourierNormalizer
     {
         private const double DegenerateEpsilon = 1e-10;
@@ -272,9 +261,7 @@ namespace DinoLino.Utilities
         }
     }
 
-    /// <summary>
-    /// Reconstructs a closed contour from EFD coefficients.
-    /// </summary>
+    /// <summary>Reconstructs a closed contour from EFD coefficients.</summary>
     public static class EllipticFourierReconstructor
     {
         public static List<Point> Reconstruct(double[] coeffs, int harmonics, double dcX, double dcY, int sampleCount = -1)
@@ -318,9 +305,8 @@ namespace DinoLino.Utilities
         }
     }
 
-    /// <summary>
-    /// Convenience wrapper that runs EFD calculation, normalization, and reconstruction.
-    /// </summary>
+    /// Convenience wrapper that runs EFD calculation, normalization, and
+    /// reconstruction.
     internal sealed class EllipticFourierAnalysis
     {
         private EfdCoefficients _raw;
@@ -357,29 +343,39 @@ namespace DinoLino.Utilities
             return _norm.Coefficients;
         }
 
-        /// <summary>
-        /// Reconstructs the last raw contour at the supplied offset.
-        /// </summary>
+        /// <summary>Reconstructs the last raw contour at the supplied offset.</summary>
         public List<Point> Reconstruct(int harmonics, double dcX, double dcY, int sampleCount = -1)
             => _raw == null ? null
                 : EllipticFourierReconstructor.Reconstruct(_raw.Coefficients, harmonics, dcX, dcY, sampleCount);
 
-        /// <summary>
-        /// Reconstructs the last contour at its own DC offset.
-        /// </summary>
+        /// <summary>Reconstructs the last contour at its own DC offset.</summary>
         public List<Point> ReconstructCanonical(int harmonics, int sampleCount = -1)
             => _raw == null ? null
                 : EllipticFourierReconstructor.Reconstruct(_raw.Coefficients, harmonics, _raw.A0, _raw.C0, sampleCount);
 
-        /// <summary>
-        /// Measures harmonic power without changing the cached display state.
-        /// </summary>
+        /// <summary>Cumulative-power fraction used to choose a default harmonic count.</summary>
+        public const double DefaultPowerThreshold = 0.99;
+
+        /// <summary>Largest harmonic count worth computing for a power analysis.</summary>
+        public const int PowerAnalysisCeiling = 50;
+
+        /// Harmonics a contour of this many vertices can express, capped at
+        /// PowerAnalysisCeiling.
+        public static int MaxUsefulHarmonics(int vertexCount) =>
+            Math.Min(PowerAnalysisCeiling, Math.Max(1, vertexCount / 2));
+
+        /// <summary>Measures harmonic power without changing the cached display state.</summary>
         public HarmonicPowerProfile AnalyzeHarmonicPower(
             IReadOnlyList<Point> pts, int maxHarmonics, double threshold, bool dropFirstHarmonic = true)
         {
             var raw = EllipticFourierCalculator.Compute(pts, maxHarmonics);
             return EllipticFourierPower.Analyze(raw.Coefficients, threshold, dropFirstHarmonic);
         }
+
+        /// <summary>Measures harmonic power at the highest count this contour supports.</summary>
+        public HarmonicPowerProfile AnalyzeHarmonicPower(
+            IReadOnlyList<Point> pts, double threshold, bool dropFirstHarmonic = true)
+            => AnalyzeHarmonicPower(pts, MaxUsefulHarmonics(pts.Count), threshold, dropFirstHarmonic);
 
         /// <summary>Clears cached analysis results.</summary>
         public void Clear()

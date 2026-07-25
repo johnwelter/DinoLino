@@ -16,9 +16,6 @@ using System.Windows.Media;
 namespace DinoLino.Utilities
 {
     // Per-session operation viewer: one tab per operation kind, grouped by specimen.
-    // Two parallel builder families, kept in lockstep by hand:
-    //   BuildXxxTab  -> on-screen DataGrid + its CSV rows
-    //   BuildXxxData -> headless headers+rows for ExportAllOperationHistory
     public class GeomOpHistoryWindow : Window
     {
         #region Fields and shared helpers
@@ -36,9 +33,7 @@ namespace DinoLino.Utilities
             public List<string[]> Rows;
         }
 
-        // Backs the editable "Attempt" column header. One instance per tab, shared
-        // by every specimen block in that tab, so editing it relabels the whole tab.
-        // Display-only; does not affect exports.
+        // Backs the editable "Attempt" column header.
         private class AttemptHeader : INotifyPropertyChanged
         {
             private string _text = "Attempt";
@@ -658,7 +653,7 @@ namespace DinoLino.Utilities
             var (h4, r4) = BuildTriangleData(ur, currentName, scale);
             sheets.Add(new WorkbookSheet { Name = "Triangle", Headers = h4, Rows = r4 });
 
-            var (h5, r5) = BuildLineData(ur, currentName, scale);           
+            var (h5, r5) = BuildLineData(ur, currentName, scale);
             sheets.Add(new WorkbookSheet { Name = "Lines", Headers = h5, Rows = r5 });
 
             var (h6, r6) = BuildOutlineData(ur, currentName, scale);
@@ -796,8 +791,7 @@ namespace DinoLino.Utilities
         #region Minimal XLSX writer (OOXML, no external dependency)
 
         // Hand-builds a minimal .xlsx: a workbook part, one worksheet part per sheet,
-        // and a bare styles part (Excel requires styles.xml even when unstyled). Uses
-        // System.IO.Packaging directly so the project needs no spreadsheet library.
+        // and a bare styles part (Excel requires styles.xml even when unstyled).
         private static void WriteXlsx(string path, List<WorkbookSheet> sheets)
         {
             const string nsMain = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";

@@ -6,22 +6,17 @@ using System.Windows.Input;
 
 namespace DinoLino
 {
-    /// <summary>
-    /// Routes raw keyboard and mouse input to workspace actions and the active work mode.
-    /// </summary>
+    /// Routes raw keyboard and mouse input to workspace actions and the active work
+    /// mode.
     public partial class MainWindow
     {
-        // =====================
-        // Pan state
-        // =====================
+        // ---- Pan state ----
 
         private bool _isPanning = false;
         private Point _panStartMouse; // Mouse position in workspace coordinates when the drag started.
         private double _panStartImageTx, _panStartImageTy;
 
-        // =====================
-        // Keyboard input
-        // =====================
+        // ---- Keyboard input ----
 
         private void MainWindow_KeyDown(object sender, KeyEventArgs e)
         {
@@ -110,9 +105,7 @@ namespace DinoLino
             }
         }
 
-        // =====================
-        // Workspace clicks
-        // =====================
+        // ---- Workspace clicks ----
 
         private void WorkSpace_Click(object sender, MouseButtonEventArgs e)
         {
@@ -151,7 +144,7 @@ namespace DinoLino
                 if (!handOm.SeePreviousOperations && handOm.IsStartingNewOperation)
                     ClearWorkspaceVisualsOnly();
 
-                handOm.BeginHandStroke(mousePos);
+                handOm.HandDraw.BeginStroke(mousePos);
                 (sender as UIElement)?.CaptureMouse();  // Keep receiving movement while the stroke is active.
                 e.Handled = true;
                 return;
@@ -182,9 +175,7 @@ namespace DinoLino
                 AddElementToWorkSpace(element);
         }
 
-        // =====================
-        // Workspace drag
-        // =====================
+        // ---- Workspace drag ----
 
         private void WorkSpace_MouseMove(object sender, MouseEventArgs e)
         {
@@ -216,11 +207,11 @@ namespace DinoLino
             if (e.LeftButton == MouseButtonState.Pressed && CurrentWorkMode is OutlineMode om)
             {
                 if (om.EraseOutlineMode)
-                    om.ProcessEraseDrag(mousePos);
-                else if (om.SmoothOutlineMode && om.IsLocalSmoothSelected)
-                    om.ProcessLocalSmoothDrag(mousePos);
+                    om.Erase.ProcessDrag(mousePos);
+                else if (om.SmoothOutlineMode && om.Smooth.IsLocalScope)
+                    om.Smooth.ProcessLocalDrag(mousePos);
                 else if (om.HandDrawMode)
-                    om.ProcessHandDrawDrag(mousePos);
+                    om.HandDraw.ProcessDrag(mousePos);
             }
         }
 
@@ -238,7 +229,7 @@ namespace DinoLino
             // Pause the freehand stroke; the stroke remains resumable until the mode ends it.
             if (e.ChangedButton == MouseButton.Left && CurrentWorkMode is OutlineMode om && om.HandDrawMode)
             {
-                om.EndHandStroke();
+                om.HandDraw.EndStroke();
                 (sender as UIElement)?.ReleaseMouseCapture();
                 e.Handled = true;
             }
@@ -250,9 +241,7 @@ namespace DinoLino
             Mouse.OverrideCursor = null;
         }
 
-        // =====================
-        // Workspace zoom
-        // =====================
+        // ---- Workspace zoom ----
 
         private void WorkSpace_ScrollZoom(object sender, MouseWheelEventArgs e)
         {

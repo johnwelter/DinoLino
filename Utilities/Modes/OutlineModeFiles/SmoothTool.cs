@@ -5,9 +5,7 @@ using DinoLino.DataTypes;
 
 namespace DinoLino.Utilities.Modes
 {
-    /// <summary>
-    /// Smooths the active outline in either global or local scope.
-    /// </summary>
+    /// <summary>Smooths the active outline in either global or local scope.</summary>
     public sealed class SmoothTool : ObservableToolBase
     {
         private readonly IOutlineToolContext _context;
@@ -17,18 +15,12 @@ namespace DinoLino.Utilities.Modes
             _context = context ?? throw new ArgumentNullException(nameof(context));
         }
 
-        /// <summary>
-        /// Raised after smoothing changes the outline geometry.
-        /// </summary>
+        /// <summary>Raised after smoothing changes the outline geometry.</summary>
         public event Action OutlineEdited;
 
         private int _strength = 0;
 
-        /// <summary>
-        /// Number of Laplacian passes to apply.
-        /// In global scope, changes apply immediately from the current snapshot.
-        /// In local scope, this only updates the brush strength.
-        /// </summary>
+        /// <summary>Number of Laplacian passes to apply.</summary>
         public int Strength
         {
             get => _strength;
@@ -40,15 +32,11 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // =====================
-        // Scope selection
-        // =====================
+        // ---- Scope selection ----
 
         private bool _localScope = false;
 
-        /// <summary>
-        /// True when the tool smooths the entire outline.
-        /// </summary>
+        /// <summary>True when the tool smooths the entire outline.</summary>
         public bool IsGlobalScope
         {
             get => !_localScope;
@@ -60,9 +48,7 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        /// <summary>
-        /// True when the tool smooths only the dragged region.
-        /// </summary>
+        /// <summary>True when the tool smooths only the dragged region.</summary>
         public bool IsLocalScope
         {
             get => _localScope;
@@ -84,30 +70,22 @@ namespace DinoLino.Utilities.Modes
                 RefreshSnapshot();
         }
 
-        // =====================
-        // Brush settings
-        // =====================
+        // ---- Brush settings ----
 
         private double _brushRadius = 25;
 
-        /// <summary>
-        /// Radius of the local smoothing brush in canvas pixels.
-        /// </summary>
+        /// <summary>Radius of the local smoothing brush in canvas pixels.</summary>
         public double BrushRadius
         {
             get => _brushRadius;
             set => SetField(ref _brushRadius, value);
         }
 
-        // =====================
-        // Snapshot management
-        // =====================
+        // ---- Snapshot management ----
 
         private List<Point> _preSmoothSnapshot = null;
 
-        /// <summary>
-        /// Captures the current outline as the global smoothing baseline.
-        /// </summary>
+        /// <summary>Captures the current outline as the global smoothing baseline.</summary>
         public void TakeSnapshot()
         {
             var polyline = _context.ActivePolyline;
@@ -120,9 +98,7 @@ namespace DinoLino.Utilities.Modes
             _preSmoothSnapshot = new List<Point>(polyline.Points);
         }
 
-        /// <summary>
-        /// Replaces the snapshot with the current live outline.
-        /// </summary>
+        /// <summary>Replaces the snapshot with the current live outline.</summary>
         public void RefreshSnapshot()
         {
             var polyline = _context.ActivePolyline;
@@ -131,22 +107,16 @@ namespace DinoLino.Utilities.Modes
             _preSmoothSnapshot = new List<Point>(polyline.Points);
         }
 
-        /// <summary>
-        /// Sets the snapshot from committed outline points.
-        /// </summary>
+        /// <summary>Sets the snapshot from committed outline points.</summary>
         public void SetSnapshot(IEnumerable<Point> points)
         {
             _preSmoothSnapshot = points == null ? null : new List<Point>(points);
         }
 
-        /// <summary>
-        /// Clears the snapshot when no outline is available.
-        /// </summary>
+        /// <summary>Clears the snapshot when no outline is available.</summary>
         public void ClearSnapshot() => _preSmoothSnapshot = null;
 
-        // =====================
-        // Global smoothing
-        // =====================
+        // ---- Global smoothing ----
 
         private void ApplyGlobal()
         {
@@ -162,24 +132,7 @@ namespace DinoLino.Utilities.Modes
             PolylineGeometry.StripClosureDuplicate(working);
             if (working.Count < 3) return;
 
-            for (int pass = 0; pass < _strength; pass++)
-            {
-                int n = working.Count;
-                var smoothed = new Point[n];
-
-                for (int i = 0; i < n; i++)
-                {
-                    int prev = (i - 1 + n) % n;
-                    int next = (i + 1) % n;
-
-                    smoothed[i] = new Point(
-                        (working[prev].X + working[i].X * 2 + working[next].X) / 4.0,
-                        (working[prev].Y + working[i].Y * 2 + working[next].Y) / 4.0);
-                }
-
-                for (int i = 0; i < n; i++)
-                    working[i] = smoothed[i];
-            }
+            PolylineGeometry.SmoothClosedRing(working, _strength);
 
             var points = polyline.Points;
             points.Clear();
@@ -190,36 +143,23 @@ namespace DinoLino.Utilities.Modes
             OutlineEdited?.Invoke();
         }
 
-        // =====================
-        // Local smoothing
-        // =====================
+        // ---- Local smoothing ----
 
-        private bool _localDragInProgress = false;
-
-        /// <summary>
-        /// Applies brush-based smoothing during a drag in local scope.
-        /// </summary>
+        /// <summary>Applies brush-based smoothing during a drag in local scope.</summary>
         public void ProcessLocalDrag(Vector2 mousePos)
         {
             var polyline = _context.ActivePolyline;
             if (polyline == null) return;
             if (!_localScope || _strength <= 0) return;
-            if (_localDragInProgress) return;
+            if (!TryBeginDrag()) return;
 
-            _localDragInProgress = true;
             try
             {
                 var pts = polyline.Points;
                 if (pts.Count < 4) return;
 
                 int n = pts.Count;
-                bool hasClosure;
-                {
-                    Point f = pts[0], l = pts[n - 1];
-                    double dx = f.X - l.X, dy = f.Y - l.Y;
-                    hasClosure = dx * dx + dy * dy < 1.0;
-                }
-
+                bool hasClosure = PolylineGeometry.HasClosureDuplicate(pts);
                 int open = hasClosure ? n - 1 : n;
                 if (open < 3) return;
 
@@ -246,31 +186,7 @@ namespace DinoLino.Utilities.Modes
 
                 if (touched == 0) return;
 
-                var next = new Point[open];
-                for (int pass = 0; pass < _strength; pass++)
-                {
-                    for (int i = 0; i < open; i++)
-                    {
-                        double w = weight[i];
-                        if (w <= 0)
-                        {
-                            next[i] = work[i];
-                            continue;
-                        }
-
-                        Point a = work[(i - 1 + open) % open];
-                        Point b = work[i];
-                        Point c = work[(i + 1) % open];
-
-                        double tx = (a.X + 2 * b.X + c.X) / 4.0;
-                        double ty = (a.Y + 2 * b.Y + c.Y) / 4.0;
-                        next[i] = new Point(b.X + (tx - b.X) * w, b.Y + (ty - b.Y) * w);
-                    }
-
-                    var tmp = work;
-                    work = next;
-                    next = tmp;
-                }
+                PolylineGeometry.SmoothClosedRing(work, _strength, weight);
 
                 pts.Clear();
                 foreach (var p in work)
@@ -285,7 +201,7 @@ namespace DinoLino.Utilities.Modes
             }
             finally
             {
-                _localDragInProgress = false;
+                EndDrag();
             }
         }
     }
