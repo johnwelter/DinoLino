@@ -10,6 +10,16 @@ Redoes the last action that was undone by the user. This returns the metadata of
 
 Clear:	
 Clears all drawn operations and resets the metadata to its initial state.
+
+Scale:
+Click "Scale" and then click on two points in the image to draw a line. Enter the real-world length of the line in the input box and click "OK" to set the scale. 
+This will allow the software to convert pixel measurements to real-world units.
+
+Zoom:
+Use the scroll wheel to zoom in and out of the image at the location of the cursor.
+
+Drag image:
+Hold Ctrl and left click to drag the image around the window.
 ------------------------------------------------------------------------------------------------
 KEYBOARD SHORTCUTS: 
 

@@ -59,6 +59,8 @@
                           ToolTip="Keep all previously drawn operations on screen until cleared."/>
                 <MenuItem Header="_See Operation Count" x:Name="UI_SeeAttempts" IsCheckable="True" IsChecked="True" Click="Menu_SeeAttempts"
                           ToolTip="Display the number of operations performed for each specimen."/>
+                <MenuItem Header="See _Mini-Map" x:Name="UI_SeeMiniMap" IsCheckable="True" IsChecked="False" Click="Menu_SeeMiniMap"
+                          ToolTip="Show a draggable overview of the whole image. Click a spot on it to pan the zoomed view there."/>
                 <MenuItem Header="See _History" Click="Menu_SeeHistory"  InputGestureText="Ctrl+H"/>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>
@@ -160,7 +162,18 @@
                   ResizeDirection="Columns"
                   ResizeBehavior="PreviousAndNext"
                   Cursor="SizeWE"/>
-            <Grid x:Name="UI_WorkSpace" Grid.Column="2" ClipToBounds="True">
+            <!-- Workspace area: the viewport itself plus its navigation scrollbars -->
+            <Grid x:Name="UI_WorkArea" Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Grid x:Name="UI_WorkSpace" Grid.Row="0" Grid.Column="0" ClipToBounds="True">
                 <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseUp="WorkSpace_MouseUp" MouseWheel="WorkSpace_ScrollZoom">
                     <Border x:Name ="UI_WorkBorder" BorderBrush="White" BorderThickness="3" Panel.ZIndex="10" Width="{Binding ActualWidth, ElementName=UI_WorkImage, Mode=OneWay}" Height="{Binding ActualHeight, ElementName=UI_WorkImage, Mode=OneWay}">
                         <Canvas x:Name="UI_WorkCanvas" Focusable="True"/>
@@ -259,6 +272,80 @@
                         <TextBlock x:Name="UI_AttemptOutline" Foreground="#EEE" FontSize="12" Margin="0,1"/>
                     </StackPanel>
                 </Border>
+
+                <!-- Mini-map overlay: draggable, resizable overview of the whole image
+                     (View ▸ See Mini-Map). Clicking or dragging on the picture pans the
+                     zoomed workspace view to that spot. -->
+                <Border x:Name="UI_MiniMap" Panel.ZIndex="70"
+                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Margin="16,16,0,0" Width="230" Height="185"
+                    MinWidth="140" MinHeight="110"
+                    Background="#CC1E1E1E" BorderBrush="#666" BorderThickness="1"
+                    CornerRadius="4" Visibility="Collapsed">
+                    <Border.RenderTransform>
+                        <TranslateTransform x:Name="UI_MiniMapTranslate"/>
+                    </Border.RenderTransform>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Title bar doubles as the drag handle -->
+                        <Border Grid.Row="0" Background="#CC2B2B2B" CornerRadius="3,3,0,0" Cursor="SizeAll"
+                            MouseLeftButtonDown="MiniMapTitleBar_MouseDown"
+                            MouseMove="MiniMapTitleBar_MouseMove"
+                            MouseLeftButtonUp="MiniMapTitleBar_MouseUp">
+                            <DockPanel Margin="6,2,2,2">
+                                <Button DockPanel.Dock="Right" Content="✕" Width="18" Height="18"
+                                    Padding="0" FontSize="10" Background="Transparent" Foreground="#CCC"
+                                    BorderThickness="0" Cursor="Arrow" Click="MiniMapClose_Click"
+                                    ToolTip="Hide the mini map"/>
+                                <TextBlock Text="Map" Foreground="#BBB" FontSize="11" FontWeight="Bold"
+                                    VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+
+                        <!-- Map area: low-res copy of the image plus the current-view rectangle -->
+                        <Grid Grid.Row="1" x:Name="UI_MiniMapArea" Margin="5" Background="#33000000"
+                            ClipToBounds="True"
+                            MouseLeftButtonDown="MiniMapArea_MouseDown"
+                            MouseMove="MiniMapArea_MouseMove"
+                            MouseLeftButtonUp="MiniMapArea_MouseUp">
+                            <Image x:Name="UI_MiniMapImage" Stretch="Uniform"
+                                RenderOptions.BitmapScalingMode="LowQuality"/>
+                            <Canvas x:Name="UI_MiniMapOverlay" IsHitTestVisible="False">
+                                <Rectangle x:Name="UI_MiniMapViewRect" Stroke="OrangeRed" StrokeThickness="1.5"
+                                    Fill="#28FF4500" Visibility="Collapsed"/>
+                            </Canvas>
+                        </Grid>
+
+                        <!-- Resize grip -->
+                        <Thumb x:Name="UI_MiniMapResizeGrip" Grid.Row="1" Width="14" Height="14"
+                            HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                            Cursor="SizeNWSE" DragDelta="MiniMapResizeGrip_DragDelta">
+                            <Thumb.Template>
+                                <ControlTemplate TargetType="Thumb">
+                                    <Grid Background="Transparent">
+                                        <Path Data="M 12,2 L 2,12 M 12,7 L 7,12" Stroke="#999" StrokeThickness="1.5"/>
+                                    </Grid>
+                                </ControlTemplate>
+                            </Thumb.Template>
+                        </Thumb>
+                    </Grid>
+                </Border>
+                </Grid>
+
+                <!-- Navigation scrollbars: enabled whenever the zoomed image extends
+                     beyond the viewport on that axis -->
+                <ScrollBar x:Name="UI_VScrollBar" Grid.Row="0" Grid.Column="1"
+                    Orientation="Vertical" Width="16"
+                    Minimum="0" Maximum="0" IsEnabled="False"
+                    ValueChanged="WorkSpaceScrollBar_ValueChanged"/>
+                <ScrollBar x:Name="UI_HScrollBar" Grid.Row="1" Grid.Column="0"
+                    Orientation="Horizontal" Height="16"
+                    Minimum="0" Maximum="0" IsEnabled="False"
+                    ValueChanged="WorkSpaceScrollBar_ValueChanged"/>
             </Grid>
         </Grid>
     </DockPanel>

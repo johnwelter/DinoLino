@@ -214,6 +214,10 @@ namespace DinoLino
             AddElementToWorkSpace(UI_DotCursor);
 
             CurrentWorkMode.Reset();
+
+            // Hook up the workspace scrollbars and the mini-map (MainWindow_Navigation.cs).
+            // Must run after the workspace transforms are initialized above.
+            InitializeNavigationAids();
         }
 
         private void ControlTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -59,6 +59,7 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Compile Include="MainWindow.Navigation.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml.cs">
       <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>
     </Compile>
@@ -98,7 +99,7 @@
       <DependentUpon>PictureAdjustmentWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\3DDataProcessing\PlyLoader.cs" />
-    <Compile Include="ScaleWindow.xaml.cs">
+    <Compile Include="Utilities\Scale\ScaleWindow.xaml.cs">
       <DependentUpon>ScaleWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\3DDataProcessing\StlLoader.cs" />
@@ -128,7 +129,7 @@
       <DependentUpon>OutlineControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineProcessor.cs" />
-    <Compile Include="Utilities\ScaleCalibration.cs" />
+    <Compile Include="Utilities\Scale\ScaleCalibration.cs" />
     <Compile Include="Utilities\HistoryFiles\SpecimenManager.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\SplineFitting.cs" />
     <Compile Include="Utilities\HelpMenuFiles\About.xaml.cs">
@@ -172,7 +173,7 @@
     <Page Include="PictureAdjustmentWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="ScaleWindow.xaml">
+    <Page Include="Utilities\Scale\ScaleWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

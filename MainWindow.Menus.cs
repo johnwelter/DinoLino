@@ -226,6 +226,13 @@ namespace DinoLino
             }
         }
 
+        /// Toggles the mini-map overview panel. The panel itself lives in
+        /// MainWindow_Navigation.cs, which owns SetMiniMapVisible.
+        private void Menu_SeeMiniMap(object sender, RoutedEventArgs e)
+        {
+            SetMiniMapVisible(UI_SeeMiniMap.IsChecked);
+        }
+
         private void Menu_MouseLeave(object sender, MouseEventArgs e)
         {
             if (sender is MenuItem menuItem)
