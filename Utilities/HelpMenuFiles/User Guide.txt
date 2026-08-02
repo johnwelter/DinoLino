@@ -11,10 +11,6 @@ Redoes the last action that was undone by the user. This returns the metadata of
 Clear:	
 Clears all drawn operations and resets the metadata to its initial state.
 
-Scale:
-Click "Scale" and then click on two points in the image to draw a line. Enter the real-world length of the line in the input box and click "OK" to set the scale. 
-This will allow the software to convert pixel measurements to real-world units.
-
 Zoom:
 Use the scroll wheel to zoom in and out of the image at the location of the cursor.
 
@@ -179,6 +175,10 @@ Toggle on or off to see advice for using the program displayed at the bottom of 
 ----- See Previous Operations ----- 
 Toggle on or off to keep drawn elements of previous operations on the screen.
 
+----- See Navigation Window -----
+Toggle on or off to display a navigation window in the top left corner of the screen. The navigation window shows a zoomed-out view of the image, with a rectangle indicating the current viewable area. 
+While zoomed in, click anywhere in the navigation window to move the viewable area to that location.
+
 ----- See History ----- 
 View and export CSV tables of all operations performed.
 
@@ -191,6 +191,10 @@ If needed, you may accommodate very large font sizes by resizing the sidebar or 
 
 ------------------------------------------------------------------------------------------------
 TOOLS:
+
+----- Set Scale -----
+Click on two points in the image to draw a line. Enter the real-world length of the line in the input box and click "OK" to set the scale. 
+This will allow the software to convert pixel measurements to real-world units.
 
 ----- Picture Corrections ----- 
 Adjust brightness, contrast, or saturation of the uploaded image. Zero is the default value for all parameters.

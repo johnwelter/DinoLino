@@ -703,7 +703,9 @@ namespace DinoLino.Utilities
         private static (string[] Headers, List<string[]> Rows) BuildSplineData(
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
-            var headers = new[] { "Specimen", "Attempt", "Turn. Angles / Length", "Sum Turn. Angles", "Chord-arc ratio", "Length" };
+            // SplineOperation carries no sum-of-turning-angles value, so the table has
+            // five columns; the ratio column below is that sum divided by length.
+            var headers = new[] { "Specimen", "Attempt", "Turn. Angles / Length", "Chord-arc ratio", "Length" };
             var rows = new List<string[]>();
             foreach (var (name, ops) in Blocks(ur, currentName))
             {
@@ -714,7 +716,7 @@ namespace DinoLino.Utilities
                     any = true;
                     rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.TurningAngleArcRatio), Fmt(op.SChordArcRatio), FmtLength(op.SplineLengthPixels, scale) });
                 }
-                if (!any) rows.Add(new[] { name, "", "", "", "", "" });
+                if (!any) rows.Add(new[] { name, "", "", "", "" });
             }
             return (headers, rows);
         }
@@ -778,12 +780,176 @@ namespace DinoLino.Utilities
                 Fmt4(op.PerimeterAreaRatio),
                 Fmt4(op.Circularity),
                 Fmt4(op.Solidity),
+                Fmt4(op.SumTurningAngles),
                 Fmt4(op.TurningAngleLength)
             });
                 }
                 if (!any) rows.Add(new[] { name, "", "", "", "", "", "", "", "", "" });
             }
             return (headers, rows);
+        }
+
+        #endregion
+
+        #region Workshop sidebar exports
+
+        // The Workshop sidebar exports one CSV per data category, covering every
+        // specimen of the session. Each entry point reuses the same headless builders
+        // that feed the xlsx export, so the numbers always agree with the History
+        // window.
+
+        /// Curvature: circular arc, parabolic arc, and spline tables stacked as
+        /// three labelled sections in a single file.
+        public static void ExportCurvatureCsv(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var circ = BuildCircularArcData(ur, currentName);
+            var para = BuildParabolicArcData(ur, currentName);
+            var spline = BuildSplineData(ur, currentName, scale);
+
+            ExportSectionedCsv(new List<(string, string[], List<string[]>)>
+            {
+                ("Circular Arc", circ.Headers, circ.Rows),
+                ("Parabolic Arc", para.Headers, para.Rows),
+                ("n-Point Spline", spline.Headers, spline.Rows)
+            }, "curvature_data.csv");
+        }
+
+        /// <summary>Triangle angle measurements for every specimen.</summary>
+        public static void ExportAngleCsv(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var (headers, rows) = BuildTriangleData(ur, currentName, scale);
+            ExportCsv(headers, rows, "angle_data.csv");
+        }
+
+        /// Drawn shapes and lines stacked as two labelled sections, since both come
+        /// from Draw mode but carry different columns.
+        public static void ExportShapeCsv(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var shapes = BuildShapeData(ur, currentName, scale);
+            var lines = BuildLineData(ur, currentName, scale);
+
+            ExportSectionedCsv(new List<(string, string[], List<string[]>)>
+            {
+                ("Shapes", shapes.Headers, shapes.Rows),
+                ("Lines", lines.Headers, lines.Rows)
+            }, "shape_data.csv");
+        }
+
+        /// <summary>Outline analysis metadata for every specimen.</summary>
+        public static void ExportOutlineCsv(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var (headers, rows) = BuildOutlineData(ur, currentName, scale);
+            ExportCsv(headers, rows, "outline_metadata.csv");
+        }
+
+        /// Elliptic Fourier coefficients for every outline that has them, one row per
+        /// outline attempt and one column per coefficient.
+        public static void ExportEfaCsv(UndoRedoManager ur, string currentName)
+        {
+            var collector = new EfdCsvCollector();
+
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                // A specimen can hold several outline attempts, so later attempts are
+                // suffixed to keep the row labels unique.
+                int attempt = 0;
+                foreach (var op in ops.OfType<OutlineOperation>())
+                {
+                    if (op.EFDCoefficients == null || op.EFDCoefficients.Length < 4) continue;
+
+                    attempt++;
+                    string label = attempt == 1 ? name : $"{name} (attempt {attempt})";
+                    collector.AddSpecimen(label, op.EFDCoefficients);
+                }
+            }
+
+            if (collector.Count == 0)
+            {
+                MessageBox.Show(
+                    "No elliptic Fourier coefficients have been generated yet.\n\n" +
+                    "Trace an outline and generate its metadata first.",
+                    "Export EFA Data", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            WriteCsvFile(collector.BuildWideCsv(), "efa_data.csv");
+        }
+
+        // Draw-mode shapes. There is no xlsx sheet for these, so the builder lives
+        // here beside the other headless builders.
+        private static (string[] Headers, List<string[]> Rows) BuildShapeData(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var headers = new[] { "Specimen", "Attempt", "Aspect ratio", "Area", "Relative area" };
+            var rows = new List<string[]>();
+            foreach (var (name, ops) in Blocks(ur, currentName))
+            {
+                int attempt = 1;
+                bool any = false;
+                foreach (var op in ops.OfType<ShapeOperation>())
+                {
+                    any = true;
+                    rows.Add(new[]
+                    {
+                        name, (attempt++).ToString(),
+                        Fmt(op.DrawAspectRatio),
+                        FmtArea(op.ShapeArea, scale),
+                        FmtRatio(op.RelativeArea)
+                    });
+                }
+                if (!any) rows.Add(new[] { name, "", "", "", "" });
+            }
+            return (headers, rows);
+        }
+
+        // Writes several tables to one CSV, each preceded by its section title and
+        // separated by a blank line.
+        private static void ExportSectionedCsv(
+            List<(string Title, string[] Headers, List<string[]> Rows)> sections, string suggestedFileName)
+        {
+            var sb = new StringBuilder();
+
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (i > 0) sb.AppendLine();   // Blank line separates the sections.
+
+                var section = sections[i];
+                sb.AppendLine(CsvEscape(section.Title));
+                sb.AppendLine(string.Join(",", section.Headers.Select(CsvEscape)));
+                foreach (var row in section.Rows)
+                    sb.AppendLine(string.Join(",", row.Select(CsvEscape)));
+            }
+
+            WriteCsvFile(sb.ToString(), suggestedFileName);
+        }
+
+        // Prompts for a path and writes already-formatted CSV text (UTF-8 with BOM so
+        // Excel reads non-ASCII units correctly).
+        private static void WriteCsvFile(string csv, string suggestedFileName)
+        {
+            var dlg = new SaveFileDialog
+            {
+                Title = "Export Table to CSV",
+                Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+                DefaultExt = ".csv",
+                FileName = suggestedFileName,
+                AddExtension = true
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                File.WriteAllText(dlg.FileName, csv, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not save the file:\n{ex.Message}", "Export failed",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         #endregion

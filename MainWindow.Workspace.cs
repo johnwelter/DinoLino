@@ -5,6 +5,7 @@ using Microsoft.Win32;
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
@@ -36,6 +37,10 @@ namespace DinoLino
         private int _scaleClicks = 0;
         private Line _scaleLine;
 
+        // Marker that follows the cursor while scale capture is active, so the
+        // user can see that the tool is armed.
+        private Ellipse _scaleCueDot;
+
         // =====================
         // Workspace reset
         // =====================
@@ -54,6 +59,10 @@ namespace DinoLino
         /// </summary>
         private void ClearWorkspace()
         {
+            // A hard reset invalidates any half-finished calibration line, so end
+            // the capture and remove its cue before wiping the canvas.
+            CancelScaleCapture();
+
             UI_WorkCanvas.Children.Clear();
             AddElementToWorkSpace(UI_DotCursor);
             UI_DotCursor.SetPosition(0, 0);
@@ -417,7 +426,9 @@ namespace DinoLino
         // Scale calibration
         // =====================
 
-        private void GlobalTools_ScaleImage(object sender, RoutedEventArgs e)
+        /// Arms scale-calibration capture: the next two workspace clicks define the
+        /// calibration line. Invoked from Tools ▸ Set Scale (Menu_SetScale).
+        internal void BeginScaleCapture()
         {
             if (WorkingImage == null)
             {
@@ -425,14 +436,73 @@ namespace DinoLino
                 return;
             }
 
+            // Restarting always discards any half-finished capture.
+            CancelScaleCapture();
+
+            _scaleClicks = 0;
+            _scaleMode = true;   // The next two workspace clicks define the calibration line.
+
+            ShowScaleCue(new Vector2(Mouse.GetPosition(UI_WorkCanvas)));
+        }
+
+        /// <summary>
+        /// Cancels an in-progress scale capture and removes its visuals.
+        /// </summary>
+        internal void CancelScaleCapture()
+        {
+            _scaleMode = false;
+            _scaleClicks = 0;
+
             if (_scaleLine != null)
             {
                 UI_WorkCanvas.Children.Remove(_scaleLine);
                 _scaleLine = null;
             }
 
-            _scaleClicks = 0;
-            _scaleMode = true;   // The next two workspace clicks define the calibration line.
+            EndScaleCue();
+        }
+
+        /// Places the cue dot at the given canvas position and switches to a
+        /// crosshair cursor, signalling that scale capture has started.
+        private void ShowScaleCue(Vector2 pos)
+        {
+            if (_scaleCueDot == null)
+            {
+                _scaleCueDot = new Ellipse
+                {
+                    Fill = Brushes.Yellow,   // Matches the dashed calibration line.
+                    Stroke = Brushes.Black,
+                    StrokeThickness = 1,
+                    Width = 11,
+                    Height = 11
+                };
+                AddElementToWorkSpace(_scaleCueDot);
+            }
+
+            MoveScaleCue(pos);
+            UI_WorkSpace.Cursor = Cursors.Cross;
+        }
+
+        /// <summary>
+        /// Keeps the cue dot centred on the cursor while scale capture is active.
+        /// </summary>
+        internal void MoveScaleCue(Vector2 pos)
+        {
+            _scaleCueDot?.SetPosition(pos.X - 5.5, pos.Y - 5.5);
+        }
+
+        /// <summary>
+        /// Removes the cue dot and restores the normal workspace cursor.
+        /// </summary>
+        private void EndScaleCue()
+        {
+            if (_scaleCueDot != null)
+            {
+                UI_WorkCanvas.Children.Remove(_scaleCueDot);
+                _scaleCueDot = null;
+            }
+
+            UI_WorkSpace.Cursor = null;
         }
 
         private void HandleScaleClick(Vector2 mousePos)
@@ -466,6 +536,10 @@ namespace DinoLino
         {
             _scaleMode = false;
             _scaleClicks = 0;
+
+            // Capture is over: remove the cue dot and restore the cursor before
+            // the dialog appears.
+            EndScaleCue();
 
             if (pixelLength < 1e-3)
             {

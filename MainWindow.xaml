@@ -6,7 +6,7 @@
     xmlns:local="clr-namespace:DinoLino"
     xmlns:System="clr-namespace:System;assembly=mscorlib" xmlns:core="http://schemas.microsoft.com/winfx/2009/xaml" x:Class="DinoLino.MainWindow"
     mc:Ignorable="d"
-    Title="DinoLino" Height="750" Width="1250"
+    Title="DinoLino" Height="750" Width="1514"
     MinWidth="800" MinHeight="500"
     ResizeMode="CanResize"
     FontFamily="Arial">
@@ -34,6 +34,8 @@
                 <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"  InputGestureText="Ctrl+Y"/>
             </MenuItem>
             <MenuItem Header="_Tools" MouseLeave="Menu_MouseLeave">
+                <MenuItem Header="_Set Scale" Click="Menu_SetScale"
+                          ToolTip="Calibrate measurements: click both ends of a feature of known length, then enter that length."/>
                 <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"
                           ToolTip="Adjust picture properties such as brightness, contrast, and saturation."/>
                 <MenuItem Header="_Decimate" Click="Menu_DownSample"/>
@@ -59,8 +61,10 @@
                           ToolTip="Keep all previously drawn operations on screen until cleared."/>
                 <MenuItem Header="_See Operation Count" x:Name="UI_SeeAttempts" IsCheckable="True" IsChecked="True" Click="Menu_SeeAttempts"
                           ToolTip="Display the number of operations performed for each specimen."/>
-                <MenuItem Header="See _Mini-Map" x:Name="UI_SeeMiniMap" IsCheckable="True" IsChecked="False" Click="Menu_SeeMiniMap"
+                <MenuItem Header="See _Navigation Window" x:Name="UI_SeeMiniMap" IsCheckable="True" IsChecked="False" Click="Menu_SeeMiniMap"
                           ToolTip="Show a draggable overview of the whole image. Click a spot on it to pan the zoomed view there."/>
+                <MenuItem Header="See _Workshop" x:Name="UI_SeeWorkshop" IsCheckable="True" IsChecked="True" Click="Menu_SeeWorkshop"
+                          ToolTip="Show the Workshop sidebar for exporting measurement tables."/>
                 <MenuItem Header="See _History" Click="Menu_SeeHistory"  InputGestureText="Ctrl+H"/>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>
@@ -112,6 +116,10 @@
                 <ColumnDefinition Width="0.28*" MinWidth="150" MaxWidth="550"/>
                 <ColumnDefinition Width="4"/>
                 <ColumnDefinition Width="*"/>
+                <!-- Workshop splitter and panel: both collapse to zero width when the
+                     sidebar is toggled off in the View menu. -->
+                <ColumnDefinition x:Name="UI_WorkshopSplitterColumn" Width="4"/>
+                <ColumnDefinition x:Name="UI_WorkshopColumn" Width="260" MinWidth="180" MaxWidth="500"/>
             </Grid.ColumnDefinitions>
 
             <!-- Controls Panel: toolbars and outputs for different controls and modes-->
@@ -147,8 +155,6 @@
                 </TabControl>
                 <ContentControl x:Name="UI_ModePanel" Margin="0,0,0,10"/>
                 <StackPanel Margin="10,0,10,-5">
-                    <Button x:Name="UI_ScaleButton" Content="Scale Image"
-                            MinHeight="32" Click="GlobalTools_ScaleImage"/>
                     <TextBlock x:Name="UI_ScaleStatus"
                                Text="{Binding StatusText}"/>
                 </StackPanel>
@@ -174,84 +180,84 @@
                 </Grid.ColumnDefinitions>
 
                 <Grid x:Name="UI_WorkSpace" Grid.Row="0" Grid.Column="0" ClipToBounds="True">
-                <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseUp="WorkSpace_MouseUp" MouseWheel="WorkSpace_ScrollZoom">
-                    <Border x:Name ="UI_WorkBorder" BorderBrush="White" BorderThickness="3" Panel.ZIndex="10" Width="{Binding ActualWidth, ElementName=UI_WorkImage, Mode=OneWay}" Height="{Binding ActualHeight, ElementName=UI_WorkImage, Mode=OneWay}">
-                        <Canvas x:Name="UI_WorkCanvas" Focusable="True"/>
-                    </Border>
-                    <Canvas x:Name="UI_WorkBackground" Background="Gray" />
-                    <Image x:Name="UI_WorkImage"/>
-                    <Grid x:Name="UI_ModelPoseOverlay" Visibility="Collapsed"
+                    <Grid MouseMove="WorkSpace_MouseMove" MouseDown="WorkSpace_Click" MouseUp="WorkSpace_MouseUp" MouseWheel="WorkSpace_ScrollZoom">
+                        <Border x:Name ="UI_WorkBorder" BorderBrush="White" BorderThickness="3" Panel.ZIndex="10" Width="{Binding ActualWidth, ElementName=UI_WorkImage, Mode=OneWay}" Height="{Binding ActualHeight, ElementName=UI_WorkImage, Mode=OneWay}">
+                            <Canvas x:Name="UI_WorkCanvas" Focusable="True"/>
+                        </Border>
+                        <Canvas x:Name="UI_WorkBackground" Background="Gray" />
+                        <Image x:Name="UI_WorkImage"/>
+                        <Grid x:Name="UI_ModelPoseOverlay" Visibility="Collapsed"
       MouseDown="ModelPose_MouseDown" MouseMove="ModelPose_MouseMove"
       MouseUp="ModelPose_MouseUp" MouseWheel="ModelPose_MouseWheel">
 
-                        <!-- Opaque host: this is what gets rendered on capture, so the bitmap has a
+                            <!-- Opaque host: this is what gets rendered on capture, so the bitmap has a
          solid background (keeps JPEG-style consumers and outline contrast happy) -->
-                        <Grid x:Name="UI_ModelViewportHost" Background="#FF3A3A3A">
-                            <Viewport3D x:Name="UI_ModelViewport" IsHitTestVisible="False">
-                                <Viewport3D.Camera>
-                                    <OrthographicCamera x:Name="UI_ModelCamera"
+                            <Grid x:Name="UI_ModelViewportHost" Background="#FF3A3A3A">
+                                <Viewport3D x:Name="UI_ModelViewport" IsHitTestVisible="False">
+                                    <Viewport3D.Camera>
+                                        <OrthographicCamera x:Name="UI_ModelCamera"
                                     Position="0,0,10" LookDirection="0,0,-1"
                                     UpDirection="0,1,0" Width="10"/>
-                                </Viewport3D.Camera>
-                                <ModelVisual3D>
-                                    <ModelVisual3D.Content>
-                                        <Model3DGroup x:Name="UI_ModelGroup">
-                                            <AmbientLight Color="#666666"/>
-                                            <DirectionalLight Color="#B0B0B0" Direction="-0.3,-0.4,-1"/>
-                                        </Model3DGroup>
-                                    </ModelVisual3D.Content>
-                                </ModelVisual3D>
-                            </Viewport3D>
-                        </Grid>
+                                    </Viewport3D.Camera>
+                                    <ModelVisual3D>
+                                        <ModelVisual3D.Content>
+                                            <Model3DGroup x:Name="UI_ModelGroup">
+                                                <AmbientLight Color="#666666"/>
+                                                <DirectionalLight Color="#B0B0B0" Direction="-0.3,-0.4,-1"/>
+                                            </Model3DGroup>
+                                        </ModelVisual3D.Content>
+                                    </ModelVisual3D>
+                                </Viewport3D>
+                            </Grid>
 
-                        <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,12"
+                            <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,12"
             Background="#CC202020" CornerRadius="6" Padding="10,6">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Foreground="White" VerticalAlignment="Center"
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Foreground="White" VerticalAlignment="Center"
                        Text="Press scroll-wheel or arrow keys to rotate  •  Wheel to zoom"/>
-                                <Button Content="Capture View" Margin="14,0,0,0" Padding="10,3" Click="ModelPose_Capture"/>
-                                <Button Content="Cancel" Margin="8,0,0,0" Padding="10,3" Click="ModelPose_Cancel"/>
-                            </StackPanel>
-                        </Border>
+                                    <Button Content="Capture View" Margin="14,0,0,0" Padding="10,3" Click="ModelPose_Capture"/>
+                                    <Button Content="Cancel" Margin="8,0,0,0" Padding="10,3" Click="ModelPose_Cancel"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
                     </Grid>
-                </Grid>
 
-                <!-- Busy indicator: bottom-left, shown only while an outline
+                    <!-- Busy indicator: bottom-left, shown only while an outline
                      operation is running (see OutlineMode.BusyChanged). The
                      hourglass glyph counter-rotates continuously via an
                      indefinite storyboard that runs only while visible. -->
-                <Border x:Name="UI_BusyIndicator"
+                    <Border x:Name="UI_BusyIndicator"
                     HorizontalAlignment="Left" VerticalAlignment="Bottom"
                     Margin="16,0,0,16" Panel.ZIndex="60"
                     Background="#CC1E1E1E" BorderBrush="#666" BorderThickness="1"
                     CornerRadius="4" Padding="10,8" Visibility="Collapsed"
                     IsHitTestVisible="False">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock x:Name="UI_BusyGlyph" Text="&#x231B;"
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="UI_BusyGlyph" Text="&#x231B;"
                             FontSize="30" Foreground="#EEE" VerticalAlignment="Center"
                             RenderTransformOrigin="0.5,0.5">
-                            <TextBlock.RenderTransform>
-                                <RotateTransform x:Name="UI_BusyGlyphRotate" Angle="0"/>
-                            </TextBlock.RenderTransform>
-                        </TextBlock>
-                        <TextBlock Text="Working…" Margin="8,0,0,0"
+                                <TextBlock.RenderTransform>
+                                    <RotateTransform x:Name="UI_BusyGlyphRotate" Angle="0"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                            <TextBlock Text="Working…" Margin="8,0,0,0"
                             FontSize="20" Foreground="#EEE" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <Border.Triggers>
-                        <EventTrigger RoutedEvent="Border.Loaded">
-                            <BeginStoryboard>
-                                <Storyboard x:Name="UI_BusySpin" RepeatBehavior="Forever">
-                                    <DoubleAnimation Storyboard.TargetName="UI_BusyGlyphRotate"
+                        </StackPanel>
+                        <Border.Triggers>
+                            <EventTrigger RoutedEvent="Border.Loaded">
+                                <BeginStoryboard>
+                                    <Storyboard x:Name="UI_BusySpin" RepeatBehavior="Forever">
+                                        <DoubleAnimation Storyboard.TargetName="UI_BusyGlyphRotate"
                                         Storyboard.TargetProperty="Angle"
                                         From="0" To="360" Duration="0:0:4"/>
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </EventTrigger>
-                    </Border.Triggers>
-                </Border>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                        </Border.Triggers>
+                    </Border>
 
-                <!-- Attempt counter overlay (draggable HUD, bottom-right by default) -->
-                <Border x:Name="UI_AttemptCounter"
+                    <!-- Attempt counter overlay (draggable HUD, bottom-right by default) -->
+                    <Border x:Name="UI_AttemptCounter"
                     HorizontalAlignment="Right" VerticalAlignment="Bottom"
                     Margin="0,0,16,16" Panel.ZIndex="50"
                     Background="#CC1E1E1E" BorderBrush="#666" BorderThickness="1"
@@ -259,81 +265,81 @@
                     MouseLeftButtonDown="AttemptCounter_MouseDown"
                     MouseMove="AttemptCounter_MouseMove"
                     MouseLeftButtonUp="AttemptCounter_MouseUp">
-                    <Border.RenderTransform>
-                        <TranslateTransform x:Name="UI_AttemptCounterTransform"/>
-                    </Border.RenderTransform>
-                    <StackPanel>
-                        <TextBlock x:Name="UI_AttemptHeader" Text="Operation Count" Foreground="#999" FontSize="11" FontWeight="Bold" Margin="0,0,0,4"/>
-                        <TextBlock x:Name="UI_AttemptCirc"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                        <TextBlock x:Name="UI_AttemptPara"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                        <TextBlock x:Name="UI_AttemptSpline" Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                        <TextBlock x:Name="UI_AttemptAngle"  Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                        <TextBlock x:Name="UI_AttemptLine"    Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                        <TextBlock x:Name="UI_AttemptOutline" Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                    </StackPanel>
-                </Border>
+                        <Border.RenderTransform>
+                            <TranslateTransform x:Name="UI_AttemptCounterTransform"/>
+                        </Border.RenderTransform>
+                        <StackPanel>
+                            <TextBlock x:Name="UI_AttemptHeader" Text="Operation Count" Foreground="#999" FontSize="11" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <TextBlock x:Name="UI_AttemptCirc"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptPara"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptSpline" Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptAngle"  Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptLine"    Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptOutline" Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                        </StackPanel>
+                    </Border>
 
-                <!-- Mini-map overlay: draggable, resizable overview of the whole image
-                     (View ▸ See Mini-Map). Clicking or dragging on the picture pans the
+                    <!-- Navigation window overlay: draggable, resizable overview of the whole image
+                     (View ▸ See Navigation Window). Clicking or dragging on the picture pans the
                      zoomed workspace view to that spot. -->
-                <Border x:Name="UI_MiniMap" Panel.ZIndex="70"
+                    <Border x:Name="UI_MiniMap" Panel.ZIndex="70"
                     HorizontalAlignment="Left" VerticalAlignment="Top"
                     Margin="16,16,0,0" Width="230" Height="185"
                     MinWidth="140" MinHeight="110"
                     Background="#CC1E1E1E" BorderBrush="#666" BorderThickness="1"
                     CornerRadius="4" Visibility="Collapsed">
-                    <Border.RenderTransform>
-                        <TranslateTransform x:Name="UI_MiniMapTranslate"/>
-                    </Border.RenderTransform>
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
+                        <Border.RenderTransform>
+                            <TranslateTransform x:Name="UI_MiniMapTranslate"/>
+                        </Border.RenderTransform>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
 
-                        <!-- Title bar doubles as the drag handle -->
-                        <Border Grid.Row="0" Background="#CC2B2B2B" CornerRadius="3,3,0,0" Cursor="SizeAll"
+                            <!-- Title bar doubles as the drag handle -->
+                            <Border Grid.Row="0" Background="#CC2B2B2B" CornerRadius="3,3,0,0" Cursor="SizeAll"
                             MouseLeftButtonDown="MiniMapTitleBar_MouseDown"
                             MouseMove="MiniMapTitleBar_MouseMove"
                             MouseLeftButtonUp="MiniMapTitleBar_MouseUp">
-                            <DockPanel Margin="6,2,2,2">
-                                <Button DockPanel.Dock="Right" Content="✕" Width="18" Height="18"
+                                <DockPanel Margin="6,2,2,2">
+                                    <Button DockPanel.Dock="Right" Content="✕" Width="18" Height="18"
                                     Padding="0" FontSize="10" Background="Transparent" Foreground="#CCC"
                                     BorderThickness="0" Cursor="Arrow" Click="MiniMapClose_Click"
-                                    ToolTip="Hide the mini map"/>
-                                <TextBlock Text="Map" Foreground="#BBB" FontSize="11" FontWeight="Bold"
+                                    ToolTip="Hide the navigation window"/>
+                                    <TextBlock Text="Navigation Window" Foreground="#BBB" FontSize="11" FontWeight="Bold"
                                     VerticalAlignment="Center"/>
-                            </DockPanel>
-                        </Border>
+                                </DockPanel>
+                            </Border>
 
-                        <!-- Map area: low-res copy of the image plus the current-view rectangle -->
-                        <Grid Grid.Row="1" x:Name="UI_MiniMapArea" Margin="5" Background="#33000000"
+                            <!-- Map area: low-res copy of the image plus the current-view rectangle -->
+                            <Grid Grid.Row="1" x:Name="UI_MiniMapArea" Margin="5" Background="#33000000"
                             ClipToBounds="True"
                             MouseLeftButtonDown="MiniMapArea_MouseDown"
                             MouseMove="MiniMapArea_MouseMove"
                             MouseLeftButtonUp="MiniMapArea_MouseUp">
-                            <Image x:Name="UI_MiniMapImage" Stretch="Uniform"
+                                <Image x:Name="UI_MiniMapImage" Stretch="Uniform"
                                 RenderOptions.BitmapScalingMode="LowQuality"/>
-                            <Canvas x:Name="UI_MiniMapOverlay" IsHitTestVisible="False">
-                                <Rectangle x:Name="UI_MiniMapViewRect" Stroke="OrangeRed" StrokeThickness="1.5"
+                                <Canvas x:Name="UI_MiniMapOverlay" IsHitTestVisible="False">
+                                    <Rectangle x:Name="UI_MiniMapViewRect" Stroke="OrangeRed" StrokeThickness="1.5"
                                     Fill="#28FF4500" Visibility="Collapsed"/>
-                            </Canvas>
-                        </Grid>
+                                </Canvas>
+                            </Grid>
 
-                        <!-- Resize grip -->
-                        <Thumb x:Name="UI_MiniMapResizeGrip" Grid.Row="1" Width="14" Height="14"
+                            <!-- Resize grip -->
+                            <Thumb x:Name="UI_MiniMapResizeGrip" Grid.Row="1" Width="14" Height="14"
                             HorizontalAlignment="Right" VerticalAlignment="Bottom"
                             Cursor="SizeNWSE" DragDelta="MiniMapResizeGrip_DragDelta">
-                            <Thumb.Template>
-                                <ControlTemplate TargetType="Thumb">
-                                    <Grid Background="Transparent">
-                                        <Path Data="M 12,2 L 2,12 M 12,7 L 7,12" Stroke="#999" StrokeThickness="1.5"/>
-                                    </Grid>
-                                </ControlTemplate>
-                            </Thumb.Template>
-                        </Thumb>
-                    </Grid>
-                </Border>
+                                <Thumb.Template>
+                                    <ControlTemplate TargetType="Thumb">
+                                        <Grid Background="Transparent">
+                                            <Path Data="M 12,2 L 2,12 M 12,7 L 7,12" Stroke="#999" StrokeThickness="1.5"/>
+                                        </Grid>
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                        </Grid>
+                    </Border>
                 </Grid>
 
                 <!-- Navigation scrollbars: enabled whenever the zoomed image extends
@@ -347,6 +353,109 @@
                     Minimum="0" Maximum="0" IsEnabled="False"
                     ValueChanged="WorkSpaceScrollBar_ValueChanged"/>
             </Grid>
+
+            <!-- Workshop resize handle -->
+            <GridSplitter x:Name="UI_WorkshopSplitter" Grid.Column="3"
+                  Width="4"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch"
+                  Background="DarkGray"
+                  ResizeDirection="Columns"
+                  ResizeBehavior="PreviousAndNext"
+                  Cursor="SizeWE"/>
+
+            <!-- Workshop sidebar: per-category CSV export for every specimen in the
+                 session. Toggled from View ▸ See Workshop. -->
+            <DockPanel x:Name="UI_WorkshopPanel" Grid.Column="4" TextElement.FontSize="14" Margin="8,10,8,10">
+                <TextBlock DockPanel.Dock="Top" Text="Workshop"
+                           FontWeight="Bold" FontSize="16"
+                           HorizontalAlignment="Left" Margin="2,0,0,2"/>
+                <TextBlock DockPanel.Dock="Top" Text="Export measurements for all specimens."
+                           Foreground="#777" TextWrapping="Wrap"
+                           HorizontalAlignment="Left" Margin="2,0,0,8"/>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <!-- Each row: left-aligned label, right-aligned export button.
+                             The shared row style keeps the labels and buttons on one grid. -->
+                        <StackPanel.Resources>
+                            <Style x:Key="WorkshopRowLabel" TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Left"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="TextWrapping" Value="Wrap"/>
+                                <Setter Property="Margin" Value="2,0,8,0"/>
+                            </Style>
+                            <Style x:Key="WorkshopExportButton" TargetType="Button">
+                                <Setter Property="Content" Value="+"/>
+                                <Setter Property="Width" Value="24"/>
+                                <Setter Property="Height" Value="24"/>
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="HorizontalAlignment" Value="Right"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="ToolTip" Value="Export"/>
+                                <!-- Show the tooltip at the cursor rather than below the button. -->
+                                <Setter Property="ToolTipService.Placement" Value="Mouse"/>
+                                <Setter Property="ToolTipService.InitialShowDelay" Value="150"/>
+                                <Setter Property="ToolTipService.ShowDuration" Value="20000"/>
+                            </Style>
+                            <Style x:Key="WorkshopRow" TargetType="Grid">
+                                <Setter Property="Margin" Value="0,0,0,10"/>
+                            </Style>
+                        </StackPanel.Resources>
+
+                        <Grid Style="{StaticResource WorkshopRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Curvature Data" Style="{StaticResource WorkshopRowLabel}"/>
+                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
+                                    Click="Workshop_ExportCurvature"/>
+                        </Grid>
+
+                        <Grid Style="{StaticResource WorkshopRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Angle Data" Style="{StaticResource WorkshopRowLabel}"/>
+                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
+                                    Click="Workshop_ExportAngle"/>
+                        </Grid>
+
+                        <Grid Style="{StaticResource WorkshopRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Shape Data" Style="{StaticResource WorkshopRowLabel}"/>
+                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
+                                    Click="Workshop_ExportShape"/>
+                        </Grid>
+
+                        <Grid Style="{StaticResource WorkshopRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Outline Metadata" Style="{StaticResource WorkshopRowLabel}"/>
+                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
+                                    Click="Workshop_ExportOutline"/>
+                        </Grid>
+
+                        <Grid Style="{StaticResource WorkshopRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="EFA Data" Style="{StaticResource WorkshopRowLabel}"/>
+                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
+                                    Click="Workshop_ExportEfa"/>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
         </Grid>
     </DockPanel>
 </Window>

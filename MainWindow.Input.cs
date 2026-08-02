@@ -78,15 +78,9 @@ namespace DinoLino
             {
                 if (_scaleMode)
                 {
-                    _scaleMode = false;
-                    _scaleClicks = 0;
-
-                    if (_scaleLine != null)
-                    {
-                        UI_WorkCanvas.Children.Remove(_scaleLine);
-                        _scaleLine = null;
-                    }
-
+                    // Ends the capture, removes the dashed line and cue dot, and
+                    // restores the workspace cursor.
+                    CancelScaleCapture();
                     e.Handled = true;
                     return;
                 }
@@ -191,11 +185,20 @@ namespace DinoLino
                 return;
             }
 
-            if (_scaleMode && _scaleClicks == 1 && _scaleLine != null)
+            if (_scaleMode)
             {
                 Vector2 p = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
-                _scaleLine.X2 = p.X;
-                _scaleLine.Y2 = p.Y;
+
+                // While the second click is pending, the dashed line follows the cursor.
+                if (_scaleClicks == 1 && _scaleLine != null)
+                {
+                    _scaleLine.X2 = p.X;
+                    _scaleLine.Y2 = p.Y;
+                }
+
+                // Keep the yellow cue dot glued to the cursor so the user can see
+                // that scale capture is active.
+                MoveScaleCue(p);
                 UI_DotCursor.SetPosition(p.X - 5, p.Y - 5);
                 return;
             }

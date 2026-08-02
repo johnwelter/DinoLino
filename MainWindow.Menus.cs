@@ -137,6 +137,15 @@ namespace DinoLino
             window.ShowDialog();
         }
 
+        // ---- Scale calibration ----
+
+        /// Arms the scale-calibration capture (Tools ▸ Set Scale). The capture
+        /// itself lives with the workspace code, which owns BeginScaleCapture.
+        private void Menu_SetScale(object sender, RoutedEventArgs e)
+        {
+            BeginScaleCapture();
+        }
+
         // ---- Tips ----
 
         private bool _tipsVisible = true;
@@ -233,6 +242,13 @@ namespace DinoLino
             SetMiniMapVisible(UI_SeeMiniMap.IsChecked);
         }
 
+        /// Toggles the Workshop sidebar. The sidebar itself lives in
+        /// MainWindow_Workshop.cs, which owns SetWorkshopVisible.
+        private void Menu_SeeWorkshop(object sender, RoutedEventArgs e)
+        {
+            SetWorkshopVisible(UI_SeeWorkshop.IsChecked);
+        }
+
         private void Menu_MouseLeave(object sender, MouseEventArgs e)
         {
             if (sender is MenuItem menuItem)
@@ -264,6 +280,7 @@ namespace DinoLino
             {
                 _currentFontSize = size;
                 TextElement.SetFontSize(UI_ControlPanel, size);
+                TextElement.SetFontSize(UI_WorkshopPanel, size);
                 UI_TipText.FontSize = size;
 
                 // Keep all attempt-counter labels aligned with the selected font size.
@@ -282,6 +299,7 @@ namespace DinoLino
             {
                 _currentFont = family;
                 TextElement.SetFontFamily(UI_ControlPanel, family);
+                TextElement.SetFontFamily(UI_WorkshopPanel, family);
                 UI_TipText.FontFamily = family;
 
                 // Keep all attempt-counter labels aligned with the selected font family.
