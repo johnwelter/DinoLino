@@ -38,6 +38,9 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>out.ico</ApplicationIcon>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Data" />
@@ -221,6 +224,9 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.17.1" />
+    <PackageReference Include="SharpVectors.Wpf">
+      <Version>1.8.5</Version>
+    </PackageReference>
   </ItemGroup>
   <ItemGroup>
     <None Include="Models\**\*.onnx">
@@ -230,10 +236,24 @@
   <ItemGroup>
     <Resource Include="TestImages\test.png" />
   </ItemGroup>
+  <ItemGroup />
   <ItemGroup>
-    <Folder Include="Icons\" />
-  </ItemGroup>
-  <ItemGroup>
+    <Resource Include="Icons\FullCreature.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Resource>
+    <EmbeddedResource Include="Icons\Icon.ico" />
+    <Resource Include="Icons\ShadedIcon.png" />
+    <EmbeddedResource Include="Icons\out.ico" />
+    <EmbeddedResource Include="Icons\Title.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <Resource Include="Icon.ico" />
+    <Resource Include="out.ico" />
+    <Content Include="FullCreature.svg" />
+    <Resource Include="Icons\Logo.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Resource>
+    <Content Include="Logo.svg" />
     <Content Include="Utilities\HelpMenuFiles\User Guide.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

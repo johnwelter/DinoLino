@@ -4,6 +4,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:local="clr-namespace:DinoLino"
+    xmlns:svgc="http://sharpvectors.codeplex.com/svgc/"
     xmlns:System="clr-namespace:System;assembly=mscorlib" xmlns:core="http://schemas.microsoft.com/winfx/2009/xaml" x:Class="DinoLino.MainWindow"
     mc:Ignorable="d"
     Title="DinoLino" Height="750" Width="1514"
@@ -124,7 +125,12 @@
 
             <!-- Controls Panel: toolbars and outputs for different controls and modes-->
             <StackPanel x:Name="UI_ControlPanel" Grid.Column="0" TextElement.FontSize="14">
-
+                <Grid Height="113">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <svgc:SvgViewbox Source="Icons/Logo.svg"/>
+                        <svgc:SvgViewbox Source="Icons/Title.svg"/>
+                    </StackPanel>
+                </Grid>
                 <!-- Controls that aren't dependent on mode type  -->
                 <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
                 <StackPanel x:Name="UI_GlobalControls" Orientation="Horizontal" Margin="10,10,10,5">
@@ -159,6 +165,10 @@
                                Text="{Binding StatusText}"/>
                 </StackPanel>
                 <Button x:Name="UI_AAClearButton" Content="Clear All" Margin="10,10,10,10" MinHeight="32" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
+                <!-- Creature art -->
+                <Grid x:Name="UI_CreatureArtContainer">
+                    <svgc:SvgViewbox Source="Icons/FullCreature.svg" Margin="10,10,10,10"/>
+                </Grid>
             </StackPanel>
             <GridSplitter Grid.Column="1"
                   Width="4"
