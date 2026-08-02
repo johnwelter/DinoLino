@@ -64,7 +64,7 @@
                 <MenuItem Header="See _Navigation Window" x:Name="UI_SeeMiniMap" IsCheckable="True" IsChecked="False" Click="Menu_SeeMiniMap"
                           ToolTip="Show a draggable overview of the whole image. Click a spot on it to pan the zoomed view there."/>
                 <MenuItem Header="See _Workshop" x:Name="UI_SeeWorkshop" IsCheckable="True" IsChecked="True" Click="Menu_SeeWorkshop"
-                          ToolTip="Show the Workshop sidebar for exporting measurement tables."/>
+                          ToolTip="Show the Workshop sidebar for batch exporting data."/>
                 <MenuItem Header="See _History" Click="Menu_SeeHistory"  InputGestureText="Ctrl+H"/>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>
@@ -452,6 +452,16 @@
                             <TextBlock Grid.Column="0" Text="EFA Data" Style="{StaticResource WorkshopRowLabel}"/>
                             <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
                                     Click="Workshop_ExportEfa"/>
+                        </Grid>
+
+                        <Grid Style="{StaticResource WorkshopRow}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="2D Outlines" Style="{StaticResource WorkshopRowLabel}"/>
+                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
+                                    Click="Workshop_Export2DOutlines"/>
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

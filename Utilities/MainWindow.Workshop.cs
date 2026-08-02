@@ -126,6 +126,63 @@ namespace DinoLino
                 UndoRedoManager, SpecimenManager.DisplayName);
         }
 
+        /// Exports every committed outline as a standardized black-on-white silhouette.
+        /// Unlike the CSV rows this writes many files, so it asks for a folder and a
+        /// file type first.
+        private void Workshop_Export2DOutlines(object sender, RoutedEventArgs e)
+        {
+            if (UndoRedoManager == null) return;
+
+            var availability = OutlineShapeExporter.Survey(
+                UndoRedoManager, SpecimenManager.DisplayName);
+
+            // Nothing to export until at least one outline has usable geometry.
+            if (availability.TracedCount == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "There are no outlines to export yet.\n\n" +
+                    "Trace or hand-draw an outline first.",
+                    "Export 2D Outlines",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var dialog = new OutlineExportWindow(availability)
+            {
+                Owner = this,
+                FontSize = _currentFontSize,
+                FontFamily = _currentFont
+            };
+
+            if (dialog.ShowDialog() != true) return;
+
+            try
+            {
+                int written = OutlineShapeExporter.ExportAll(
+                    UndoRedoManager, SpecimenManager.DisplayName, dialog.Options);
+
+                MessageBox.Show(
+                    this,
+                    written == 1
+                        ? $"1 outline exported to:\n{dialog.Options.Folder}"
+                        : $"{written} outlines exported to:\n{dialog.Options.Folder}",
+                    "Export 2D Outlines",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    $"Could not finish the export:\n{ex.Message}",
+                    "Export failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+
         /// Guards an export when nothing has been measured at all, so the user gets an
         /// explanation instead of a file of empty rows.
         private bool HasAnyOperations(string category)
