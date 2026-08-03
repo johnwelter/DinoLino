@@ -793,6 +793,11 @@ namespace DinoLino.Utilities
 
         #region Workshop sidebar exports
 
+        /// Every specimen's operations in order: the archived records followed by the
+        /// live history. Exposed so other exporters walk history the same way.
+        public static IEnumerable<(string Name, IReadOnlyList<WorkOperation> Ops)> SpecimenBlocks(
+            UndoRedoManager ur, string currentName) => Blocks(ur, currentName);
+
         // The Workshop sidebar exports one CSV per data category, covering every
         // specimen of the session. Each entry point reuses the same headless builders
         // that feed the xlsx export, so the numbers always agree with the History
@@ -807,11 +812,19 @@ namespace DinoLino.Utilities
             var para = BuildParabolicArcData(ur, currentName);
             var spline = BuildSplineData(ur, currentName, scale);
 
+            // Drop any columns hidden in the Batch Workshop edit window.
+            var circHeaders = circ.Headers;
+            var paraHeaders = para.Headers;
+            var splineHeaders = spline.Headers;
+            WorkshopColumnFilter.Apply("Circular Arc", ref circHeaders, circ.Rows);
+            WorkshopColumnFilter.Apply("Parabolic Arc", ref paraHeaders, para.Rows);
+            WorkshopColumnFilter.Apply("n-Point Spline", ref splineHeaders, spline.Rows);
+
             ExportSectionedCsv(new List<(string, string[], List<string[]>)>
             {
-                ("Circular Arc", circ.Headers, circ.Rows),
-                ("Parabolic Arc", para.Headers, para.Rows),
-                ("n-Point Spline", spline.Headers, spline.Rows)
+                ("Circular Arc", circHeaders, circ.Rows),
+                ("Parabolic Arc", paraHeaders, para.Rows),
+                ("n-Point Spline", splineHeaders, spline.Rows)
             }, "curvature_data.csv");
         }
 
@@ -820,6 +833,7 @@ namespace DinoLino.Utilities
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
             var (headers, rows) = BuildTriangleData(ur, currentName, scale);
+            WorkshopColumnFilter.Apply("Triangle", ref headers, rows);
             ExportCsv(headers, rows, "angle_data.csv");
         }
 
@@ -831,10 +845,15 @@ namespace DinoLino.Utilities
             var shapes = BuildShapeData(ur, currentName, scale);
             var lines = BuildLineData(ur, currentName, scale);
 
+            var shapeHeaders = shapes.Headers;
+            var lineHeaders = lines.Headers;
+            WorkshopColumnFilter.Apply("Shapes", ref shapeHeaders, shapes.Rows);
+            WorkshopColumnFilter.Apply("Lines", ref lineHeaders, lines.Rows);
+
             ExportSectionedCsv(new List<(string, string[], List<string[]>)>
             {
-                ("Shapes", shapes.Headers, shapes.Rows),
-                ("Lines", lines.Headers, lines.Rows)
+                ("Shapes", shapeHeaders, shapes.Rows),
+                ("Lines", lineHeaders, lines.Rows)
             }, "shape_data.csv");
         }
 
@@ -843,6 +862,7 @@ namespace DinoLino.Utilities
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
             var (headers, rows) = BuildOutlineData(ur, currentName, scale);
+            WorkshopColumnFilter.Apply("Outline", ref headers, rows);
             ExportCsv(headers, rows, "outline_metadata.csv");
         }
 
@@ -1099,24 +1119,24 @@ namespace DinoLino.Utilities
 
         #region Formatting helpers
 
-        private static string Fmt(double v) =>
+        internal static string Fmt(double v) =>
             Math.Round(v, 2).ToString(CultureInfo.InvariantCulture);
 
-        private static string Fmt4(double v) =>
+        internal static string Fmt4(double v) =>
     Math.Round(v, 4).ToString(CultureInfo.InvariantCulture);
 
         // LineLengthRatio is boxed as a double or "N/A"; handle both.
-        private static string FmtRatio(object ratio) =>
+        internal static string FmtRatio(object ratio) =>
             ratio is double d ? Fmt(d) : ratio?.ToString() ?? "";
 
         // Real-world units when calibrated, else raw canvas pixels so the cell is
         // never blank.
-        private static string FmtLength(double pixels, ScaleCalibration scale) =>
+        internal static string FmtLength(double pixels, ScaleCalibration scale) =>
             scale != null && scale.IsCalibrated
                 ? $"{scale.ToUnits(pixels):F2} {scale.Unit}"
                 : $"{Math.Round(pixels, 1).ToString(CultureInfo.InvariantCulture)} px";
 
-        private static string FmtArea(double pixelArea, ScaleCalibration scale) =>
+        internal static string FmtArea(double pixelArea, ScaleCalibration scale) =>
             scale != null && scale.IsCalibrated
                 ? $"{scale.ToUnitsArea(pixelArea):F2} {scale.Unit}\u00B2"
                 : $"{Math.Round(pixelArea, 1).ToString(CultureInfo.InvariantCulture)} px\u00B2";

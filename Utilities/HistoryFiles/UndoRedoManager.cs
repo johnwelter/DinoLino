@@ -1,4 +1,5 @@
-﻿using DinoLino.Utilities.Operations;
+﻿using DinoLino.Utilities.Modes;
+using DinoLino.Utilities.Operations;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -181,6 +182,84 @@ namespace DinoLino.Utilities
 
             foreach (var mode in affectedModes)
                 mode.OnHistoryChanged();
+
+            OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanRedo));
+        }
+
+        // ---- Editing (Batch Workshop) ----
+        // Unlike Undo, these deletions are permanent: the operation is dropped from
+        // the redo stack too, so it cannot be brought back.
+
+        /// Removes one operation wherever it lives: the live working set, the redo
+        /// stack, or an archived specimen's record. Returns true when it was found.
+        public bool RemoveOperation(WorkOperation operation)
+        {
+            if (operation == null) return false;
+
+            var mode = operation.SourceMode;
+            bool removed = _history.Remove(operation);
+
+            // A deleted operation must not survive on the redo stack.
+            if (_redoStack.Remove(operation)) removed = true;
+
+            if (!removed)
+            {
+                foreach (var record in _archive)
+                {
+                    if (record.Operations.Remove(operation))
+                    {
+                        removed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!removed) return false;
+
+            RefreshAfterEdit(mode);
+            return true;
+        }
+
+        /// Removes every operation belonging to an archived specimen, and the record
+        /// itself, so the specimen disappears from history and exports.
+        public void RemoveArchivedSpecimen(SpecimenRecord record)
+        {
+            if (record == null) return;
+
+            var affectedModes = record.Operations
+                .Select(o => o.SourceMode)
+                .Where(m => m != null)
+                .Distinct()
+                .ToList();
+
+            record.Operations.Clear();
+            _archive.Remove(record);
+
+            foreach (var mode in affectedModes)
+            {
+                mode.ClearMetadata();
+                mode.OnHistoryChanged();
+            }
+
+            OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanRedo));
+        }
+
+        /// Removes every operation of the ACTIVE specimen. Its live working set is the
+        /// same list Clear() empties, so this is that same hard reset.
+        public void RemoveActiveSpecimenOperations() => Clear();
+
+        // After a deletion the panels may be showing a value that no longer exists, so
+        // re-apply the new top of history or blank them.
+        private void RefreshAfterEdit(WorkMode mode)
+        {
+            if (_history.Count > 0)
+                _history[_history.Count - 1].ApplyMetadataToMode();
+            else
+                mode?.ClearMetadata();
+
+            mode?.OnHistoryChanged();
 
             OnPropertyChanged(nameof(CanUndo));
             OnPropertyChanged(nameof(CanRedo));

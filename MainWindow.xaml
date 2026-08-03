@@ -64,8 +64,10 @@
                           ToolTip="Display the number of operations performed for each specimen."/>
                 <MenuItem Header="See _Navigation Window" x:Name="UI_SeeMiniMap" IsCheckable="True" IsChecked="False" Click="Menu_SeeMiniMap"
                           ToolTip="Show a draggable overview of the whole image. Click a spot on it to pan the zoomed view there."/>
-                <MenuItem Header="See _Workshop" x:Name="UI_SeeWorkshop" IsCheckable="True" IsChecked="True" Click="Menu_SeeWorkshop"
-                          ToolTip="Show the Workshop sidebar for batch exporting data."/>
+                <MenuItem Header="See _Batch Workshop" x:Name="UI_SeeWorkshop" IsCheckable="True" IsChecked="True" Click="Menu_SeeWorkshop"
+                          ToolTip="Show the Batch Workshop sidebar for batch exporting data."/>
+                <MenuItem Header="See _Rex" x:Name="UI_SeeRex" IsCheckable="True" IsChecked="True" Click="Menu_SeeRex"
+                          ToolTip="Show the creature artwork in the control panel."/>
                 <MenuItem Header="See _History" Click="Menu_SeeHistory"  InputGestureText="Ctrl+H"/>
                 <MenuItem Header="_Line Color" x:Name="UI_LineColor" MouseLeave="Menu_MouseLeave">
                     <RadioButton Content="_Red" Tag="Red" GroupName="LineColors" IsChecked="True" Click="Menu_Color_Click"/>
@@ -126,10 +128,18 @@
             <!-- Controls Panel: toolbars and outputs for different controls and modes-->
             <StackPanel x:Name="UI_ControlPanel" Grid.Column="0" TextElement.FontSize="14">
                 <Grid Height="113">
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <StackPanel x:Name="UI_LogoArt" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <svgc:SvgViewbox Source="Icons/Logo.svg"/>
                         <svgc:SvgViewbox Source="Icons/Title.svg"/>
                     </StackPanel>
+                    <Rectangle 
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Width="{Binding ActualWidth, ElementName=UI_LogoArt, Mode=OneWay}"
+                               Height="{Binding ActualHeight, ElementName=UI_LogoArt, Mode=OneWay}">
+                        <Rectangle.OpacityMask>
+                            <VisualBrush Visual="{Binding ElementName=UI_LogoArt}"/>
+                        </Rectangle.OpacityMask>
+                    </Rectangle>
                 </Grid>
                 <!-- Controls that aren't dependent on mode type  -->
                 <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
@@ -165,9 +175,16 @@
                                Text="{Binding StatusText}"/>
                 </StackPanel>
                 <Button x:Name="UI_AAClearButton" Content="Clear All" Margin="10,10,10,10" MinHeight="32" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
-                <!-- Creature art -->
+                <!-- Creature art: the 1:2:1 columns make the middle column exactly half
+                     the control panel's width, so the artwork is half size and centred
+                     without any hard-coded margins. Toggled from View ▸ See Rex. -->
                 <Grid x:Name="UI_CreatureArtContainer">
-                    <svgc:SvgViewbox Source="Icons/FullCreature.svg" Margin="10,10,10,10"/>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="2*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <svgc:SvgViewbox Grid.Column="1" Source="Icons/FullCreature.svg" Margin="0,10,0,10"/>
                 </Grid>
             </StackPanel>
             <GridSplitter Grid.Column="1"
@@ -374,10 +391,10 @@
                   ResizeBehavior="PreviousAndNext"
                   Cursor="SizeWE"/>
 
-            <!-- Workshop sidebar: per-category CSV export for every specimen in the
-                 session. Toggled from View ▸ See Workshop. -->
+            <!-- Batch Workshop sidebar: per-category export for every specimen in the
+                 session. Toggled from View ▸ See Batch Workshop. -->
             <DockPanel x:Name="UI_WorkshopPanel" Grid.Column="4" TextElement.FontSize="14" Margin="8,10,8,10">
-                <TextBlock DockPanel.Dock="Top" Text="Workshop"
+                <TextBlock DockPanel.Dock="Top" Text="Batch Workshop"
                            FontWeight="Bold" FontSize="16"
                            HorizontalAlignment="Left" Margin="2,0,0,2"/>
                 <TextBlock DockPanel.Dock="Top" Text="Export measurements for all specimens."
@@ -386,8 +403,9 @@
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
-                        <!-- Each row: left-aligned label, right-aligned export button.
-                             The shared row style keeps the labels and buttons on one grid. -->
+                        <!-- Each row: left-aligned label, then an edit and an export
+                             button on the right. The shared styles keep every row on
+                             the same grid and glyph size. -->
                         <StackPanel.Resources>
                             <Style x:Key="WorkshopRowLabel" TargetType="TextBlock">
                                 <Setter Property="HorizontalAlignment" Value="Left"/>
@@ -395,19 +413,30 @@
                                 <Setter Property="TextWrapping" Value="Wrap"/>
                                 <Setter Property="Margin" Value="2,0,8,0"/>
                             </Style>
-                            <Style x:Key="WorkshopExportButton" TargetType="Button">
-                                <Setter Property="Content" Value="+"/>
-                                <Setter Property="Width" Value="24"/>
-                                <Setter Property="Height" Value="24"/>
+                            <!-- Shared look for both glyph buttons. Segoe UI Emoji is set
+                                 explicitly so the symbols render as emoji rather than
+                                 falling back to a text glyph or a missing-character box. -->
+                            <Style x:Key="WorkshopGlyphButton" TargetType="Button">
+                                <Setter Property="Width" Value="26"/>
+                                <Setter Property="Height" Value="26"/>
                                 <Setter Property="Padding" Value="0"/>
-                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="FontFamily" Value="Segoe UI Emoji"/>
+                                <Setter Property="FontSize" Value="13"/>
                                 <Setter Property="HorizontalAlignment" Value="Right"/>
                                 <Setter Property="VerticalAlignment" Value="Center"/>
-                                <Setter Property="ToolTip" Value="Export"/>
                                 <!-- Show the tooltip at the cursor rather than below the button. -->
                                 <Setter Property="ToolTipService.Placement" Value="Mouse"/>
                                 <Setter Property="ToolTipService.InitialShowDelay" Value="150"/>
                                 <Setter Property="ToolTipService.ShowDuration" Value="20000"/>
+                            </Style>
+                            <Style x:Key="WorkshopEditButton" TargetType="Button" BasedOn="{StaticResource WorkshopGlyphButton}">
+                                <Setter Property="Content" Value="&#x270F;&#xFE0F;"/>
+                                <Setter Property="ToolTip" Value="Edit"/>
+                                <Setter Property="Margin" Value="0,0,6,0"/>
+                            </Style>
+                            <Style x:Key="WorkshopExportButton" TargetType="Button" BasedOn="{StaticResource WorkshopGlyphButton}">
+                                <Setter Property="Content" Value="&#x1F4E4;"/>
+                                <Setter Property="ToolTip" Value="Export"/>
                             </Style>
                             <Style x:Key="WorkshopRow" TargetType="Grid">
                                 <Setter Property="Margin" Value="0,0,0,10"/>
@@ -420,8 +449,12 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Curvature Data" Style="{StaticResource WorkshopRowLabel}"/>
-                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
-                                    Click="Workshop_ExportCurvature"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button x:Name="UI_EditCurvature" Style="{StaticResource WorkshopEditButton}"
+                                        Click="Workshop_EditCurvature"/>
+                                <Button Style="{StaticResource WorkshopExportButton}"
+                                        Click="Workshop_ExportCurvature"/>
+                            </StackPanel>
                         </Grid>
 
                         <Grid Style="{StaticResource WorkshopRow}">
@@ -430,8 +463,12 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Angle Data" Style="{StaticResource WorkshopRowLabel}"/>
-                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
-                                    Click="Workshop_ExportAngle"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button x:Name="UI_EditAngle" Style="{StaticResource WorkshopEditButton}"
+                                        Click="Workshop_EditAngle"/>
+                                <Button Style="{StaticResource WorkshopExportButton}"
+                                        Click="Workshop_ExportAngle"/>
+                            </StackPanel>
                         </Grid>
 
                         <Grid Style="{StaticResource WorkshopRow}">
@@ -440,8 +477,12 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Shape Data" Style="{StaticResource WorkshopRowLabel}"/>
-                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
-                                    Click="Workshop_ExportShape"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button x:Name="UI_EditShape" Style="{StaticResource WorkshopEditButton}"
+                                        Click="Workshop_EditShape"/>
+                                <Button Style="{StaticResource WorkshopExportButton}"
+                                        Click="Workshop_ExportShape"/>
+                            </StackPanel>
                         </Grid>
 
                         <Grid Style="{StaticResource WorkshopRow}">
@@ -450,8 +491,12 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Outline Metadata" Style="{StaticResource WorkshopRowLabel}"/>
-                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
-                                    Click="Workshop_ExportOutline"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button x:Name="UI_EditOutline" Style="{StaticResource WorkshopEditButton}"
+                                        Click="Workshop_EditOutline"/>
+                                <Button Style="{StaticResource WorkshopExportButton}"
+                                        Click="Workshop_ExportOutline"/>
+                            </StackPanel>
                         </Grid>
 
                         <Grid Style="{StaticResource WorkshopRow}">
@@ -460,8 +505,12 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="EFA Data" Style="{StaticResource WorkshopRowLabel}"/>
-                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
-                                    Click="Workshop_ExportEfa"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button x:Name="UI_EditEfa" Style="{StaticResource WorkshopEditButton}"
+                                        Click="Workshop_EditEfa"/>
+                                <Button Style="{StaticResource WorkshopExportButton}"
+                                        Click="Workshop_ExportEfa"/>
+                            </StackPanel>
                         </Grid>
 
                         <Grid Style="{StaticResource WorkshopRow}">
@@ -470,8 +519,12 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="2D Outlines" Style="{StaticResource WorkshopRowLabel}"/>
-                            <Button Grid.Column="1" Style="{StaticResource WorkshopExportButton}"
-                                    Click="Workshop_Export2DOutlines"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button x:Name="UI_Edit2DOutlines" Style="{StaticResource WorkshopEditButton}"
+                                        Click="Workshop_Edit2DOutlines"/>
+                                <Button Style="{StaticResource WorkshopExportButton}"
+                                        Click="Workshop_Export2DOutlines"/>
+                            </StackPanel>
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

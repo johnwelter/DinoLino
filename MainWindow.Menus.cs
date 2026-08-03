@@ -249,6 +249,13 @@ namespace DinoLino
             SetWorkshopVisible(UI_SeeWorkshop.IsChecked);
         }
 
+        /// Shows or hides the creature artwork at the bottom of the control panel.
+        private void Menu_SeeRex(object sender, RoutedEventArgs e)
+        {
+            UI_CreatureArtContainer.Visibility =
+                UI_SeeRex.IsChecked ? Visibility.Visible : Visibility.Collapsed;
+        }
+
         private void Menu_MouseLeave(object sender, MouseEventArgs e)
         {
             if (sender is MenuItem menuItem)

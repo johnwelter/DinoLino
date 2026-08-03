@@ -48,7 +48,7 @@ namespace DinoLino
             root.Children.Add(new TextBlock
             {
                 Text = "Each outline is saved as a black silhouette on a white square canvas, " +
-                       "centred and scaled to a standard area so specimens can be compared.",
+                       "centered and scaled to a standard area.",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = System.Windows.Media.Brushes.Gray,
                 Margin = new Thickness(0, 0, 0, 14)
@@ -65,9 +65,7 @@ namespace DinoLino
 
             root.Children.Add(new TextBlock
             {
-                Text = "Rotates each outline onto its long axis so specimens share a common " +
-                       "orientation. This only turns the traced shape \u2014 no detail is smoothed " +
-                       "or redrawn. Leave unchecked to keep each outline as it was traced.",
+                Text = "Rotates each outline onto its long axis.",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = System.Windows.Media.Brushes.Gray,
                 Margin = new Thickness(20, 0, 0, 8)

@@ -183,6 +183,56 @@ namespace DinoLino
             }
         }
 
+        // =====================
+        // Editing
+        // =====================
+
+        private void Workshop_EditCurvature(object sender, RoutedEventArgs e)
+            => OpenWorkshopEditor(WorkshopCategory.Curvature);
+
+        private void Workshop_EditAngle(object sender, RoutedEventArgs e)
+            => OpenWorkshopEditor(WorkshopCategory.Angle);
+
+        private void Workshop_EditShape(object sender, RoutedEventArgs e)
+            => OpenWorkshopEditor(WorkshopCategory.Shape);
+
+        private void Workshop_EditOutline(object sender, RoutedEventArgs e)
+            => OpenWorkshopEditor(WorkshopCategory.OutlineMetadata);
+
+        private void Workshop_EditEfa(object sender, RoutedEventArgs e)
+            => OpenWorkshopEditor(WorkshopCategory.Efa);
+
+        private void Workshop_Edit2DOutlines(object sender, RoutedEventArgs e)
+            => OpenWorkshopEditor(WorkshopCategory.Outlines2D);
+
+        /// Opens the table editor for one category and clears the workspace visuals of
+        /// anything deleted while it was open.
+        private void OpenWorkshopEditor(WorkshopCategory category)
+        {
+            if (UndoRedoManager == null) return;
+
+            var window = new WorkshopEditWindow(
+                category, UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration)
+            {
+                Owner = this,
+                FontSize = _currentFontSize,
+                FontFamily = _currentFont
+            };
+
+            window.ShowDialog();
+
+            // Deleted operations may still have drawings on the canvas; the operation
+            // itself is already gone from history.
+            foreach (var op in window.RemovedOperations)
+            {
+                if (op.Elements == null) continue;
+                foreach (var element in op.Elements)
+                    UI_WorkCanvas.Children.Remove(element);
+            }
+
+            UpdateAttemptCounter();
+        }
+
         /// Guards an export when nothing has been measured at all, so the user gets an
         /// explanation instead of a file of empty rows.
         private bool HasAnyOperations(string category)

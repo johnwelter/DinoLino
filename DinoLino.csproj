@@ -143,6 +143,7 @@
     </Compile>
     <Compile Include="Utilities\Operations.cs" />
     <Compile Include="Utilities\HistoryFiles\UndoRedoManager.cs" />
+    <Compile Include="WorkshopEditWindow.cs" />
     <Page Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
