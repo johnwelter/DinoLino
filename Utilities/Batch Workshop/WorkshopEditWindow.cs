@@ -50,10 +50,8 @@ namespace DinoLino.Utilities
 
             var note = new TextBlock
             {
-                Text = "Every variable measured in this mode is a column, and attempts are joined across " +
-                       "operation kinds: attempt 1 of each kind shares a row, and kinds with fewer attempts " +
-                       "leave blank cells. Deleting a row or specimen is permanent and cannot be undone with " +
-                       "Ctrl+Z; hiding a column only removes it from the table and its export.",
+                Text = "Deleting a row or specimen is permanent and cannot be undone with " +
+                       "Ctrl+Z. Hiding a column only removes it from the table and its export.",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.Gray,
                 Margin = new Thickness(0, 0, 0, 10)

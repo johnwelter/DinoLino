@@ -52,12 +52,23 @@ namespace DinoLino
                 Filter = "3D models (*.ply;*.stl;*.obj)|*.ply;*.stl;*.obj|" +
                          "PLY mesh (*.ply)|*.ply|" +
                          "STL mesh (*.stl)|*.stl|" +
-                         "OBJ mesh (*.obj)|*.obj"
+                         "OBJ mesh (*.obj)|*.obj",
+
+                // Start in the Directory panel's working folder when one is set.
+                InitialDirectory = DialogInitialDirectory
             };
 
             if (dlg.ShowDialog() != true) return;
 
-            string fileName = dlg.FileName;
+            await Open3DModelFromPath(dlg.FileName);
+        }
+
+        /// Loads a mesh file and opens the pose overlay for it. Shared by the File menu
+        /// and the Directory panel.
+        internal async System.Threading.Tasks.Task Open3DModelFromPath(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return;
+
             MeshGeometry3D mesh = null;
 
             Mouse.OverrideCursor = Cursors.Wait;

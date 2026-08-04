@@ -15,57 +15,108 @@ namespace DinoLino
         // Sidebar visibility
         // =====================
 
-        // The sidebar starts visible, matching UI_SeeWorkshop.IsChecked in the View menu.
+        // Which panels the View menu has switched on. These match the initial
+        // IsChecked values of UI_SeeWorkshop and UI_SeeDirectory, and the row heights
+        // set in the XAML so the first paint needs no layout pass.
         private bool _workshopVisible = true;
+        private bool _directoryVisible = true;
+
+        // Whether the sidebar column itself is showing. It is present whenever at
+        // least one of the two panels is.
+        private bool _sidebarVisible = true;
 
         // Remembered panel width so hiding and re-showing preserves the user's resize.
-        private double _workshopWidth = 260;
+        private double _sidebarWidth = 260;
 
-        // Width of the workshop's GridSplitter column.
-        private const double WorkshopSplitterWidth = 4;
+        // Width of the sidebar's GridSplitter column.
+        private const double SidebarSplitterWidth = 4;
 
-        /// <summary>
-        /// Shows or hides the Workshop sidebar, resizing the window rather than the workspace.
-        /// </summary>
+        /// <summary>Shows or hides the Batch Workshop panel.</summary>
         private void SetWorkshopVisible(bool visible)
         {
             if (visible == _workshopVisible) return;
             _workshopVisible = visible;
+            UpdateSidebarLayout();
+        }
+
+        /// <summary>Shows or hides the Directory panel.</summary>
+        private void SetDirectoryVisible(bool visible)
+        {
+            if (visible == _directoryVisible) return;
+            _directoryVisible = visible;
+
+            // Fill the tree the first time the panel is shown rather than at startup.
+            if (visible && UI_DirectoryTree.Items.Count == 0)
+                RebuildDirectoryRoots();
+
+            UpdateSidebarLayout();
+        }
+
+        /// Applies the current toggles to the sidebar: which panels are shown, how the
+        /// rows divide the column, and whether the column exists at all.
+        private void UpdateSidebarLayout()
+        {
+            UI_WorkshopPanel.Visibility = _workshopVisible ? Visibility.Visible : Visibility.Collapsed;
+            UI_DirectoryPanel.Visibility = _directoryVisible ? Visibility.Visible : Visibility.Collapsed;
+
+            // The divider only means anything with a panel on each side of it.
+            UI_SidebarDivider.Visibility =
+                (_workshopVisible && _directoryVisible) ? Visibility.Visible : Visibility.Collapsed;
+
+            // With the Directory below it the Workshop takes only the height it needs;
+            // on its own it fills the column, leaving the blank space underneath.
+            UI_WorkshopRow.Height = !_workshopVisible
+                ? new GridLength(0)
+                : _directoryVisible ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+
+            UI_DirectoryRow.Height = _directoryVisible
+                ? new GridLength(1, GridUnitType.Star)
+                : new GridLength(0);
+
+            SetSidebarVisible(_workshopVisible || _directoryVisible);
+        }
+
+        /// Adds or removes the sidebar column, resizing the window rather than the
+        /// workspace so the image keeps its size.
+        private void SetSidebarVisible(bool visible)
+        {
+            if (visible == _sidebarVisible) return;
+            _sidebarVisible = visible;
 
             if (visible)
             {
                 // Grow the window first so the workspace keeps its current width.
-                ResizeWindowForWorkshop(_workshopWidth + WorkshopSplitterWidth);
+                ResizeWindowForSidebar(_sidebarWidth + SidebarSplitterWidth);
 
-                UI_WorkshopColumn.MinWidth = 180;
-                UI_WorkshopColumn.MaxWidth = 500;
-                UI_WorkshopColumn.Width = new GridLength(_workshopWidth);
-                UI_WorkshopSplitterColumn.Width = new GridLength(WorkshopSplitterWidth);
+                UI_SidebarColumn.MinWidth = 180;
+                UI_SidebarColumn.MaxWidth = 500;
+                UI_SidebarColumn.Width = new GridLength(_sidebarWidth);
+                UI_SidebarSplitterColumn.Width = new GridLength(SidebarSplitterWidth);
 
-                UI_WorkshopPanel.Visibility = Visibility.Visible;
-                UI_WorkshopSplitter.Visibility = Visibility.Visible;
+                UI_Sidebar.Visibility = Visibility.Visible;
+                UI_SidebarSplitter.Visibility = Visibility.Visible;
             }
             else
             {
                 // Remember the current width, including any resize the user made.
-                if (UI_WorkshopColumn.ActualWidth > 0)
-                    _workshopWidth = UI_WorkshopColumn.ActualWidth;
+                if (UI_SidebarColumn.ActualWidth > 0)
+                    _sidebarWidth = UI_SidebarColumn.ActualWidth;
 
-                UI_WorkshopPanel.Visibility = Visibility.Collapsed;
-                UI_WorkshopSplitter.Visibility = Visibility.Collapsed;
+                UI_Sidebar.Visibility = Visibility.Collapsed;
+                UI_SidebarSplitter.Visibility = Visibility.Collapsed;
 
                 // MinWidth must be cleared before the column can collapse to zero.
-                UI_WorkshopColumn.MinWidth = 0;
-                UI_WorkshopColumn.Width = new GridLength(0);
-                UI_WorkshopSplitterColumn.Width = new GridLength(0);
+                UI_SidebarColumn.MinWidth = 0;
+                UI_SidebarColumn.Width = new GridLength(0);
+                UI_SidebarSplitterColumn.Width = new GridLength(0);
 
-                ResizeWindowForWorkshop(-(_workshopWidth + WorkshopSplitterWidth));
+                ResizeWindowForSidebar(-(_sidebarWidth + SidebarSplitterWidth));
             }
         }
 
         /// Widens or narrows the window by the sidebar's width so the workspace area
         /// is unaffected. Maximized windows are left alone, since they cannot grow.
-        private void ResizeWindowForWorkshop(double delta)
+        private void ResizeWindowForSidebar(double delta)
         {
             if (WindowState != WindowState.Normal) return;
 

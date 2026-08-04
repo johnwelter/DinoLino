@@ -118,18 +118,49 @@ namespace DinoLino
 
         private void Menu_OpenImage(object sender, RoutedEventArgs e)
         {
-            OpenFileDialog openFileDialog = new OpenFileDialog();
+            OpenFileDialog openFileDialog = new OpenFileDialog
+            {
+                // Start in the Directory panel's working folder when one is set.
+                InitialDirectory = DialogInitialDirectory
+            };
 
             if (openFileDialog.ShowDialog() != true)
                 return;
 
+            OpenImageFromPath(openFileDialog.FileName);
+        }
+
+        /// Loads an image file as a new specimen. Shared by the File menu and the
+        /// Directory panel, so it validates the file rather than trusting the caller.
+        internal void OpenImageFromPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            BitmapImage bmp;
+            try
+            {
+                // OnLoad reads the file up front and releases the handle, so the image
+                // can still be renamed or deleted from the Directory panel afterwards.
+                bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(path, UriKind.RelativeOrAbsolute);
+                bmp.EndInit();
+                bmp.Freeze();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this,
+                    $"Could not open this image:\n{ex.Message}",
+                    "Open Image", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Only stash the outgoing specimen once the new image has actually loaded.
             if (SpecimenManager.HasOpenedImage)
                 UndoRedoManager.StashActiveSpecimen(SpecimenManager.CurrentSpecimen, SpecimenManager.DisplayName);
 
-            BitmapImage bmp = new BitmapImage(
-                new Uri(openFileDialog.FileName, UriKind.RelativeOrAbsolute));
-
-            SetWorkspaceImage(bmp, openFileDialog.SafeFileName, registerAsNewSpecimen: true);
+            SetWorkspaceImage(bmp, System.IO.Path.GetFileName(path), registerAsNewSpecimen: true);
 
             // A 2D image does not use the 3D reposition workflow.
             _workingImageIsModelCapture = false;

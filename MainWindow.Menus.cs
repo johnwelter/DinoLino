@@ -249,6 +249,13 @@ namespace DinoLino
             SetWorkshopVisible(UI_SeeWorkshop.IsChecked);
         }
 
+        /// Toggles the Directory panel. The browser itself lives in
+        /// MainWindow_Directory.cs; the sidebar layout lives in MainWindow_Workshop.cs.
+        private void Menu_SeeDirectory(object sender, RoutedEventArgs e)
+        {
+            SetDirectoryVisible(UI_SeeDirectory.IsChecked);
+        }
+
         /// Shows or hides the creature artwork at the bottom of the control panel.
         private void Menu_SeeRex(object sender, RoutedEventArgs e)
         {

@@ -65,6 +65,7 @@
     <Compile Include="MainWindow.Navigation.cs" />
     <Compile Include="Utilities\Batch Workshop\MainWindow.Workshop.cs" />
     <Compile Include="Utilities\Batch Workshop\WorkshopTables.cs" />
+    <Compile Include="Utilities\MainWindow.Directory.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml.cs">
       <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>
     </Compile>
@@ -251,7 +252,6 @@
     </EmbeddedResource>
     <Resource Include="Icon.ico" />
     <Resource Include="out.ico" />
-    <Content Include="FullCreature.svg" />
     <Resource Include="Icons\Logo.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Resource>
