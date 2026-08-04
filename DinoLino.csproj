@@ -63,7 +63,8 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="MainWindow.Navigation.cs" />
-    <Compile Include="Utilities\MainWindow.Workshop.cs" />
+    <Compile Include="Utilities\Batch Workshop\MainWindow.Workshop.cs" />
+    <Compile Include="Utilities\Batch Workshop\WorkshopTables.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml.cs">
       <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>
     </Compile>
@@ -143,7 +144,7 @@
     </Compile>
     <Compile Include="Utilities\Operations.cs" />
     <Compile Include="Utilities\HistoryFiles\UndoRedoManager.cs" />
-    <Compile Include="WorkshopEditWindow.cs" />
+    <Compile Include="Utilities\Batch Workshop\WorkshopEditWindow.cs" />
     <Page Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>

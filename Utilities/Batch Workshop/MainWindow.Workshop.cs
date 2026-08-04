@@ -89,41 +89,30 @@ namespace DinoLino
         // =====================
 
         // Every export covers all specimens: the archived records plus the live
-        // history, which is what GeomOpHistoryWindow walks internally.
+        // history. Each category writes one wide CSV, matching the table shown by its
+        // edit button.
 
         private void Workshop_ExportCurvature(object sender, RoutedEventArgs e)
-        {
-            if (!HasAnyOperations("Curvature Data")) return;
-            GeomOpHistoryWindow.ExportCurvatureCsv(
-                UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
-        }
+            => ExportWorkshopCategory(WorkshopCategory.Curvature);
 
         private void Workshop_ExportAngle(object sender, RoutedEventArgs e)
-        {
-            if (!HasAnyOperations("Angle Data")) return;
-            GeomOpHistoryWindow.ExportAngleCsv(
-                UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
-        }
+            => ExportWorkshopCategory(WorkshopCategory.Angle);
 
         private void Workshop_ExportShape(object sender, RoutedEventArgs e)
-        {
-            if (!HasAnyOperations("Shape Data")) return;
-            GeomOpHistoryWindow.ExportShapeCsv(
-                UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
-        }
+            => ExportWorkshopCategory(WorkshopCategory.Shape);
 
         private void Workshop_ExportOutline(object sender, RoutedEventArgs e)
-        {
-            if (!HasAnyOperations("Outline Metadata")) return;
-            GeomOpHistoryWindow.ExportOutlineCsv(
-                UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
-        }
+            => ExportWorkshopCategory(WorkshopCategory.OutlineMetadata);
 
         private void Workshop_ExportEfa(object sender, RoutedEventArgs e)
+            => ExportWorkshopCategory(WorkshopCategory.Efa);
+
+        private void ExportWorkshopCategory(WorkshopCategory category)
         {
-            if (!HasAnyOperations("EFA Data")) return;
-            GeomOpHistoryWindow.ExportEfaCsv(
-                UndoRedoManager, SpecimenManager.DisplayName);
+            if (UndoRedoManager == null) return;
+
+            GeomOpHistoryWindow.ExportWorkshopCsv(
+                category, UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
         }
 
         /// Exports every committed outline as a standardized black-on-white silhouette.
@@ -233,23 +222,5 @@ namespace DinoLino
             UpdateAttemptCounter();
         }
 
-        /// Guards an export when nothing has been measured at all, so the user gets an
-        /// explanation instead of a file of empty rows.
-        private bool HasAnyOperations(string category)
-        {
-            if (UndoRedoManager == null) return false;
-
-            if (UndoRedoManager.History.Count > 0) return true;
-            foreach (var record in UndoRedoManager.Archive)
-                if (record.Operations.Count > 0) return true;
-
-            MessageBox.Show(
-                this,
-                "There are no measurements to export yet.",
-                $"Export {category}",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            return false;
-        }
     }
 }
