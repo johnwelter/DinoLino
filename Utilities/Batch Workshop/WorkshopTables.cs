@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ShapeConstraint = DinoLino.Utilities.Modes.DrawMode.ShapeConstraint;
 
 namespace DinoLino.Utilities
 {
@@ -69,7 +70,8 @@ namespace DinoLino.Utilities
     {
         public Type OperationType;
 
-        // Extra condition beyond the type, e.g. outlines that have metadata.
+        // Extra condition beyond the type, e.g. outlines that have metadata, or
+        // shapes drawn with one particular constraint.
         public Func<WorkOperation, bool> Filter;
 
         public List<WorkshopColumn> Columns = new List<WorkshopColumn>();
@@ -349,8 +351,13 @@ namespace DinoLino.Utilities
         // Column definitions
         // =====================
 
-        // Headers are prefixed by operation kind so one wide table stays readable:
-        // circ_, para_, spline_ for curvature; tri_ for triangles; and so on.
+        // Every header is lowercase, so nothing downstream has to remember which
+        // variable was capitalised. Each is prefixed by the operation kind that
+        // produced it, which is what keeps one wide table readable: circ_, para_ and
+        // spline_ for curvature; tri_ for triangles; rect_, sqr_, ellipse_ and circ_
+        // for the four drawn shapes; line_ for lines; outline_ and efa_ for outlines.
+        // Note circ_ means the circular arc in the Curvature table and the drawn
+        // circle in the Shape table — separate tables, so the names never meet.
         private static List<WorkshopColumnGroup> GroupsFor(
             WorkshopCategory category, UndoRedoManager undoRedo, ScaleCalibration scale)
         {
@@ -403,32 +410,30 @@ namespace DinoLino.Utilities
                                 Col("tri_angleb", o => GeomOpHistoryWindow.Fmt(((GetAngleOperation)o).AngleB)),
                                 Col("tri_anglec", o => GeomOpHistoryWindow.Fmt(((GetAngleOperation)o).AngleC)),
                                 Col("tri_aspect", o => GeomOpHistoryWindow.Fmt(((GetAngleOperation)o).TriAspectRatio)),
-                                Col("tri_area", o => GeomOpHistoryWindow.FmtArea(((GetAngleOperation)o).TriArea, scale)),
-                                Col("tri_relarea", o => GeomOpHistoryWindow.FmtRatio(((GetAngleOperation)o).RelativeArea))
+                                Col("tri_area", o => GeomOpHistoryWindow.FmtArea(((GetAngleOperation)o).TriArea, scale))
                             }
                         }
                     };
 
                 case WorkshopCategory.Shape:
+                    // One group per shape kind. Because the builder walks each group's
+                    // operations independently, attempt n means the nth rectangle, the
+                    // nth ellipse, and so on, rather than the nth shape of any kind.
                     return new List<WorkshopColumnGroup>
                     {
-                        new WorkshopColumnGroup
-                        {
-                            OperationType = typeof(ShapeOperation),
-                            Columns = new List<WorkshopColumn>
-                            {
-                                Col("shape_aspect", o => GeomOpHistoryWindow.Fmt(((ShapeOperation)o).DrawAspectRatio)),
-                                Col("shape_area", o => GeomOpHistoryWindow.FmtArea(((ShapeOperation)o).ShapeArea, scale)),
-                                Col("shape_relarea", o => GeomOpHistoryWindow.FmtRatio(((ShapeOperation)o).RelativeArea))
-                            }
-                        },
+                        ShapeGroup(ShapeConstraint.Rectangle, "rect", hasAspect: true, scale: scale),
+                        ShapeGroup(ShapeConstraint.Square, "sqr", hasAspect: false, scale: scale),
+                        ShapeGroup(ShapeConstraint.Ellipse, "ellipse", hasAspect: true, scale: scale),
+                        ShapeGroup(ShapeConstraint.Circle, "circ", hasAspect: false, scale: scale),
+
                         new WorkshopColumnGroup
                         {
                             OperationType = typeof(LineOperation),
                             Columns = new List<WorkshopColumn>
                             {
                                 Col("line_length", o => GeomOpHistoryWindow.FmtLength(((LineOperation)o).LineLength, scale)),
-                                Col("line_ratio", o => GeomOpHistoryWindow.FmtRatio(((LineOperation)o).LineLengthRatio))
+                                Col("line_ratio", o => GeomOpHistoryWindow.FmtRatio(((LineOperation)o).LineLengthRatio)),
+                                Col("line_angle", o => GeomOpHistoryWindow.FmtRatio(((LineOperation)o).LineAngle))
                             }
                         }
                     };
@@ -475,6 +480,28 @@ namespace DinoLino.Utilities
                         }
                     };
             }
+        }
+
+        /// One drawn shape kind as its own set of columns.
+        /// A square and a circle are equilateral by construction, so their aspect
+        /// ratio is always 1 and no column is emitted for it.
+        private static WorkshopColumnGroup ShapeGroup(
+            ShapeConstraint kind, string prefix, bool hasAspect, ScaleCalibration scale)
+        {
+            var group = new WorkshopColumnGroup
+            {
+                OperationType = typeof(ShapeOperation),
+                Filter = o => ((ShapeOperation)o).ShapeKind == kind
+            };
+
+            if (hasAspect)
+                group.Columns.Add(Col(prefix + "_aspect",
+                    o => GeomOpHistoryWindow.Fmt(((ShapeOperation)o).DrawAspectRatio)));
+
+            group.Columns.Add(Col(prefix + "_area",
+                o => GeomOpHistoryWindow.FmtArea(((ShapeOperation)o).ShapeArea, scale)));
+
+            return group;
         }
 
         /// EFA columns are one set of four per harmonic, so their count depends on the

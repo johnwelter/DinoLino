@@ -140,7 +140,7 @@ Elliptic Fourier Analysis: Click to open a pop-up window to perform Elliptic Fou
 FILE:
 
 ----- Open Image ----- 
-Open a 2D image file to analyze. Supported formats include .jpg, .png, .tif, and .bmp.
+Open a 2D image file to analyze. Supported formats include .jpg, .png, .tif, and .bmp. 
 
 ----- Open 3D Model (.ply) ----- 
 Open a 3D file to analyze. PLY, OBJ, and STL files are supported. 
@@ -148,6 +148,10 @@ Position the model by pressing the scroll wheel and dragging, or by pressing the
 Click 'Capture View' to finish positioning the object. This will save the view as a 2D image, which the user can begin measuring.
 
 Note: DinoLino is currently limited to 2D morphometrics. Measurements may only be taken on 2D projections of the 3D model.
+
+----- Import Folder -----
+Import a folder of images to analyze. Incompatible file types will be ignored.
+Folders that contain several large files may take several minutes to import.
 
 ----- Take Screenshot ----- 
 Take a screenshot of the current software image screen. The screenshot may be saved as a .jpg, .png, or .tif file. The screenshot will include all drawn elements. 
@@ -163,31 +167,6 @@ Undoes the last operation performed. This removes the drawn elements and data as
 
 ----- Redo ----- 
 Redoes the most recently undone operation. This reinstates the drawn elements and data associated with that operation.
-
-------------------------------------------------------------------------------------------------
-VIEW:
-
-Adjust various properties using the View drop-down menu items.
-
------ See Tips ----- 
-Toggle on or off to see advice for using the program displayed at the bottom of the screen. Guidelines are also available in the user guide.
-
------ See Previous Operations ----- 
-Toggle on or off to keep drawn elements of previous operations on the screen.
-
------ See Navigation Window -----
-Toggle on or off to display a navigation window in the top left corner of the screen. The navigation window shows a zoomed-out view of the image, with a rectangle indicating the current viewable area. 
-While zoomed in, click anywhere in the navigation window to move the viewable area to that location.
-
------ See History ----- 
-View and export CSV tables of all operations performed.
-
------ Line Color ----- 
-Adjust color of drawn elements. Multiple options are available to accommodate colorblindness and ensure operation visibility on any image.
-
------ Font ----- 
-Adjust font size or font family. Dyslexia-friendly fonts are available. 
-If needed, you may accommodate very large font sizes by resizing the sidebar or program window with clicking and dragging.
 
 ------------------------------------------------------------------------------------------------
 TOOLS:
@@ -210,3 +189,106 @@ Rotate image by 90 degrees clockwise or counterclockwise.
 
 ----- Reposition 3D Object -----
 Return to the 3D image viewer after capturing view of a 3D image to reposition the object. Click 'Capture View' when ready to save the new view as a 2D image, which the user can begin measuring.
+
+----- Clear Image Cache -----
+Remove all images from the cache without removing associated measurements.
+
+----- Edit Image Cache -----
+Review all cached images and remove them one at a time, without removing associated measurements.
+
+------------------------------------------------------------------------------------------------
+VIEW:
+
+Adjust various properties using the View drop-down menu items.
+
+----- See Tips ----- 
+Toggle on or off to see advice for using the program displayed at the bottom of the screen. Guidelines are also available in the user guide.
+
+----- See Previous Operations ----- 
+Toggle on or off to keep drawn elements of previous operations on the screen.
+
+----- See Operation Count -----
+View the number of operations performed for each specimen. 
+Toggle on to display an on-screen window which contains the number of circular arcs, parabolic arcs, splines, triangles, lines, and outlines drawn for a given specimen.
+Opening a new specimen resets count to zero for all operations. Undo and Redo also affect operation count.
+The Operation Count window may be dragged anywhere in the workspace.
+
+----- See Navigation Window -----
+Toggle on or off to display a navigation window in the top left corner of the screen. 
+The navigation window shows a zoomed-out view of the image, with a rectangle indicating the current viewable area. 
+While zoomed in, click anywhere in the navigation window to move the viewable area to that location.
+
+----- See Batch Workshop -----
+Edit and export data tables as CSV files for each mode. Toggle on or off to display on the right sidebar.
+
+Column names in these data tables correspond to the following: 
+
+"Specimen" = Specimen Name
+"Attempt" = Operation Count
+
+In Curvature Mode:
+"circ_centangle" = Central Angle of Circular Arc
+"circ_chordarc" = Chord-Arc Ratio of Circular Arc
+"circ_risespan" = Rise-Span Ratio of Circular Arc
+"para_chordarc" = Chord-Arc Ratio of Parabolic Arc
+"para_risespan" = Rise-Span Ratio of Parabolic Arc
+"para_vertcurv" = Vertex Curvature of Parabolic Arc
+"spline_turnangle" = Turning Angle / Spline Length Ratio of n-Point Spline
+"spline_chordarc" = Chord-Arc Ratio of n-Point Spline
+"spline_length" = Length of n-Point Spline
+
+In Triangle Mode:
+"tri_anglea" = Angle A of Triangle
+"tri_angleb" = Angle B of Triangle
+"tri_anglec" = Angle C of Triangle
+"tri_aspect" = Aspect Ratio of Triangle
+"tri_area" = Area of Triangle
+"tri_relarea" = Relative Area of Triangle (compared to previous)
+
+In Draw Mode:
+"rect_aspect" = Aspect Ratio of Rectangle
+"rect_area" = Area of Rectangle
+"sqr_area" = Area of Square
+"ellipse_aspect" = Aspect Ratio of Ellipse
+"ellipse_area" = Area of Ellipse
+"circ_area" = Area of Circle
+"line_length" = Line Length
+"line_ratio" = Ratio of line length relative to previous line length
+"line_angle" = Angle of line relative to previous line
+
+In Outline Mode:
+"outline_aspect" = Outline Aspect Ratio
+"outline_perim" = Outline Perimeter Length
+"outline_area" = "Area of Filled Outline
+"outline_perimarea" = Ratio of Outline Perimeter Length over Outline Filled Area
+"outline_circ" = Outline Circularity
+"outline_solidity" = Outline Solidity
+"outline_turnlength" = Ratio of Sum of Turning Angles / Outline Perimeter Length
+
+EFA Data:
+The coefficients table may be exported in wide format in Batch Workshop, or it may be exported in the Elliptic Fourier Analysis window.
+
+2D Outlines:
+All outlines created in a session may be exported as black silhouettes on a white background. Outlines are automatically filled prior to export.
+Some metadata may be accessed including vertex count, perimeter length, and area in the Edit window.
+All generated outlines will be exported unless they are manually removed in the Edit window.
+Select a destination folder for export, a file type, and desired canvas size.
+Outlines may be rotated onto the long axis to align orientations, or exported in original orientation.
+
+----- See Directory -----
+
+
+----- See Rex -----
+
+
+----- See History ----- 
+View and export CSV tables of all operations performed.
+
+----- Line Color ----- 
+Adjust color of drawn elements. Multiple options are available to accommodate colorblindness and ensure operation visibility on any image.
+
+----- Font ----- 
+Adjust font size or font family. Dyslexia-friendly fonts are available. 
+If needed, you may accommodate very large font sizes by resizing the sidebar or program window with clicking and dragging.
+
+------------------------------------------------------------------------------------------------

@@ -147,6 +147,7 @@ namespace DinoLino.Utilities.Modes
             DrawAspectRatioResult = 0;
             RelativeAreaResult = "N/A";
             LineLengthRatioResult = "N/A";
+            LineAngleResult = "N/A";
             _canvasShapeArea = 0;
             _hasCanvasShapeArea = false;
             _canvasLineLength = 0;
@@ -250,6 +251,11 @@ namespace DinoLino.Utilities.Modes
                     CommitCurrentOperation(new ShapeOperation
                     {
                         OperationKind = "Shape",
+
+                        // The kind has to survive the draw: the workshop table keeps a
+                        // separate column set and a separate attempt count per shape.
+                        ShapeKind = CurrentShape,
+
                         DrawAspectRatio = DrawAspectRatioResult,
                         RelativeArea = RelativeAreaResult,
                         ShapeArea = _canvasShapeArea
@@ -338,6 +344,17 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _lineLengthRatioResult, value);
         }
 
+        private object _lineAngleResult = "N/A";
+
+        /// Clockwise angle in degrees between the line just drawn and the line it was
+        /// drawn against, or "N/A" for the first line. Boxed as a double or that
+        /// string, matching LineLengthRatioResult.
+        public object LineAngleResult
+        {
+            get => _lineAngleResult;
+            set => SetField(ref _lineAngleResult, value);
+        }
+
         public void SelectLineConstraint(string tag)
         {
             if (Enum.TryParse(tag, out LineConstraint constraint))
@@ -382,8 +399,13 @@ namespace DinoLino.Utilities.Modes
                     _currentLine.X2 = finalPoint.X;
                     _currentLine.Y2 = finalPoint.Y;
 
+                    // Measured before the reference direction is captured below: the
+                    // line that DEFINES the reference was drawn freely, so its own
+                    // angle belongs to the line before it, not to itself.
+                    object angle = MeasureLineAngle();
+
                     TryCaptureReferenceDirection();
-                    CommitLine();
+                    CommitLine(angle);
 
                     FinishOperation();
                     break;
@@ -408,7 +430,7 @@ namespace DinoLino.Utilities.Modes
             _hasReferenceLineDirection = true;
         }
 
-        private void CommitLine()
+        private void CommitLine(object angleToPrevious)
         {
             // Measure the final line in canvas pixels before converting to calibrated units.
             double dx = _currentLine.X2 - _currentLine.X1;
@@ -420,27 +442,78 @@ namespace DinoLino.Utilities.Modes
             RecomputeScaledResults();
 
             // Compare against the previous measured line, if one exists.
-            var prev = FindPreviousLine(0);
+            var prev = PreviousLine();
             LineLengthRatioResult = GeometryCalculations.RelativeLength(length, prev?.LineLength ?? 0);
+            LineAngleResult = angleToPrevious;
 
             CommitCurrentOperation(new LineOperation
             {
                 OperationKind = "Lines",
                 LineLength = length,
-                LineLengthRatio = LineLengthRatioResult
+                LineLengthRatio = LineLengthRatioResult,
+                LineAngle = LineAngleResult,
+                HeadingDegrees = HeadingOf(dx, dy)
             });
         }
 
-        private LineOperation FindPreviousLine(int skipLast)
-        {
-            var prev = UndoRedoManager.History
-                    .Reverse()
-                    .Skip(skipLast)
-                    .OfType<LineOperation>()
-                    .FirstOrDefault(op => op.LineLength > 0.00001);
+        /// The most recent committed line with real length, or null when this is the
+        /// first one. Called before the new line is committed, so it never finds
+        /// the line being drawn.
+        private LineOperation PreviousLine() =>
+            OperationsOfKind<LineOperation>().LastOrDefault(op => op.LineLength > 0.00001);
 
-            return prev;
+        // ---- Line angle ----
+
+        /// Clockwise angle from the line this one was drawn against to the line just
+        /// drawn, in degrees within [0, 360). "N/A" when there is nothing to measure
+        /// against, matching how the line-ratio row reports the first line.
+        private object MeasureLineAngle()
+        {
+            double dx = _currentLine.X2 - _currentLine.X1;
+            double dy = _currentLine.Y2 - _currentLine.Y1;
+
+            // A click that never moved has no direction to report.
+            if (Math.Sqrt(dx * dx + dy * dy) < 0.00001) return "N/A";
+
+            double heading = HeadingOf(dx, dy);
+
+            // A constrained line is drawn against the reference direction rather than
+            // against whatever happened to be drawn last, so that is what its angle is
+            // measured from. A run of perpendicular lines therefore reads 90, 90, 90
+            // instead of 90 followed by zeroes.
+            if (CurrentLineType != LineConstraint.None && _hasReferenceLineDirection)
+            {
+                return Sweep(heading - HeadingOf(_referenceLineDirection.X, _referenceLineDirection.Y));
+            }
+
+            // Free-drawn: measure against the line before it.
+            var previous = PreviousLine();
+            if (previous == null) return "N/A";
+
+            return Sweep(heading - previous.HeadingDegrees);
         }
+
+        // Canvas Y grows downwards, so atan2 already sweeps clockwise on screen:
+        // 0° points right, 90° down, 180° left, 270° up. Reading a clock face, a line
+        // drawn towards 11 o'clock after one drawn towards 12 gives 330, not 30.
+        private static double HeadingOf(double dx, double dy) =>
+            Normalize360(Math.Atan2(dy, dx) * 180.0 / Math.PI);
+
+        private static double Sweep(double degrees)
+        {
+            double value = Math.Round(Normalize360(degrees), 1);
+
+            // Rounding can push 359.97 over the top; a full turn is no turn.
+            return value >= 360.0 ? 0.0 : value;
+        }
+
+        private static double Normalize360(double degrees)
+        {
+            degrees %= 360.0;
+            return degrees < 0 ? degrees + 360.0 : degrees;
+        }
+
+        // ---- Line constraints ----
 
         private Vector2 ApplyLineConstraint(Vector2 start, Vector2 mousePos)
         {
@@ -520,22 +593,24 @@ namespace DinoLino.Utilities.Modes
 
             DrawAspectRatioResult = height > 1e-5 ? Math.Round(width / height, 2) : 0;
 
-            // Relative area compares the new shape against the most recent shape in history.
-            var prev = UndoRedoManager.History
-                .OfType<ShapeOperation>()
-                .LastOrDefault();
+            // Relative area compares against the most recent shape OF THE SAME KIND,
+            // so a circle is measured against the previous circle rather than against
+            // whatever shape happened to be drawn before it.
+            var previous = OperationsOfKind<ShapeOperation>()
+                .LastOrDefault(op => op.ShapeKind == CurrentShape);
 
-            double previousArea = prev?.ShapeArea ?? 0;
-            RelativeAreaResult = GeometryCalculations.RelativeArea(area, previousArea);
+            RelativeAreaResult = GeometryCalculations.RelativeArea(area, previous?.ShapeArea ?? 0);
         }
 
         private static readonly string[] ShapeTips = BuildTips(
             "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
-            "💡 Aspect ratio is the horizontal length of the shape divided by its maximum height.");
+            "💡 Aspect ratio is the horizontal length of the shape divided by its maximum height.",
+            "💡 Each shape kind is counted and exported separately: rectangles, squares, ellipses, and circles have their own columns.");
 
         private static readonly string[] LineTips = BuildTips(
             "💡 Any number of shapes or lines may be overlaid on the image. Each click adds a new shape or line.",
-            "💡 Line ratio is the length of the most recently drawn line (Line n) divided by the length of the line drawn before it (Line n-1).");
+            "💡 Line ratio is the length of the most recently drawn line (Line n) divided by the length of the line drawn before it (Line n-1).",
+            "💡 Angle is measured clockwise from the previous line, so a line drawn towards 11 o'clock after one towards 12 reads 330°.");
 
         private static readonly string[] NoMethodTips = BuildTips(
             "💡 Select a drawing method to begin.");

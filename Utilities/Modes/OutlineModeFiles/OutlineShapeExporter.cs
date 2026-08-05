@@ -36,8 +36,15 @@ namespace DinoLino.Utilities
         /// <summary>Width and height, in pixels, of every exported canvas.</summary>
         public int CanvasSize { get; set; } = 512;
 
-        /// Fraction of the canvas each shape should cover. Standardizing on area means
-        /// shapes of different proportions still read as the same visual "size".
+        /// When true, every silhouette is resized to the same area, so shapes can be
+        /// compared with size taken out of the picture. When false — the default —
+        /// the outlines keep the sizes they were traced at, and a larger specimen
+        /// exports larger.
+        public bool ScaleToCommonArea { get; set; } = false;
+
+        /// Fraction of the canvas each shape should cover WHEN ScaleToCommonArea is
+        /// on; ignored otherwise. Standardizing on area means shapes of different
+        /// proportions still read as the same visual "size".
         /// 0.25 keeps the area exact for outlines up to roughly 2.5:1; past that the
         /// fit-to-canvas clamp below takes over and the shape comes out smaller.
         /// Raising this uses more of the canvas but starts clamping sooner.
@@ -64,8 +71,8 @@ namespace DinoLino.Utilities
     }
 
     /// <summary>
-    /// Exports committed outlines as size-standardized silhouettes: a black filled
-    /// shape centred on a white square canvas.
+    /// Exports committed outlines as silhouettes: a black filled shape centred on a
+    /// white square canvas, standardized to a common area only when asked for.
     /// </summary>
     public static class OutlineShapeExporter
     {
@@ -75,6 +82,17 @@ namespace DinoLino.Utilities
             public string SpecimenName;
             public int Attempt;             // 1-based index within that specimen
             public List<Point> Points;      // canvas space, closure point stripped
+        }
+
+        /// One outline centred on the origin and optionally rotated onto its principal
+        /// axis, still at its traced size. Scaling happens afterwards, because whether
+        /// the factor is per-shape or shared across the batch depends on the option.
+        private sealed class PreparedShape
+        {
+            public OutlineShape Source;
+            public List<Point> Points;      // centred on the origin, possibly rotated
+            public double Area;             // enclosed area; centring and rotation do not change it
+            public double HalfExtent;       // furthest reach from the origin on either axis
         }
 
         /// <summary>One specimen's operations, paired with the name to label it by.</summary>
@@ -124,21 +142,34 @@ namespace DinoLino.Utilities
             var shapes = CollectShapes(undoRedo, currentSpecimenName, options);
             if (shapes.Count == 0) return 0;
 
+            // Centre and orient everything first: an unscaled export has to see the
+            // whole batch before it can decide how large the canvas lets it draw.
+            var prepared = new List<PreparedShape>(shapes.Count);
+            foreach (var shape in shapes)
+            {
+                PreparedShape p = Prepare(shape, options);
+                if (p != null) prepared.Add(p);   // degenerate outlines drop out here
+            }
+
+            if (prepared.Count == 0) return 0;
+
+            double batchScale = options.ScaleToCommonArea ? 0 : CommonScale(prepared, options);
+
             int written = 0;
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var shape in shapes)
+            foreach (PreparedShape p in prepared)
             {
-                var normalized = Normalize(shape.Points, options);
-                if (normalized == null) continue;   // Degenerate outline: nothing to draw.
+                double scale = options.ScaleToCommonArea ? AreaScale(p, options) : batchScale;
+                List<Point> placed = PlaceOnCanvas(p, scale, options.CanvasSize);
 
-                string fileName = UniqueFileName(shape, options, usedNames);
+                string fileName = UniqueFileName(p.Source, options, usedNames);
                 string path = IOPath.Combine(options.Folder, fileName);
 
                 if (options.Format == OutlineImageFormat.Svg)
-                    WriteSvg(path, normalized, options.CanvasSize);
+                    WriteSvg(path, placed, options.CanvasSize);
                 else
-                    WriteRaster(path, normalized, options.CanvasSize, options.Format);
+                    WriteRaster(path, placed, options.CanvasSize, options.Format);
 
                 written++;
             }
@@ -349,26 +380,24 @@ namespace DinoLino.Utilities
         // Normalization
         // =====================
 
-        /// Rigidly normalizes one outline onto the export canvas: translated so its
-        /// centroid is centred, optionally rotated onto its principal axis, and scaled
-        /// to a standard area. Every step is a similarity transform of the traced
-        /// points, so no shape detail is altered. Returns null for a degenerate outline.
-        private static List<Point> Normalize(List<Point> canvasPoints, OutlineExportOptions options)
+        /// Centres one outline on its centroid and, when asked, rotates it onto its
+        /// principal axis — every step a rigid transform of the traced points, so no
+        /// shape detail is altered. Size is left alone here. Returns null for a
+        /// degenerate outline.
+        private static PreparedShape Prepare(OutlineShape shape, OutlineExportOptions options)
         {
             // One shoelace pass yields both the enclosed area and the centroid.
             double signedArea;
-            Point centroid = GetAreaAndCentroid(canvasPoints, out signedArea);
+            Point centroid = GetAreaAndCentroid(shape.Points, out signedArea);
             double area = Math.Abs(signedArea);
             if (area < 1e-6) return null;
 
             // Work on a centroid-origin copy so rotation and scaling are about the
             // point the shape will be centred on.
-            var work = new List<Point>(canvasPoints.Count);
-            foreach (var p in canvasPoints)
+            var work = new List<Point>(shape.Points.Count);
+            foreach (var p in shape.Points)
                 work.Add(new Point(p.X - centroid.X, p.Y - centroid.Y));
 
-            // Rotate before measuring the extent below, since turning the shape changes
-            // how far it reaches along each axis.
             if (options.AlignRotation)
             {
                 double angle;
@@ -384,20 +413,11 @@ namespace DinoLino.Utilities
                 // so rotating it would impose an arbitrary orientation.
             }
 
-            double size = options.CanvasSize;
-            double targetArea = size * size * options.TargetAreaFraction;
-
-            // Area scales with the square of a length, so the linear factor is the root.
-            // Rotation does not change area, so this is unaffected by the step above.
-            double scale = Math.Sqrt(targetArea / area);
-
-            // Area standardization alone can push an elongated shape off the canvas, so
-            // shrink further when it would not fit. The extent is measured from the
-            // centroid, because that is the point the shape is centred on: a concave
-            // shape whose centroid sits away from its bounding-box centre reaches
-            // further on one side, and measuring the box instead would overflow.
-            // Clamped shapes end up under the target area, which is the intended trade:
-            // the whole outline stays visible.
+            // Measured after rotation, since turning the shape changes how far it
+            // reaches along each axis. From the centroid rather than the bounding-box
+            // centre, because the centroid is the point the shape will be centred on:
+            // a concave shape reaches further on one side, and measuring the box
+            // instead would let it overflow.
             double halfExtent = 0;
             foreach (var p in work)
             {
@@ -407,13 +427,61 @@ namespace DinoLino.Utilities
                 if (dy > halfExtent) halfExtent = dy;
             }
 
-            double usableHalf = (size - 2 * options.Margin) / 2.0;
-            if (usableHalf > 0.5 && halfExtent * scale > usableHalf)
-                scale = usableHalf / halfExtent;
+            return new PreparedShape
+            {
+                Source = shape,
+                Points = work,
+                Area = area,
+                HalfExtent = halfExtent
+            };
+        }
 
-            double half = size / 2.0;
-            var result = new List<Point>(work.Count);
-            foreach (var p in work)
+        /// Factor for one shape when every silhouette is standardized to the same
+        /// area. Area scales with the square of a length, so the linear factor is the
+        /// root; rotation does not change area, so this is unaffected by alignment.
+        private static double AreaScale(PreparedShape prepared, OutlineExportOptions options)
+        {
+            double size = options.CanvasSize;
+            double targetArea = size * size * options.TargetAreaFraction;
+            double scale = Math.Sqrt(targetArea / prepared.Area);
+
+            // Area standardization alone can push an elongated shape off the canvas.
+            // A clamped shape ends up under the target area, which is the intended
+            // trade: the whole outline stays visible.
+            double usableHalf = UsableHalf(options);
+            if (usableHalf > 0.5 && prepared.HalfExtent * scale > usableHalf)
+                scale = usableHalf / prepared.HalfExtent;
+
+            return scale;
+        }
+
+        /// ONE factor for the whole batch when the shapes are exported at their traced
+        /// sizes. Normally 1, leaving them untouched; when the largest outline would
+        /// run off the canvas every outline shrinks by the same amount, so nothing is
+        /// cut off and their sizes stay comparable with each other.
+        private static double CommonScale(List<PreparedShape> prepared, OutlineExportOptions options)
+        {
+            double largest = 0;
+            foreach (PreparedShape p in prepared)
+                if (p.HalfExtent > largest) largest = p.HalfExtent;
+
+            double usableHalf = UsableHalf(options);
+            if (largest <= 1e-9 || usableHalf <= 0.5) return 1.0;
+
+            return largest > usableHalf ? usableHalf / largest : 1.0;
+        }
+
+        /// <summary>Half-width of the canvas once the margins are taken off.</summary>
+        private static double UsableHalf(OutlineExportOptions options) =>
+            (options.CanvasSize - 2 * options.Margin) / 2.0;
+
+        /// <summary>Scales a centred shape and moves it onto the middle of the canvas.</summary>
+        private static List<Point> PlaceOnCanvas(PreparedShape prepared, double scale, int canvasSize)
+        {
+            double half = canvasSize / 2.0;
+
+            var result = new List<Point>(prepared.Points.Count);
+            foreach (var p in prepared.Points)
                 result.Add(new Point(p.X * scale + half, p.Y * scale + half));
 
             return result;

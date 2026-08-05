@@ -297,14 +297,11 @@ namespace DinoLino
                 TextElement.SetFontSize(UI_WorkshopPanel, size);
                 UI_TipText.FontSize = size;
 
-                // Keep all attempt-counter labels aligned with the selected font size.
-                UI_AttemptHeader.FontSize = size;
-                UI_AttemptCirc.FontSize = size;
-                UI_AttemptPara.FontSize = size;
-                UI_AttemptSpline.FontSize = size;
-                UI_AttemptAngle.FontSize = size;
-                UI_AttemptLine.FontSize = size;
-                UI_AttemptOutline.FontSize = size;
+                // Set on the counter overlay itself rather than row by row, so rows
+                // added to it later (the per-shape tallies, and anything after them)
+                // scale without another edit here. The rows carry no local FontSize,
+                // which is what lets this inherit down to them.
+                TextElement.SetFontSize(UI_AttemptCounter, size);
 
                 fontWindow.FontSize = size;
             };
@@ -316,14 +313,7 @@ namespace DinoLino
                 TextElement.SetFontFamily(UI_WorkshopPanel, family);
                 UI_TipText.FontFamily = family;
 
-                // Keep all attempt-counter labels aligned with the selected font family.
-                UI_AttemptHeader.FontFamily = family;
-                UI_AttemptCirc.FontFamily = family;
-                UI_AttemptPara.FontFamily = family;
-                UI_AttemptSpline.FontFamily = family;
-                UI_AttemptAngle.FontFamily = family;
-                UI_AttemptLine.FontFamily = family;
-                UI_AttemptOutline.FontFamily = family;
+                TextElement.SetFontFamily(UI_AttemptCounter, family);
 
                 fontWindow.FontFamily = family;
             };

@@ -273,12 +273,17 @@
                         </Border.Triggers>
                     </Border>
 
-                    <!-- Attempt counter overlay (draggable HUD, bottom-right by default) -->
+                    <!-- Attempt counter overlay (draggable HUD, bottom-right by default).
+                     Drawn shapes are tallied one row per kind, matching the Shape Data
+                     table's per-kind columns. The rows deliberately carry no FontSize
+                     of their own: the size is set on this Border, so View ▸ Font
+                     scales every row, including any added later. -->
                     <Border x:Name="UI_AttemptCounter"
                     HorizontalAlignment="Right" VerticalAlignment="Bottom"
                     Margin="0,0,16,16" Panel.ZIndex="50"
                     Background="#CC1E1E1E" BorderBrush="#666" BorderThickness="1"
                     CornerRadius="4" Padding="10,8" Cursor="SizeAll"
+                    TextElement.FontSize="12"
                     MouseLeftButtonDown="AttemptCounter_MouseDown"
                     MouseMove="AttemptCounter_MouseMove"
                     MouseLeftButtonUp="AttemptCounter_MouseUp">
@@ -286,13 +291,17 @@
                             <TranslateTransform x:Name="UI_AttemptCounterTransform"/>
                         </Border.RenderTransform>
                         <StackPanel>
-                            <TextBlock x:Name="UI_AttemptHeader" Text="Operation Count" Foreground="#999" FontSize="11" FontWeight="Bold" Margin="0,0,0,4"/>
-                            <TextBlock x:Name="UI_AttemptCirc"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                            <TextBlock x:Name="UI_AttemptPara"   Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                            <TextBlock x:Name="UI_AttemptSpline" Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                            <TextBlock x:Name="UI_AttemptAngle"  Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                            <TextBlock x:Name="UI_AttemptLine"    Foreground="#EEE" FontSize="12" Margin="0,1"/>
-                            <TextBlock x:Name="UI_AttemptOutline" Foreground="#EEE" FontSize="12" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptHeader" Text="Operation Count" Foreground="#999" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <TextBlock x:Name="UI_AttemptCirc"    Foreground="#EEE" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptPara"    Foreground="#EEE" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptSpline"  Foreground="#EEE" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptAngle"   Foreground="#EEE" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptRect"    Foreground="#EEE" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptSquare"  Foreground="#EEE" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptEllipse" Foreground="#EEE" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptCircle"  Foreground="#EEE" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptLine"    Foreground="#EEE" Margin="0,1"/>
+                            <TextBlock x:Name="UI_AttemptOutline" Foreground="#EEE" Margin="0,1"/>
                         </StackPanel>
                     </Border>
 

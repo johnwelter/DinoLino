@@ -15,6 +15,7 @@ namespace DinoLino
         private readonly TextBox _folderBox = new TextBox { VerticalContentAlignment = VerticalAlignment.Center };
         private readonly ComboBox _formatBox = new ComboBox();
         private readonly ComboBox _sizeBox = new ComboBox { IsEditable = true };
+        private readonly CheckBox _scaleBox = new CheckBox();
         private readonly CheckBox _alignBox = new CheckBox();
         private readonly TextBlock _countText = new TextBlock { FontWeight = FontWeights.Bold };
         private readonly TextBlock _warningText = new TextBlock
@@ -47,11 +48,30 @@ namespace DinoLino
 
             root.Children.Add(new TextBlock
             {
-                Text = "Each outline is saved as a black silhouette on a white square canvas, " +
-                       "centered and scaled to a standard area.",
+                Text = "Each outline is saved as a black silhouette, centred on a white square canvas.",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = System.Windows.Media.Brushes.Gray,
                 Margin = new Thickness(0, 0, 0, 14)
+            });
+
+            // ---- Size ----
+            // Off by default: the traced sizes are real data, and standardizing them
+            // away is a choice the user makes rather than one made for them.
+
+            _scaleBox.Content = "Scale";
+            _scaleBox.IsChecked = false;
+            _scaleBox.Margin = new Thickness(0, 0, 0, 4);
+            _scaleBox.ToolTip = "Give every exported silhouette the same area";
+            root.Children.Add(_scaleBox);
+
+            root.Children.Add(new TextBlock
+            {
+                Text = "Resizes every silhouette to the same area, so the shapes are compared " +
+                       "with size taken out of it. Left off, each outline keeps the size it was " +
+                       "traced at and a larger one exports larger.",
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = System.Windows.Media.Brushes.Gray,
+                Margin = new Thickness(20, 0, 0, 12)
             });
 
             // ---- Orientation ----
@@ -209,6 +229,7 @@ namespace DinoLino
 
             Options.Folder = folder;
             Options.CanvasSize = size;
+            Options.ScaleToCommonArea = _scaleBox.IsChecked == true;
             Options.AlignRotation = _alignBox.IsChecked == true;
             Options.Format = (_formatBox.SelectedItem as ComboBoxItem)?.Tag is OutlineImageFormat f
                 ? f

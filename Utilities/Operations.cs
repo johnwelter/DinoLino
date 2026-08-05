@@ -113,8 +113,18 @@ namespace DinoLino.Utilities.Operations
     /// </summary>
     public class ShapeOperation : WorkOperation
     {
+        /// Which constrained shape this was. A rectangle and an ellipse are not the
+        /// same measurement, so the kind travels with the operation: the Batch
+        /// Workshop gives each kind its own columns and its own attempt numbering,
+        /// and the on-image counter tallies them separately.
+        public DrawMode.ShapeConstraint ShapeKind { get; set; }
+
         public double DrawAspectRatio { get; set; }
+
+        /// Area against the previous shape OF THE SAME KIND, or "N/A" when this is
+        /// the first of its kind. Boxed as a double or that string.
         public object RelativeArea { get; set; }
+
         public double ShapeArea { get; set; }
 
         public override void ApplyMetadataToMode()
@@ -136,11 +146,23 @@ namespace DinoLino.Utilities.Operations
         public double LineLength { get; set; }
         public object LineLengthRatio { get; set; }
 
+        /// Clockwise angle from the line this one was drawn against to this line, in
+        /// degrees within [0, 360), or "N/A" for the first line of a specimen. Boxed
+        /// as a double or that string, like LineLengthRatio.
+        public object LineAngle { get; set; }
+
+        // Direction this line was drawn in, as a clockwise heading in canvas
+        // coordinates (0 = right, 90 = down, 180 = left, 270 = up). Kept so the next
+        // line can measure its angle without digging the geometry back out of the
+        // visuals, which erasing or hiding them would break.
+        public double HeadingDegrees { get; set; }
+
         public override void ApplyMetadataToMode()
         {
             if (SourceMode is DrawMode mode)
             {
                 mode.LineLengthRatioResult = LineLengthRatio;
+                mode.LineAngleResult = LineAngle;
                 mode.RestoreLineMeasurement(LineLength);
             }
         }
