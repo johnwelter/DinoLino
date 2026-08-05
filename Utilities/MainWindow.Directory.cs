@@ -1,4 +1,5 @@
-﻿using System;
+﻿using DinoLino.Utilities;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -116,6 +117,9 @@ namespace DinoLino
         {
             if (UI_DirectoryTree.Items.Count == 0)
                 RebuildDirectoryRoots();
+
+            // The Sample list watches the same specimen manager the ▲/▼ arrows use.
+            HookSampleList();
         }
 
         /// <summary>Returns the tree to the drive listing, keeping the working directory.</summary>
@@ -366,6 +370,265 @@ namespace DinoLino
         }
 
         // =====================
+        // Sample tab
+        // =====================
+
+        // Rebuilding on every SpecimenManager change would fire on each keystroke in
+        // the name box, so the list is only refreshed while its tab is on screen.
+        private bool _sampleTabSelected;
+
+        /// Subscribes the Sample list to specimen changes. Called once from the
+        /// Directory tree's Loaded handler, which runs after the panel is built.
+        private void HookSampleList()
+        {
+            if (_sampleHooked) return;
+            _sampleHooked = true;
+
+            SpecimenManager.PropertyChanged += (s, e) =>
+            {
+                if (_sampleTabSelected) RebuildSampleList();
+            };
+        }
+        private bool _sampleHooked;
+
+        private void DirectoryTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Read the state off the control rather than the event: SelectionChanged
+            // also bubbles up from any nested selector, and recomputing is harmless
+            // where an early return would leave the flag stale.
+            _sampleTabSelected =
+                UI_DirectoryTabs.SelectedItem is TabItem tab &&
+                (tab.Header as string) == "Sample";
+
+            if (_sampleTabSelected) RebuildSampleList();
+        }
+
+        /// Redraws the specimen roster. Rebuilt wholesale rather than patched, so the
+        /// list is always truthful after opens, renames, and cache releases.
+        private void RebuildSampleList()
+        {
+            UI_SampleList.Children.Clear();
+
+            bool any = false;
+            foreach (var specimen in SpecimenManager.Specimens)
+            {
+                // The session starts with one empty placeholder record; it is not a
+                // real specimen until a file has been opened into it.
+                if (specimen.FileName == null) continue;
+
+                // Deleted specimens keep their slot so the auto numbering of the others
+                // never shifts, but they are gone from the roster.
+                if (specimen.Deleted) continue;
+
+                any = true;
+                UI_SampleList.Children.Add(BuildSampleRow(specimen));
+            }
+
+            if (!any)
+            {
+                UI_SampleList.Children.Add(new TextBlock
+                {
+                    Text = "No specimens loaded yet.",
+                    Opacity = 0.6,
+                    Margin = new Thickness(2)
+                });
+            }
+        }
+
+        private UIElement BuildSampleRow(Specimen specimen)
+        {
+            bool loaded = SpecimenManager.IsCurrent(specimen);
+
+            // An imported 3D model has no image yet but is still openable: opening it
+            // is how the user positions it.
+            bool pendingModel = specimen.NeedsPositioning;
+            bool released = specimen.Image == null && !pendingModel;
+
+            var grid = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // Name on top, file name beneath, so both are readable in a narrow panel.
+            var text = new StackPanel { Margin = new Thickness(2, 0, 6, 0) };
+
+            var nameLine = new StackPanel { Orientation = Orientation.Horizontal };
+            nameLine.Children.Add(new TextBlock
+            {
+                Text = SpecimenManager.NameOf(specimen),
+                FontWeight = loaded ? FontWeights.Bold : FontWeights.Normal,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+
+            if (loaded)
+            {
+                nameLine.Children.Add(new TextBlock
+                {
+                    Text = "  (loaded)",
+                    Opacity = 0.6,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            }
+
+            text.Children.Add(nameLine);
+
+            text.Children.Add(new TextBlock
+            {
+                Text = released ? specimen.FileName + "  (image released)"
+                     : pendingModel ? specimen.FileName + "  (3D \u2014 not positioned)"
+                     : specimen.FileName,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x77, 0x77, 0x77)),
+                FontSize = 11,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+
+            // A released specimen has no image to show, so it cannot be opened.
+            if (released) text.Opacity = 0.55;
+
+            // Transparent background so the whole row, not just the glyphs, is a
+            // double-click target.
+            var hit = new Border
+            {
+                Background = Brushes.Transparent,
+                Child = text,
+                ToolTip = released
+                    ? "This specimen's image was released; its measurements are kept"
+                    : pendingModel
+                        ? "Double-click to position this 3D model and capture its view"
+                        : "Double-click to open this specimen in the workspace"
+            };
+
+            var captured = specimen;
+            hit.MouseLeftButtonDown += (s, e) =>
+            {
+                if (e.ClickCount == 2)
+                {
+                    e.Handled = true;
+                    OpenSpecimenFromSample(captured);
+                }
+            };
+
+            Grid.SetColumn(hit, 0);
+            grid.Children.Add(hit);
+
+            // Offered even for a released specimen, whose measurements still exist.
+            var remove = new Button
+            {
+                Content = "\u2715",
+                Width = 20,
+                Height = 20,
+                Padding = new Thickness(0),
+                FontSize = 10,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Delete this specimen and all of its measurements"
+            };
+
+            remove.Click += (s, e) => DeleteSpecimenFromSample(captured);
+            Grid.SetColumn(remove, 1);
+            grid.Children.Add(remove);
+
+            return grid;
+        }
+
+        /// Loads a specimen picked from the Sample list, reusing the same swap the
+        /// ▲/▼ arrows perform so its operation history travels with it.
+        private async void OpenSpecimenFromSample(Specimen specimen)
+        {
+            if (specimen == null) return;
+
+            // An imported 3D model is positioned the first time it is opened; the
+            // captured view then becomes this specimen's image.
+            if (specimen.NeedsPositioning)
+            {
+                await OpenImportedModel(specimen);
+                return;
+            }
+
+            if (specimen.Image == null)
+            {
+                MessageBox.Show(this,
+                    "This specimen's image was released from the cache, so it cannot be reopened.\n\n" +
+                    "Its name and measurements are still kept. Open the file again to restore the image.",
+                    "Open Specimen", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Already on screen: nothing to swap, and reloading would clear the
+            // workspace for no reason.
+            if (SpecimenManager.IsCurrent(specimen)) return;
+
+            var departing = SpecimenManager.CurrentSpecimen;
+            ReloadSpecimen(departing, SpecimenManager.MoveTo(specimen));
+
+            RebuildSampleList();
+        }
+
+        /// Deletes a specimen and everything recorded for it: the cached image, and
+        /// every measurement and outline in its operation history.
+        private void DeleteSpecimenFromSample(Specimen specimen)
+        {
+            if (specimen == null || specimen.Deleted) return;
+
+            if (!_suppressDeleteSpecimenPrompt)
+            {
+                bool dontAskAgain;
+                bool confirmed = ConfirmPromptWindow.Show(
+                    this,
+                    "Delete Specimen",
+                    "This will delete this image from the cache and remove all of its " +
+                    "associated measurements and outlines. Are you sure?",
+                    out dontAskAgain);
+
+                // The preference is remembered even when the user cancels, matching how
+                // "don't ask again" behaves elsewhere.
+                if (dontAskAgain) _suppressDeleteSpecimenPrompt = true;
+                if (!confirmed) return;
+            }
+
+            bool wasCurrent = SpecimenManager.IsCurrent(specimen);
+
+            // Drop the measurements first, while the specimen still knows where they
+            // live. The active specimen's operations are the live history; an inactive
+            // one keeps them in its archived record.
+            if (wasCurrent)
+            {
+                UndoRedoManager.RemoveActiveSpecimenOperations();
+
+                // Those operations drew on the canvas, so clear what is left of them.
+                ClearWorkspaceVisualsOnly();
+            }
+            else if (specimen.Record != null)
+            {
+                UndoRedoManager.RemoveArchivedSpecimen(specimen.Record);
+            }
+
+            SpecimenManager.DeleteSpecimen(specimen);
+
+            // Deleting the specimen on screen leaves the workspace showing something
+            // that no longer exists, so move to a surviving specimen or empty it.
+            if (wasCurrent)
+            {
+                var survivor = SpecimenManager.MovePrevious() ?? SpecimenManager.MoveNext();
+
+                if (survivor != null)
+                {
+                    // departing is null on purpose: the deleted specimen must not be
+                    // stashed back into the archive on the way out.
+                    ReloadSpecimen(null, survivor);
+                }
+                else
+                {
+                    ClearWorkspaceImage();
+                }
+            }
+
+            RebuildSampleList();
+            UpdateAttemptCounter();
+        }
+
+        // Remembers "Don't show this message again" for the rest of the session.
+        private bool _suppressDeleteSpecimenPrompt;
+
+        // =====================
         // Working directory
         // =====================
 
@@ -380,6 +643,22 @@ namespace DinoLino
             var addItem = new MenuItem { Header = "Add Folder" };
             addItem.Click += (s, e) => AddFolderInside(item);
             menu.Items.Add(addItem);
+
+            var importItem = new MenuItem { Header = "Import Folder" };
+            importItem.Click += (s, e) => ImportFolder(item.Tag as string);
+            menu.Items.Add(importItem);
+
+            // Scanning every folder as the tree is built would be wasteful, so whether
+            // this folder holds anything importable is decided as the menu opens. An
+            // empty folder, or one of unsupported types, leaves the item greyed out.
+            menu.Opened += (s, e) =>
+            {
+                bool importable = CanImportFolder(item.Tag as string);
+                importItem.IsEnabled = importable;
+                importItem.ToolTip = importable
+                    ? "Import every image and 3D model in this folder"
+                    : "This folder has nothing DinoLino can import";
+            };
 
             return menu;
         }
@@ -507,6 +786,90 @@ namespace DinoLino
             UI_WorkingDirectoryBox.Text = path;
 
             RebuildDirectoryRoots();
+        }
+    }
+
+    /// <summary>
+    /// Yes/Cancel confirmation with a "Don't show this message again" option.
+    /// </summary>
+    internal class ConfirmPromptWindow : Window
+    {
+        private readonly CheckBox _suppress = new CheckBox
+        {
+            Content = "Don't show this message again",
+            Margin = new Thickness(0, 14, 0, 0)
+        };
+
+        /// Shows the prompt. Returns true when the user confirms; dontShowAgain
+        /// reports the checkbox either way, so the choice sticks even on Cancel.
+        internal static bool Show(Window owner, string title, string message, out bool dontShowAgain)
+        {
+            var dialog = new ConfirmPromptWindow(title, message)
+            {
+                Owner = owner,
+                FontSize = owner?.FontSize ?? 14,
+                FontFamily = owner?.FontFamily
+            };
+
+            bool confirmed = dialog.ShowDialog() == true;
+            dontShowAgain = dialog._suppress.IsChecked == true;
+            return confirmed;
+        }
+
+        private ConfirmPromptWindow(string title, string message)
+        {
+            Title = title;
+            Width = 430;
+            SizeToContent = SizeToContent.Height;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            ResizeMode = ResizeMode.NoResize;
+            ShowInTaskbar = false;
+
+            var root = new StackPanel { Margin = new Thickness(16) };
+
+            root.Children.Add(new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            root.Children.Add(_suppress);
+
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 16, 0, 0)
+            };
+
+            var yes = new Button { Content = "Yes", Width = 84 };
+            yes.Click += (s, e) =>
+            {
+                // DialogResult may only be set while running modally; guard it the same
+                // way ScaleWindow does.
+                try
+                {
+                    DialogResult = true;
+                }
+                catch (InvalidOperationException)
+                {
+                    Close();
+                }
+            };
+            buttons.Children.Add(yes);
+
+            // Cancel is the default so a stray Enter or Esc does not delete anything.
+            buttons.Children.Add(new Button
+            {
+                Content = "Cancel",
+                Width = 84,
+                Margin = new Thickness(8, 0, 0, 0),
+                IsDefault = true,
+                IsCancel = true
+            });
+
+            root.Children.Add(buttons);
+            Content = root;
         }
     }
 

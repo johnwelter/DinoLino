@@ -26,6 +26,20 @@ namespace DinoLino.Utilities
         // This specimen's operation record, owned by UndoRedoManager's archive
         // machinery.
         public SpecimenRecord Record { get; set; }
+
+        // Set for a 3D model brought in by Import Folder: the file is registered as a
+        // specimen straight away, but it has no image until the user opens it and
+        // positions it. Cleared once a view is captured.
+        public string PendingModelPath { get; set; }
+
+        // True while this specimen is a 3D model that still needs positioning.
+        public bool NeedsPositioning => Image == null && PendingModelPath != null;
+
+        // True once the user deletes the specimen from the Sample tab. The record is
+        // kept in the list rather than removed so the auto "Specimen N" numbering of
+        // the surviving specimens never shifts, but it is hidden everywhere and
+        // skipped by navigation.
+        public bool Deleted { get; set; }
     }
 
     // Manages the ordered list of opened specimens (image + name) shown in the control
@@ -123,6 +137,21 @@ namespace DinoLino.Utilities
             return null;
         }
 
+        // Direct jump used by the Directory panel's Sample tab, where the user picks a
+        // specimen rather than stepping through them. Returns null when the specimen
+        // is unknown, already loaded, or has no cached image to show.
+        public Specimen MoveTo(Specimen specimen)
+        {
+            if (specimen == null || specimen.Image == null) return null;
+
+            int i = _specimens.IndexOf(specimen);
+            if (i < 0 || i == _current) return null;
+
+            _current = i;
+            RaiseCurrentChanged();
+            return Current;
+        }
+
         //----- Image cache (Tools > Clear Image Cache / Edit Image Cache) -----//
 
         // Read-only roster for the Edit Image Cache window: every specimen of the
@@ -178,6 +207,24 @@ namespace DinoLino.Utilities
             OnPropertyChanged(nameof(CanMovePrevious));
         }
 
+        // Deletes a specimen outright (Sample tab ✕): the image is released and the
+        // record is marked so it disappears from the rosters and from ▲/▼ cycling.
+        // Its measurements are removed separately by the caller, which owns the
+        // undo/redo history.
+        public void DeleteSpecimen(Specimen specimen)
+        {
+            if (specimen == null || specimen.Deleted) return;
+
+            specimen.Deleted = true;
+            specimen.Image = null;
+            specimen.Record = null;
+
+            OnPropertyChanged(nameof(DisplayName));
+            OnPropertyChanged(nameof(LoadedFileLabel));
+            OnPropertyChanged(nameof(CanMoveNext));
+            OnPropertyChanged(nameof(CanMovePrevious));
+        }
+
         //----- Image open -----//
 
         // Called by MainWindow whenever an image is registered as a new specimen.
@@ -199,6 +246,71 @@ namespace DinoLino.Utilities
                 });
                 _current = _specimens.Count - 1;
             }
+            RaiseCurrentChanged();
+        }
+
+        //----- Batch import -----//
+
+        // Adds one specimen without changing which one is loaded, so a whole folder can
+        // be registered before the workspace switches to the first of them. A 3D model
+        // arrives with a null image and its path in modelPath.
+        public Specimen ImportSpecimen(BitmapSource image, string fileName, string modelPath)
+        {
+            Specimen target;
+
+            if (!_hasOpenedImage)
+            {
+                // The session begins with one empty placeholder record; fill it rather
+                // than leaving a phantom entry ahead of the imported files.
+                _hasOpenedImage = true;
+                target = Current;
+                target.Image = image;
+                target.FileName = fileName;
+                target.PendingModelPath = modelPath;
+            }
+            else
+            {
+                target = new Specimen
+                {
+                    Image = image,
+                    FileName = fileName,
+                    PendingModelPath = modelPath,
+                    Ordinal = _specimens.Count   // creation index, stable for the session
+                };
+                _specimens.Add(target);
+            }
+
+            RaiseCurrentChanged();
+            return target;
+        }
+
+        // Makes a specimen the loaded one. Unlike MoveTo this allows a specimen with no
+        // image yet, which is what an imported 3D model is until it has been positioned.
+        public bool MakeCurrent(Specimen specimen)
+        {
+            if (specimen == null || specimen.Deleted) return false;
+
+            int i = _specimens.IndexOf(specimen);
+            if (i < 0) return false;
+
+            if (i != _current)
+            {
+                _current = i;
+                RaiseCurrentChanged();
+            }
+
+            return true;
+        }
+
+        // Attaches the bitmap captured from the pose overlay to an imported 3D
+        // specimen, which then behaves like any other specimen.
+        public void AttachCapturedImage(Specimen specimen, BitmapSource image)
+        {
+            if (specimen == null || image == null) return;
+
+            specimen.Image = image;
+            specimen.PendingModelPath = null;
+
             RaiseCurrentChanged();
         }
 
@@ -310,6 +422,7 @@ namespace DinoLino
             foreach (var specimen in _manager.Specimens)
             {
                 if (specimen.FileName == null) continue;   // pre-first-open placeholder record
+                if (specimen.Deleted) continue;            // deleted from the Sample tab
                 any = true;
                 _rows.Children.Add(BuildRow(specimen));
             }
@@ -365,7 +478,7 @@ namespace DinoLino
             {
                 var released = new TextBlock
                 {
-                    Text = "released",
+                    Text = specimen.NeedsPositioning ? "not positioned" : "released",
                     FontStyle = FontStyles.Italic,
                     Opacity = 0.55,
                     VerticalAlignment = VerticalAlignment.Center

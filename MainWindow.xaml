@@ -27,6 +27,8 @@
             <MenuItem Header="_File" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Open Image" Click="Menu_OpenImage" InputGestureText="Ctrl+F"/>
                 <MenuItem Header="Open 3D _Model" Click="Menu_Open3DModel"/>
+                <MenuItem Header="_Import Folder" Click="Menu_ImportFolder"
+                          ToolTip="Import every image and 3D model in a folder as specimens."/>
                 <MenuItem Header="_Take Screenshot" Click="Menu_Screenshot" InputGestureText="Ctrl+S"/>
                 <MenuItem Header="_Export Operation History" Click="Menu_ExportHistory" InputGestureText="Ctrl+E"/>
             </MenuItem>
@@ -542,35 +544,59 @@
                            FontWeight="Bold" FontSize="16"
                            HorizontalAlignment="Left" Margin="2,0,0,2"/>
 
-                    <!-- Paste or type a path here and press Enter, or use Go. -->
-                    <DockPanel DockPanel.Dock="Top" Margin="2,0,0,4">
-                        <Button DockPanel.Dock="Right" Content="Go"
-                            Padding="8,1" Margin="4,0,0,0" Click="Directory_ApplyTypedPath"
-                            ToolTip="Set the working directory to the path shown"/>
-                        <TextBox x:Name="UI_WorkingDirectoryBox"
-                             VerticalContentAlignment="Center"
-                             KeyDown="Directory_PathBoxKeyDown"
-                             ToolTip="Paste or type a folder path, then press Enter"/>
-                    </DockPanel>
+                    <!-- Files browses the disk; Sample lists this session's specimens.
+                     Files is first, so it is the tab shown at startup. -->
+                    <TabControl x:Name="UI_DirectoryTabs" SelectionChanged="DirectoryTabs_SelectionChanged">
 
-                    <DockPanel DockPanel.Dock="Top" Margin="2,0,0,6">
-                        <Button DockPanel.Dock="Right" Content="Drives"
-                            Padding="8,1" Margin="6,0,0,0" Click="Directory_ShowDrives"
-                            ToolTip="Browse all drives again"/>
-                        <TextBlock x:Name="UI_WorkingDirectoryText"
-                               Foreground="#777" VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis"
-                               Text="Working directory: not set"/>
-                    </DockPanel>
+                        <TabItem Header="Files">
+                            <DockPanel Margin="0,6,0,0">
+                                <!-- Paste or type a path here and press Enter, or use Set. -->
+                                <DockPanel DockPanel.Dock="Top" Margin="2,0,0,4">
+                                    <Button DockPanel.Dock="Right" Content="Set"
+                                        Padding="8,1" Margin="4,0,0,0" Click="Directory_ApplyTypedPath"
+                                        ToolTip="Set the working directory to the path shown"/>
+                                    <TextBox x:Name="UI_WorkingDirectoryBox"
+                                         VerticalContentAlignment="Center"
+                                         KeyDown="Directory_PathBoxKeyDown"
+                                         ToolTip="Paste or type a folder path, then press Enter"/>
+                                </DockPanel>
 
-                    <!-- The TreeView supplies its own scrollbars for content that does not
-                     fit the panel. -->
-                    <Border BorderBrush="#AAAAAA" BorderThickness="1" Background="White">
-                        <TreeView x:Name="UI_DirectoryTree" BorderThickness="0"
-                              Loaded="DirectoryTree_Loaded"
-                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                              ScrollViewer.VerticalScrollBarVisibility="Auto"/>
-                    </Border>
+                                <DockPanel DockPanel.Dock="Top" Margin="2,0,0,6">
+                                    <Button DockPanel.Dock="Right" Content="Drives"
+                                        Padding="8,1" Margin="6,0,0,0" Click="Directory_ShowDrives"
+                                        ToolTip="Browse all drives again"/>
+                                    <TextBlock x:Name="UI_WorkingDirectoryText"
+                                           Foreground="#777" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           Text="Working directory: not set"/>
+                                </DockPanel>
+
+                                <!-- The TreeView supplies its own scrollbars for content that does
+                                 not fit the panel. -->
+                                <Border BorderBrush="#AAAAAA" BorderThickness="1" Background="White">
+                                    <TreeView x:Name="UI_DirectoryTree" BorderThickness="0"
+                                          Loaded="DirectoryTree_Loaded"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                          ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                                </Border>
+                            </DockPanel>
+                        </TabItem>
+
+                        <TabItem Header="Sample">
+                            <DockPanel Margin="0,6,0,0">
+                                <TextBlock DockPanel.Dock="Top" Margin="2,0,0,6"
+                                       Foreground="#777" TextWrapping="Wrap"
+                                       Text="Specimens loaded this session. Double-click a name to open it; ✕ deletes it and its measurements."/>
+
+                                <Border BorderBrush="#AAAAAA" BorderThickness="1" Background="White">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Auto">
+                                        <StackPanel x:Name="UI_SampleList" Margin="4"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </DockPanel>
+                        </TabItem>
+                    </TabControl>
                 </DockPanel>
             </Grid>
         </Grid>

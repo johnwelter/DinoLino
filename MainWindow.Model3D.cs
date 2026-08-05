@@ -1,4 +1,5 @@
-﻿using Microsoft.Win32;
+﻿using DinoLino.Utilities;
+using Microsoft.Win32;
 using System;
 using System.Windows;
 using System.Windows.Input;
@@ -39,6 +40,10 @@ namespace DinoLino
 
         // True while the pose overlay is being used to re-capture an existing specimen.
         private bool _isRepositioning;
+
+        // Set while positioning a 3D model that Import Folder registered earlier. The
+        // captured view attaches to that specimen instead of creating a new one.
+        private Specimen _pendingImportSpecimen;
 
         // =====================
         // Model loading
@@ -97,6 +102,50 @@ namespace DinoLino
 
             // Fresh open starts at the default front view and counts as a new specimen if captured.
             ShowModelPoseOverlay(mesh, System.IO.Path.GetFileNameWithoutExtension(fileName),
+                                 Quaternion.Identity, isReposition: false);
+        }
+
+        /// Loads an imported 3D model and opens the pose overlay for it. The specimen
+        /// already exists, so capturing attaches the view to it rather than adding one.
+        internal async System.Threading.Tasks.Task OpenImportedModel(Specimen specimen)
+        {
+            string path = specimen?.PendingModelPath;
+
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
+            {
+                MessageBox.Show(this,
+                    "This model's file could not be found:\n" + path,
+                    "Open 3D Model", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            MeshGeometry3D mesh = null;
+
+            Mouse.OverrideCursor = Cursors.Wait;
+            try
+            {
+                mesh = await System.Threading.Tasks.Task.Run(() => MeshLoader.Load(path));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Could not read the 3D model:\n{ex.Message}", "Open 3D Model",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+            }
+
+            if (mesh == null || mesh.Positions.Count == 0 || mesh.TriangleIndices.Count == 0)
+            {
+                MessageBox.Show(this, "The 3D model contains no triangle mesh (point clouds can't be rendered).",
+                    "Open 3D Model", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            _pendingImportSpecimen = specimen;
+            ShowModelPoseOverlay(mesh, System.IO.Path.GetFileNameWithoutExtension(path),
                                  Quaternion.Identity, isReposition: false);
         }
 
@@ -233,10 +282,22 @@ namespace DinoLino
             _lastModelQuaternion = _modelRotation.Quaternion;
             bool wasReposition = _isRepositioning;
 
+            // Captured for a specimen Import Folder registered earlier: attach the view
+            // to that record rather than creating another one.
+            var importTarget = _pendingImportSpecimen;
+            _pendingImportSpecimen = null;
+
             ModelPose_Cancel(sender, e);
 
-            // Repositioning re-captures the same specimen, so it should not advance specimen history.
-            SetWorkspaceImage(bmp, _activeModelName, registerAsNewSpecimen: !wasReposition);
+            if (importTarget != null)
+            {
+                AttachCaptureToImportedSpecimen(importTarget, bmp);
+            }
+            else
+            {
+                // Repositioning re-captures the same specimen, so it should not advance specimen history.
+                SetWorkspaceImage(bmp, _activeModelName, registerAsNewSpecimen: !wasReposition);
+            }
 
             _workingImageIsModelCapture = true;
             UI_MenuReposition3D.IsEnabled = true;
@@ -244,8 +305,30 @@ namespace DinoLino
             // Optional scale calibration can be derived from pxPerModelUnit if needed by the app.
         }
 
+        /// Gives an imported 3D specimen the view just captured and makes it the loaded
+        /// specimen, carrying its (so far empty) operation history across.
+        private void AttachCaptureToImportedSpecimen(Specimen target, BitmapSource bmp)
+        {
+            var departing = SpecimenManager.CurrentSpecimen;
+            bool switching = !ReferenceEquals(departing, target);
+
+            SpecimenManager.AttachCapturedImage(target, bmp);
+            SpecimenManager.MakeCurrent(target);
+
+            SetWorkspaceImage(bmp, target.FileName, registerAsNewSpecimen: false);
+
+            if (switching)
+                UndoRedoManager.SwitchActiveSpecimen(departing, SpecimenManager.NameOf(departing), target);
+
+            RebuildSampleList();
+        }
+
         private void ModelPose_Cancel(object sender, RoutedEventArgs e)
         {
+            // Abandoning the overlay leaves an imported model unpositioned; it must not
+            // capture into that specimen later.
+            _pendingImportSpecimen = null;
+
             PreviewKeyDown -= ModelPose_PreviewKeyDown;
 
             UI_ModelPoseOverlay.Visibility = Visibility.Collapsed;

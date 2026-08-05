@@ -193,6 +193,29 @@ namespace DinoLino
                 new Action(SyncOutlineImageTransform));
         }
 
+        /// Empties the workspace entirely. Used when the loaded specimen is deleted and
+        /// no other specimen still holds an image to fall back to.
+        internal void ClearWorkspaceImage()
+        {
+            WorkingImage = null;
+            UI_WorkImage.Source = null;
+
+            ScaleCalibration.Clear();
+            ResetWorkSpaceZoom();
+            ClearWorkspace();
+            RefreshAllScalePlaceholders();
+
+            // OutlineMode treats a null source as "no image", which stops its pending
+            // analysis and makes clicks no-op.
+            OutlineMode.SourceImage = null;
+
+            // A blank workspace is not a 3D capture either.
+            _workingImageIsModelCapture = false;
+            _activeMesh = null;
+            _activeModelName = null;
+            UI_MenuReposition3D.IsEnabled = false;
+        }
+
         /// <summary>
         /// Aligns outline-mode coordinates with the displayed image after layout completes.
         /// </summary>
