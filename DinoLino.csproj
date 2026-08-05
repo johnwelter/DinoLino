@@ -247,13 +247,14 @@
     </Resource>
     <EmbeddedResource Include="Icons\Icon.ico" />
     <Resource Include="Icons\ShadedIcon.png" />
-    <EmbeddedResource Include="Icons\out.ico" />
     <EmbeddedResource Include="Icons\Title.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </EmbeddedResource>
-    <Resource Include="Icon.ico" />
     <Resource Include="out.ico" />
     <Resource Include="Icons\Logo.svg">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Icons\out.ico">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Resource>
     <Content Include="Logo.svg" />
