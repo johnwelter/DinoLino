@@ -110,6 +110,13 @@ namespace DinoLino.Utilities.Modes
         /// <summary>True when hand-draw is the active tool.</summary>
         bool IsHandDrawActive { get; }
 
+        /// Width of the loaded image in pixels, or 0 when none is cached. Lets the
+        /// push tool keep the outline from growing past the photo's border.
+        int ImagePixelWidth { get; }
+
+        /// <summary>Height of the loaded image in pixels, or 0 when none is cached.</summary>
+        int ImagePixelHeight { get; }
+
         /// <summary>Starts a new hand-drawn stroke and clears any stale outline results.</summary>
         void OnHandStrokeStarted();
 

@@ -109,6 +109,7 @@
     <Compile Include="Utilities\3DDataProcessing\PlyLoader.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineExportWindow.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineShapeExporter.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\PushTool.cs" />
     <Compile Include="Utilities\Scale\ScaleWindow.xaml.cs">
       <DependentUpon>ScaleWindow.xaml</DependentUpon>
     </Compile>

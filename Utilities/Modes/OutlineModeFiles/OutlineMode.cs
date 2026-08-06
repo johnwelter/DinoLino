@@ -30,7 +30,7 @@ namespace DinoLino.Utilities.Modes
         // elements, so the "new operation" workspace clear must NOT fire for them or
         // the click wipes the outline being edited.
         public override bool IsProbeInteraction =>
-            _eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode;
+            _eraseOutlineMode || _pushOutlineMode || _smoothOutlineMode || _outlineMetadataMode;
 
         #region Tools (hand draw, erase, smooth)
 
@@ -38,21 +38,25 @@ namespace DinoLino.Utilities.Modes
         // the mode only through IOutlineToolContext.
         public HandDrawTool HandDraw { get; }
         public EraseTool Erase { get; }
+        public PushTool Push { get; }
         public SmoothTool Smooth { get; }
 
         public OutlineMode()
         {
             HandDraw = new HandDrawTool(this);
             Erase = new EraseTool(this);
+            Push = new PushTool(this);
             Smooth = new SmoothTool(this);
 
             // Explicit wire so a later Global smooth builds on the erased shape.
             Erase.OutlineEdited += Smooth.RefreshSnapshot;
+            Push.OutlineEdited += Smooth.RefreshSnapshot;
 
             // Contract: editing tools raise OutlineEdited; the mode invalidates the
             // cached dense contour so GenerateMetadata falls through to the live
             // (edited) polyline. A new editing tool wired the same way is covered.
             Erase.OutlineEdited += InvalidateDenseContour;
+            Push.OutlineEdited += InvalidateDenseContour;
             Smooth.OutlineEdited += InvalidateDenseContour;
         }
 
@@ -63,6 +67,8 @@ namespace DinoLino.Utilities.Modes
         Brush IOutlineToolContext.LineColor => LineColor;
         bool IOutlineToolContext.HasImage => _cachedPixels != null;
         bool IOutlineToolContext.IsHandDrawActive => _handDrawMode;
+        int IOutlineToolContext.ImagePixelWidth => _cachedPixels != null ? _cachedWidth : 0;
+        int IOutlineToolContext.ImagePixelHeight => _cachedPixels != null ? _cachedHeight : 0;
 
         void IOutlineToolContext.OnHandStrokeStarted()
         {
@@ -113,6 +119,17 @@ namespace DinoLino.Utilities.Modes
             set
             {
                 if (!SetField(ref _eraseOutlineMode, value)) return;
+                OnTipChanged?.Invoke();
+            }
+        }
+
+        private bool _pushOutlineMode = false;
+        public bool PushOutlineMode
+        {
+            get => _pushOutlineMode;
+            set
+            {
+                if (!SetField(ref _pushOutlineMode, value)) return;
                 OnTipChanged?.Invoke();
             }
         }
@@ -652,7 +669,7 @@ namespace DinoLino.Utilities.Modes
         {
             BeginOperation();
 
-            if (_eraseOutlineMode || _smoothOutlineMode || _outlineMetadataMode || _handDrawMode)
+            if (_eraseOutlineMode || _pushOutlineMode || _smoothOutlineMode || _outlineMetadataMode || _handDrawMode)
                 return new List<UIElement>();
             if (_cachedPixels == null || _analysisTask == null) return new List<UIElement>();
 
@@ -1297,6 +1314,14 @@ namespace DinoLino.Utilities.Modes
             TipToggleTips
         };
 
+        // Push tool tips
+        private static readonly string[] PushTips =
+        {
+            "💡 Click and drag from inside the outline outward to push the boundary out. Adjust brush size for precision.",
+            "💡 On a trackpad, hold 'Ctrl' and move the cursor to push without holding a button down.",
+            TipSolidBackground, TipHelp, TipClear, TipOpenImage, TipZoom, TipPan, TipToggleTips
+        };
+
         // Automated Outline, default (portfolio) variant.
         private static readonly string[] DrawFloodTips =
         {
@@ -1376,6 +1401,7 @@ namespace DinoLino.Utilities.Modes
         {
             if (DrawOutlineMode) return UseWatershed ? DrawWatershedTips : DrawFloodTips;
             if (EraseOutlineMode) return EraseTips;
+            if (PushOutlineMode) return PushTips;
             if (SmoothOutlineMode) return SmoothTips;
             if (OutlineMetadataMode) return MetadataTips;
             if (HandDrawMode) return HandDrawTips;

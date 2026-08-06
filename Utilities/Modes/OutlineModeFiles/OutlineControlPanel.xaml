@@ -102,6 +102,25 @@
                        Foreground="Gray" Margin="0,0,0,4"/>
         </StackPanel>
 
+        <!-- Push Outline tool: inverse of Erase — expands the outline outward. -->
+        <RadioButton Content="Push Outline"
+             GroupName="OutlineTool"
+             IsChecked="{Binding PushOutlineMode, Mode=TwoWay}"
+             MinHeight="26"
+             Margin="0,8,0,0"
+             ToolTip="Click and drag from inside the outline outward to expand it — or hold Ctrl and move the cursor."/>
+
+        <StackPanel Visibility="{Binding PushOutlineMode, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Push Brush Size:" FontWeight="Bold" Margin="0,8,0,0"/>
+            <Slider Minimum="5" Maximum="100"
+            Value="{Binding Push.BrushRadius, Mode=TwoWay}"
+            TickFrequency="5"
+            IsSnapToTickEnabled="True"
+            Margin="0,2,0,2"/>
+            <TextBlock Text="{Binding Push.BrushRadius, StringFormat={}{0:F0} px}"
+               Foreground="Gray" Margin="0,0,0,4"/>
+        </StackPanel>
+
         <!-- Smooth Outline tool -->
         <RadioButton Content="Smooth Outline"
                      GroupName="OutlineTool"
