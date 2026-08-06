@@ -227,11 +227,18 @@
                                 </Viewport3D>
                             </Grid>
 
+                            <!-- Pose bar. The hint doubles as the batch progress line, and
+                 "Apply to all 3D objects" changes what Capture does, which is
+                 why it sits beside that button rather than in the fine-tune
+                 panel. Both are driven from the 3D pose code-behind. -->
                             <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,12"
             Background="#CC202020" CornerRadius="6" Padding="10,6">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Foreground="White" VerticalAlignment="Center"
+                                    <TextBlock x:Name="UI_ModelPoseHint" Foreground="White" VerticalAlignment="Center"
                        Text="Press scroll-wheel or arrow keys to rotate  •  Wheel to zoom"/>
+                                    <CheckBox x:Name="UI_ApplyPoseToAll" Content="Apply to all 3D objects"
+                       Foreground="White" VerticalAlignment="Center" Margin="16,0,0,0"
+                       ToolTip="Give every other 3D object in this session this same orientation"/>
                                     <Button Content="Capture View" Margin="14,0,0,0" Padding="10,3" Click="ModelPose_Capture"/>
                                     <Button Content="Cancel" Margin="8,0,0,0" Padding="10,3" Click="ModelPose_Cancel"/>
                                 </StackPanel>

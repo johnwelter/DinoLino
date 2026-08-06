@@ -39,7 +39,8 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup>
-    <ApplicationIcon>out.ico</ApplicationIcon>
+    <ApplicationIcon>
+    </ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
@@ -71,13 +72,13 @@
       <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="DataTypes\DataTypes.cs" />
-    <Compile Include="DownSampleWindow.xaml.cs">
+    <Compile Include="Utilities\ImageAdjustments\DownSampleWindow.xaml.cs">
       <DependentUpon>DownSampleWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\Modes\DrawModeFiles\DrawControlPanel.xaml.cs">
       <DependentUpon>DrawControlPanel.xaml</DependentUpon>
     </Compile>
-    <Compile Include="FontWindow.xaml.cs">
+    <Compile Include="Utilities\ImageAdjustments\FontWindow.xaml.cs">
       <DependentUpon>FontWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="MainWindow.AttemptCounter.cs">
@@ -102,7 +103,7 @@
     <Compile Include="Utilities\Modes\OutlineModeFiles\MLSegmenter.cs" />
     <Compile Include="Utilities\3DDataProcessing\ModelPoseController.cs" />
     <Compile Include="Utilities\3DDataProcessing\ObjLoader.cs" />
-    <Compile Include="PictureAdjustmentWindow.xaml.cs">
+    <Compile Include="Utilities\ImageAdjustments\PictureAdjustmentWindow.xaml.cs">
       <DependentUpon>PictureAdjustmentWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\3DDataProcessing\PlyLoader.cs" />
@@ -122,9 +123,9 @@
     <Compile Include="Utilities\EFAFiles\EfsCsvCollector.cs" />
     <Compile Include="Utilities\EFAFiles\EllipticFourierAnalysis.cs" />
     <Compile Include="Utilities\EFAFiles\Ellipticfourierpower.cs" />
-    <Compile Include="Utilities\GeometryCalculations.cs" />
+    <Compile Include="Utilities\Modes\GeometryCalculations.cs" />
     <Compile Include="Utilities\HistoryFiles\GeomOpHistoryWindow.cs" />
-    <Compile Include="Utilities\ImageAdjuster.cs" />
+    <Compile Include="Utilities\ImageAdjustments\ImageAdjuster.cs" />
     <Compile Include="Utilities\Modes\DrawModeFiles\DrawMode.cs" />
     <Compile Include="Utilities\Modes\GetAngleModeFiles\GetAngleMode.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureMode.cs" />
@@ -144,7 +145,7 @@
     <Compile Include="Utilities\HelpMenuFiles\About.xaml.cs">
       <DependentUpon>About.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Utilities\Operations.cs" />
+    <Compile Include="Utilities\Modes\Operations.cs" />
     <Compile Include="Utilities\HistoryFiles\UndoRedoManager.cs" />
     <Compile Include="Utilities\Batch Workshop\WorkshopEditWindow.cs" />
     <Page Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml">
@@ -154,14 +155,14 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="DownSampleWindow.xaml">
+    <Page Include="Utilities\ImageAdjustments\DownSampleWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Utilities\Modes\DrawModeFiles\DrawControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="FontWindow.xaml">
+    <Page Include="Utilities\ImageAdjustments\FontWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="MainWindow.xaml">
@@ -180,7 +181,7 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="PictureAdjustmentWindow.xaml">
+    <Page Include="Utilities\ImageAdjustments\PictureAdjustmentWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Utilities\Scale\ScaleWindow.xaml">
@@ -250,14 +251,12 @@
     <EmbeddedResource Include="Icons\Title.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </EmbeddedResource>
-    <Resource Include="out.ico" />
     <Resource Include="Icons\Logo.svg">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Icons\out.ico">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Resource>
-    <Content Include="Logo.svg" />
     <Content Include="Utilities\HelpMenuFiles\User Guide.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

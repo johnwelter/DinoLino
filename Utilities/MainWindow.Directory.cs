@@ -475,6 +475,7 @@ namespace DinoLino
             {
                 Text = released ? specimen.FileName + "  (image released)"
                      : pendingModel ? specimen.FileName + "  (3D \u2014 not positioned)"
+                     : specimen.ModelPath != null ? specimen.FileName + "  (3D)"
                      : specimen.FileName,
                 Foreground = new SolidColorBrush(Color.FromRgb(0x77, 0x77, 0x77)),
                 FontSize = 11,

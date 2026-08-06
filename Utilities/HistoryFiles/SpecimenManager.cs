@@ -32,6 +32,15 @@ namespace DinoLino.Utilities
         // positions it. Cleared once a view is captured.
         public string PendingModelPath { get; set; }
 
+        // Mesh file this specimen was captured from, kept for the whole session — unlike
+        // PendingModelPath, which is cleared as soon as a view is captured. This is what
+        // lets a later reposition, its own or a batch one, find the model again.
+        public string ModelPath { get; set; }
+
+        // Orientation this specimen was last captured at
+        public System.Windows.Media.Media3D.Quaternion ModelOrientation { get; set; }
+               = System.Windows.Media.Media3D.Quaternion.Identity;
+
         // True while this specimen is a 3D model that still needs positioning.
         public bool NeedsPositioning => Image == null && PendingModelPath != null;
 
@@ -267,6 +276,7 @@ namespace DinoLino.Utilities
                 target.Image = image;
                 target.FileName = fileName;
                 target.PendingModelPath = modelPath;
+                target.ModelPath = modelPath;
             }
             else
             {
@@ -275,6 +285,7 @@ namespace DinoLino.Utilities
                     Image = image,
                     FileName = fileName,
                     PendingModelPath = modelPath,
+                    ModelPath = modelPath,
                     Ordinal = _specimens.Count   // creation index, stable for the session
                 };
                 _specimens.Add(target);

@@ -270,16 +270,17 @@ The coefficients table may be exported in wide format in Batch Workshop, or it m
 
 2D Outlines:
 All outlines created in a session may be exported as black silhouettes on a white background. Outlines are automatically filled prior to export.
-Some metadata may be accessed including vertex count, perimeter length, and area in the Edit window.
 All generated outlines will be exported unless they are manually removed in the Edit window.
 Select a destination folder for export, a file type, and desired canvas size.
-Outlines may be rotated onto the long axis to align orientations, or exported in original orientation.
+Scale: Outline area will be resized such that the filled shape covers 25% of the canvas. 
+	   Some elongated shapes are exceptions to this. If an elongated shape at target area reaches past the margins, it is shrunk until it fits within the canvas.
+Align: Outlines may be rotated onto the long axis to align orientations, or exported in original orientation.
 
 ----- See Directory -----
-
+Navigate file paths, view, and edit the specimens uploaded for a given a session.
 
 ----- See Rex -----
-
+A friend to help you work.
 
 ----- See History ----- 
 View and export CSV tables of all operations performed.
