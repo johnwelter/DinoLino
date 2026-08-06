@@ -16,6 +16,11 @@ namespace DinoLino
         private Point _panStartMouse; // Mouse position in workspace coordinates when the drag started.
         private double _panStartImageTx, _panStartImageTy;
 
+        // ---- Outline brush state ----
+
+        // True between the first and last frame of a brush stroke.
+        private bool _outlineBrushActive;
+
         // ---- Keyboard input ----
 
         private void MainWindow_KeyDown(object sender, KeyEventArgs e)
@@ -207,15 +212,36 @@ namespace DinoLino
             Vector2 centeredCursorPos = CurrentWorkMode.ProcessMouseMovement(mousePos) - new Vector2(5, 5);
             UI_DotCursor.SetPosition(centeredCursorPos.X, centeredCursorPos.Y);
 
-            if (e.LeftButton == MouseButtonState.Pressed && CurrentWorkMode is OutlineMode om)
-            {
-                if (om.EraseOutlineMode)
-                    om.Erase.ProcessDrag(mousePos);
-                else if (om.SmoothOutlineMode && om.Smooth.IsLocalScope)
-                    om.Smooth.ProcessLocalDrag(mousePos);
-                else if (om.HandDrawMode)
-                    om.HandDraw.ProcessDrag(mousePos);
-            }
+            if (CurrentWorkMode is OutlineMode om)
+                RouteOutlineBrush(om, mousePos, e.LeftButton == MouseButtonState.Pressed);
+            else
+                _outlineBrushActive = false;
+        }
+
+        /// Applies whichever outline brush is armed. Erase, push, and local smooth
+        /// respond to a held left button or to Alt; hand-draw requires the button,
+        /// since its strokes have explicit begin and end points.
+        private void RouteOutlineBrush(OutlineMode om, Vector2 mousePos, bool buttonHeld)
+        {
+            bool brushing = buttonHeld
+                || (Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt;
+
+            // OutlineMode's canvas-to-image transform is refreshed on click. A stroke
+            // driven by Alt alone has no click, so refresh it as the stroke begins.
+            if (brushing && !_outlineBrushActive)
+                SyncOutlineImageTransform();
+            _outlineBrushActive = brushing;
+
+            if (!brushing) return;
+
+            if (om.EraseOutlineMode)
+                om.Erase.ProcessDrag(mousePos);
+            else if (om.PushOutlineMode)
+                om.Push.ProcessDrag(mousePos);
+            else if (om.SmoothOutlineMode && om.Smooth.IsLocalScope)
+                om.Smooth.ProcessLocalDrag(mousePos);
+            else if (buttonHeld && om.HandDrawMode)
+                om.HandDraw.ProcessDrag(mousePos);
         }
 
         private void WorkSpace_MouseUp(object sender, MouseButtonEventArgs e)
@@ -241,6 +267,7 @@ namespace DinoLino
         private void WorkSpace_LostCapture(object sender, MouseEventArgs e)
         {
             _isPanning = false;
+            _outlineBrushActive = false;
             Mouse.OverrideCursor = null;
         }
 

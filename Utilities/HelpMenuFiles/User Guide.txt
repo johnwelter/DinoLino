@@ -15,7 +15,7 @@ Zoom:
 Use the scroll wheel to zoom in and out of the image at the location of the cursor.
 
 Drag image:
-Hold Ctrl and left click to drag the image around the window.
+Hold Ctrl and left click to drag and move the viewable window while zoomed in.
 ------------------------------------------------------------------------------------------------
 KEYBOARD SHORTCUTS: 
 
@@ -122,10 +122,18 @@ Tip: If the outline is not accurate, try adjusting the fill sensitivity, or swit
 Tip: To reduce computational expense and increase performance speed, try cropping or decimating the image.
 
 ----- Erase -----
-Click and drag anywhere on the outline to erase that part. Set the eraser size using the slider.
+Click, hold the left mouse button, and drag anywhere on the outline to erase that part. Set the eraser size using the slider.
+Alternately, hold the 'Alt' button and drag the cursor to erase part of the outline. This may be more convenient when using a trackpad.
+
+----- Push -----
+Click, hold the left mouse button, and drag anywhere on the outline to push that part outward. Set the brush size using the slider.
+Alternately, hold the 'Alt' button and drag the cursor to erase part of the outline. This may be more convenient when using a trackpad.
 
 ----- Smooth -----
-Smooth a noisy outline to the desired amount by adjusting the slider value. 
+Smooth a noisy outline to the desired amount by adjusting the slider value. The higher the number of passes, the more smoothing will occur.
+Global smooth smooths the entire outline, while local smooth smooths only the area around the cursor.
+For local smooth, set the brush size using the slider and the desired strength. Click, hold the left mouse button, and drag anywhere on the outline to smooth that part. 
+Alternately, hold the 'Alt' button and drag the cursor to erase part of the outline. This may be more convenient when using a trackpad.
 
 ----- Generate Metadata -----
 Aspect Ratio: Width of the outline (its longest side) divided by its height (maximum perpendicular distance from the width).

@@ -107,10 +107,13 @@ namespace DinoLino.Utilities
         public List<WorkshopRow> Rows = new List<WorkshopRow>();
     }
 
-    /// <summary>A whole category as one wide table.</summary>
+    /// <summary>A set of column groups as one wide table.</summary>
     public sealed class WorkshopTable
     {
-        public string Key;                     // key for hidden columns
+        /// Key under which columns are hidden. Null or empty means the table is not
+        /// filtered and always shows every column.
+        public string Key;
+
         public string Title;
         public bool AllowColumnHiding = true;
 
@@ -121,9 +124,11 @@ namespace DinoLino.Utilities
         public List<int> VisibleColumnIndexes()
         {
             var keep = new List<int>(MeasurementHeaders.Length);
+            bool filtered = !string.IsNullOrEmpty(Key);
+
             for (int i = 0; i < MeasurementHeaders.Length; i++)
             {
-                if (!WorkshopColumnFilter.IsHidden(Key, MeasurementHeaders[i]))
+                if (!filtered || !WorkshopColumnFilter.IsHidden(Key, MeasurementHeaders[i]))
                     keep.Add(i);
             }
             return keep;
@@ -168,30 +173,56 @@ namespace DinoLino.Utilities
     // =====================
 
     /// <summary>
-    /// Builds one wide table per Batch Workshop category. Operations of different
-    /// kinds are joined by attempt number rather than stacked in separate sections,
-    /// so attempt 1 of every kind shares a row and kinds with fewer attempts leave
-    /// blank cells.
+    /// Builds wide tables from column groups. Operations of different kinds are
+    /// joined by attempt number rather than stacked in separate sections, so attempt
+    /// 1 of every kind shares a row and kinds with fewer attempts leave blank cells.
+    /// The column definitions here are the single source for the Batch Workshop
+    /// tables, the History window's tabs, and every export built from either.
     /// </summary>
     public static class WorkshopTables
     {
+        /// <summary>One Batch Workshop category as a table.</summary>
         public static WorkshopTable Build(
             WorkshopCategory category, UndoRedoManager undoRedo, string currentName, ScaleCalibration scale)
         {
-            var table = Describe(category, undoRedo, scale);
-            if (undoRedo == null) return table;
+            var table = BuildFromGroups(
+                KeyFor(category), ColumnGroups(category, undoRedo, scale), undoRedo, currentName);
 
-            var groups = GroupsFor(category, undoRedo, scale);
+            table.Title = TitleFor(category);
+
+            // The silhouette export has no column-based CSV, so hiding a column there
+            // would not correspond to anything.
+            table.AllowColumnHiding = category != WorkshopCategory.Outlines2D;
+
+            return table;
+        }
+
+        /// Builds a table from any subset of column groups, so a caller can take one
+        /// operation kind out of a category and table it on its own.
+        public static WorkshopTable BuildFromGroups(
+            string key, IReadOnlyList<WorkshopColumnGroup> groups,
+            UndoRedoManager undoRedo, string currentName)
+        {
+            var headers = new List<string>();
 
             // Column index where each group's columns start, so a group can write into
             // its own slice of the row and leave the rest blank.
-            var offsets = new List<int>();
-            int running = 0;
-            foreach (var group in groups)
+            var offsets = new int[groups.Count];
+
+            for (int g = 0; g < groups.Count; g++)
             {
-                offsets.Add(running);
-                running += group.Columns.Count;
+                offsets[g] = headers.Count;
+                foreach (var column in groups[g].Columns)
+                    headers.Add(column.Header);
             }
+
+            var table = new WorkshopTable
+            {
+                Key = key,
+                MeasurementHeaders = headers.ToArray()
+            };
+
+            if (undoRedo == null) return table;
 
             foreach (var block in EnumerateBlocks(undoRedo, currentName))
             {
@@ -286,28 +317,6 @@ namespace DinoLino.Utilities
             };
         }
 
-        private static WorkshopTable Describe(
-            WorkshopCategory category, UndoRedoManager undoRedo, ScaleCalibration scale)
-        {
-            var groups = GroupsFor(category, undoRedo, scale);
-
-            var headers = new List<string>();
-            foreach (var group in groups)
-                foreach (var column in group.Columns)
-                    headers.Add(column.Header);
-
-            return new WorkshopTable
-            {
-                Key = KeyFor(category),
-                Title = TitleFor(category),
-                MeasurementHeaders = headers.ToArray(),
-
-                // The silhouette export has no column-based CSV, so hiding a column
-                // there would not correspond to anything.
-                AllowColumnHiding = category != WorkshopCategory.Outlines2D
-            };
-        }
-
         public static string KeyFor(WorkshopCategory category)
         {
             switch (category)
@@ -358,7 +367,10 @@ namespace DinoLino.Utilities
         // for the four drawn shapes; line_ for lines; outline_ and efa_ for outlines.
         // Note circ_ means the circular arc in the Curvature table and the drawn
         // circle in the Shape table — separate tables, so the names never meet.
-        private static List<WorkshopColumnGroup> GroupsFor(
+
+        /// One category's column groups, in table order. Callers can take a subset to
+        /// table a single operation kind on its own.
+        public static List<WorkshopColumnGroup> ColumnGroups(
             WorkshopCategory category, UndoRedoManager undoRedo, ScaleCalibration scale)
         {
             switch (category)

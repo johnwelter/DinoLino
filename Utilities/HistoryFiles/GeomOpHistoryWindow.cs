@@ -16,13 +16,24 @@ using System.Windows.Media;
 namespace DinoLino.Utilities
 {
     // Per-session operation viewer: one tab per operation kind, grouped by specimen.
+    // Every tab takes its columns from the Batch Workshop table that measures the
+    // same kind, so the two views and their exports always carry the same variables.
     public class GeomOpHistoryWindow : Window
     {
-        #region Fields and shared helpers
+        #region Fields and tab definitions
 
-        private readonly List<WorkbookSheet> _workbook = new();
+        // Sheet names staged for the workbook. Static so the selection outlives the
+        // window and the Batch Workshop's All Geometric Data export can reuse it.
+        private static readonly HashSet<string> _selectedSheets = new();
+
         private TextBlock _workbookStatus;
         private Button _exportWorkbookButton;
+
+        // Kept so the workbook is rebuilt from live history at export time rather
+        // than from the rows captured when the tabs were drawn.
+        private readonly UndoRedoManager _undoRedo;
+        private readonly string _currentName;
+        private readonly ScaleCalibration _scale;
 
         // One flattened table staged for export: sheet name, column headers, and
         // rows already formatted as display strings.
@@ -45,8 +56,86 @@ namespace DinoLino.Utilities
             public event PropertyChangedEventHandler PropertyChanged;
         }
 
+        // One grid row: the attempt label plus the measurement cells, indexed to
+        // match the table's headers.
+        private class HistoryRow
+        {
+            public string Attempt { get; set; }
+            public string[] Cells { get; set; }
+        }
+
+        // One tab: the Batch Workshop table its columns come from, and which of that
+        // table's column groups belong to it.
+        private sealed class TabSpec
+        {
+            public string Name;
+            public string FileName;
+            public WorkshopCategory Category;
+            public Func<WorkshopColumnGroup, bool> Pick;
+        }
+
+        // Tab order also fixes sheet order in the exported workbooks.
+        private static readonly TabSpec[] Tabs =
+        {
+            new TabSpec
+            {
+                Name = "Circular Arc",
+                FileName = "circular_arc_history.csv",
+                Category = WorkshopCategory.Curvature,
+                Pick = g => g.OperationType == typeof(CircularArcOperation)
+            },
+            new TabSpec
+            {
+                Name = "Parabolic Arc",
+                FileName = "parabolic_arc_history.csv",
+                Category = WorkshopCategory.Curvature,
+                Pick = g => g.OperationType == typeof(ParabolaOperation)
+            },
+            new TabSpec
+            {
+                Name = "n-Point Spline",
+                FileName = "spline_history.csv",
+                Category = WorkshopCategory.Curvature,
+                Pick = g => g.OperationType == typeof(SplineOperation)
+            },
+            new TabSpec
+            {
+                Name = "Triangle",
+                FileName = "triangle_history.csv",
+                Category = WorkshopCategory.Angle,
+                Pick = g => g.OperationType == typeof(GetAngleOperation)
+            },
+            new TabSpec
+            {
+                // The Shape Data table holds one group per shape kind; all four
+                // belong to this tab.
+                Name = "Shapes",
+                FileName = "shape_history.csv",
+                Category = WorkshopCategory.Shape,
+                Pick = g => g.OperationType == typeof(ShapeOperation)
+            },
+            new TabSpec
+            {
+                Name = "Lines",
+                FileName = "line_history.csv",
+                Category = WorkshopCategory.Shape,
+                Pick = g => g.OperationType == typeof(LineOperation)
+            },
+            new TabSpec
+            {
+                Name = "Outline",
+                FileName = "outline_history.csv",
+                Category = WorkshopCategory.OutlineMetadata,
+                Pick = g => g.OperationType == typeof(OutlineOperation)
+            }
+        };
+
         public GeomOpHistoryWindow(UndoRedoManager undoRedo, string specimenName, ScaleCalibration scale)
         {
+            _undoRedo = undoRedo;
+            _currentName = specimenName;
+            _scale = scale;
+
             Title = "History of operations";
             Width = 720;
             Height = 540;
@@ -55,14 +144,9 @@ namespace DinoLino.Utilities
             var footer = BuildWorkbookFooter();
             UpdateWorkbookStatus();
 
-            // One tab per operation kind; each builder loops over every specimen.
             var tabs = new TabControl();
-            tabs.Items.Add(BuildCircularArcTab(undoRedo, specimenName));
-            tabs.Items.Add(BuildParabolicArcTab(undoRedo, specimenName));
-            tabs.Items.Add(BuildSplineTab(undoRedo, specimenName, scale));
-            tabs.Items.Add(BuildTriangleTab(undoRedo, specimenName, scale));
-            tabs.Items.Add(BuildLineTab(undoRedo, specimenName, scale));
-            tabs.Items.Add(BuildOutlineTab(undoRedo, specimenName, scale));
+            foreach (var spec in Tabs)
+                tabs.Items.Add(BuildTab(spec));
 
             var root = new DockPanel();
             DockPanel.SetDock(footer, Dock.Bottom);
@@ -75,284 +159,62 @@ namespace DinoLino.Utilities
         private static IEnumerable<(string Name, IReadOnlyList<WorkOperation> Ops)> Blocks(
             UndoRedoManager ur, string currentName)
         {
-            #endregion
-
             foreach (var rec in ur.Archive)
                 yield return (rec.SpecimenName, rec.Operations);
             yield return (currentName, ur.History);
         }
 
-        #region Tab builders (UI grids + CSV rows)
+        #endregion
 
-        // Representative of all six tab builders: for each specimen, add a header,
-        // a grid of that kind's operations, and matching CSV rows in parallel (the
-        // grid feeds the UI, csvRows feeds this tab's Export/Add-to-workbook buttons).
-        private TabItem BuildLineTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        #region Tab building
+
+        // One tab's table. The null filter key means the History view shows every
+        // column, whatever has been hidden in a Batch Workshop edit window.
+        private static WorkshopTable BuildTable(
+            TabSpec spec, UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
-            var panel = new StackPanel();
-            var csvRows = new List<string[]>();
-            var attemptHeader = new AttemptHeader();
+            var groups = WorkshopTables.ColumnGroups(spec.Category, ur, scale)
+                .Where(spec.Pick)
+                .ToList();
 
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                panel.Children.Add(SpecimenHeader(name));
-
-                var grid = MakeGrid();
-                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(LineHistoryRow.Attempt), 70);
-                AddColumn(grid, "Length", nameof(LineHistoryRow.Length));
-
-                var rows = new List<LineHistoryRow>();
-                int attempt = 1;   // restarts per specimen block
-                bool any = false;
-                foreach (var op in ops.OfType<LineOperation>())
-                {
-                    any = true;
-                    var r = new LineHistoryRow
-                    {
-                        Attempt = (attempt++).ToString(),
-                        Length = FmtLength(op.LineLength, scale)
-                    };
-                    rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt, r.Length });
-                }
-                // Emit one blank row so a specimen with no operations of this kind
-                // still appears in the export.
-                if (!any)
-                    csvRows.Add(new[] { name, "", "", "" });
-                grid.ItemsSource = rows;
-
-                panel.Children.Add(grid);
-            }
-
-            var headers = new[] { "Specimen", "Attempt", "Length" };
-            return WrapTab("Lines", panel, headers, csvRows, "line_history.csv");
+            return WorkshopTables.BuildFromGroups(null, groups, ur, currentName);
         }
 
-        private TabItem BuildOutlineTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        // For each specimen, a header and a grid of that kind's operations. The tab's
+        // CSV comes from the same table, so the file matches what is on screen.
+        private TabItem BuildTab(TabSpec spec)
         {
+            var table = BuildTable(spec, _undoRedo, _currentName, _scale);
+
             var panel = new StackPanel();
-            var csvRows = new List<string[]>();
             var attemptHeader = new AttemptHeader();
 
-            foreach (var (name, ops) in Blocks(ur, currentName))
+            foreach (var block in table.Blocks)
             {
-                panel.Children.Add(SpecimenHeader(name));
+                panel.Children.Add(SpecimenHeader(block.Name));
 
                 var grid = MakeGrid();
-                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(OutlineHistoryRow.Attempt), 70);
-                AddColumn(grid, "Aspect ratio", nameof(OutlineHistoryRow.AspectRatio));
-                AddColumn(grid, "Perimeter", nameof(OutlineHistoryRow.Perimeter));
-                AddColumn(grid, "Area", nameof(OutlineHistoryRow.Area));
-                AddColumn(grid, "Perim / Area", nameof(OutlineHistoryRow.PerimeterAreaRatio));
-                AddColumn(grid, "Circularity", nameof(OutlineHistoryRow.Circularity));
-                AddColumn(grid, "Solidity", nameof(OutlineHistoryRow.Solidity));
-                AddColumn(grid, "Turn. Angles / Length", nameof(OutlineHistoryRow.TurningAngleLength));
+                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(HistoryRow.Attempt), 70);
 
-                var rows = new List<OutlineHistoryRow>();
-                int attempt = 1;
-                bool any = false;
-                // Finalized outlines only (HasMetadata), matching n_outline. EFD/EFA
-                // coefficients export separately from the EFA window.
-                foreach (var op in ops.OfType<OutlineOperation>().Where(o => o.HasMetadata))
-                {
-                    any = true;
-                    var r = new OutlineHistoryRow
+                for (int i = 0; i < table.MeasurementHeaders.Length; i++)
+                    AddColumn(grid, table.MeasurementHeaders[i], $"{nameof(HistoryRow.Cells)}[{i}]");
+
+                // Attempt 0 marks the placeholder row a specimen with no operations of
+                // this kind gets; it belongs in the export but not on screen.
+                grid.ItemsSource = block.Rows
+                    .Where(r => r.Attempt > 0)
+                    .Select(r => new HistoryRow
                     {
-                        Attempt = (attempt++).ToString(),
-                        AspectRatio = Fmt4(op.AspectRatio),
-                        Perimeter = FmtLength(op.Perimeter, scale),
-                        Area = FmtArea(op.Area, scale),
-                        PerimeterAreaRatio = Fmt4(op.PerimeterAreaRatio),
-                        Circularity = Fmt4(op.Circularity),
-                        Solidity = Fmt4(op.Solidity),
-                        TurningAngleLength = Fmt4(op.TurningAngleLength)
-                    };
-                    rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt, r.AspectRatio, r.Perimeter, r.Area, r.PerimeterAreaRatio, r.Circularity, r.Solidity, r.TurningAngleLength });
-                }
-                if (!any)
-                    csvRows.Add(new[] { name, "", "", "", "", "", "", "", "", "" });
-                grid.ItemsSource = rows;
+                        Attempt = r.Attempt.ToString(),
+                        Cells = r.Cells
+                    })
+                    .ToList();
 
                 panel.Children.Add(grid);
             }
 
-            var headers = new[] { "Specimen", "Attempt", "Aspect ratio", "Perimeter", "Area", "Perim / Area", "Circularity", "Solidity", "Sum Turn. Angles", "Turn. Angles / Length" };
-            return WrapTab("Outline", panel, headers, csvRows, "outline_history.csv");
-        }
-
-        private TabItem BuildCircularArcTab(UndoRedoManager ur, string currentName)
-        {
-            var panel = new StackPanel();
-            var csvRows = new List<string[]>();
-            var attemptHeader = new AttemptHeader();
-
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                panel.Children.Add(SpecimenHeader(name));
-
-                var grid = MakeGrid();
-                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(CircularArcHistoryRow.Attempt), 70);
-                AddColumn(grid, "Central angle", nameof(CircularArcHistoryRow.CentralAngle));
-                AddColumn(grid, "Chord-arc ratio", nameof(CircularArcHistoryRow.ChordArcRatio));
-                AddColumn(grid, "Rise-span ratio", nameof(CircularArcHistoryRow.RiseSpanRatio));
-
-                var rows = new List<CircularArcHistoryRow>();
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<CircularArcOperation>())
-                {
-                    any = true;
-                    var r = new CircularArcHistoryRow
-                    {
-                        Attempt = (attempt++).ToString(),
-                        CentralAngle = Fmt(op.CentralAngle),
-                        ChordArcRatio = Fmt(op.ChordArcRatio),
-                        RiseSpanRatio = Fmt(op.AspectRatio)
-                    };
-                    rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt, r.CentralAngle, r.ChordArcRatio, r.RiseSpanRatio });
-                }
-                if (!any)
-                    csvRows.Add(new[] { name, "", "", "", "" });
-                grid.ItemsSource = rows;
-
-                panel.Children.Add(grid);
-            }
-
-            var headers = new[] { "Specimen", "Attempt", "Central angle", "Chord-arc ratio", "Rise-span ratio" };
-            return WrapTab("Circular Arc", panel, headers, csvRows, "circular_arc_history.csv");
-        }
-
-        private TabItem BuildParabolicArcTab(UndoRedoManager ur, string currentName)
-        {
-            var panel = new StackPanel();
-            var csvRows = new List<string[]>();
-            var attemptHeader = new AttemptHeader();
-
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                panel.Children.Add(SpecimenHeader(name));
-
-                var grid = MakeGrid();
-                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(ParabolicArcHistoryRow.Attempt), 70);
-                AddColumn(grid, "Chord-arc ratio", nameof(ParabolicArcHistoryRow.ChordArcRatio));
-                AddColumn(grid, "Rise-span ratio", nameof(ParabolicArcHistoryRow.RiseSpanRatio));
-                AddColumn(grid, "Vertex curvature", nameof(ParabolicArcHistoryRow.VertexCurvature));
-
-                var rows = new List<ParabolicArcHistoryRow>();
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<ParabolaOperation>())
-                {
-                    any = true;
-                    var r = new ParabolicArcHistoryRow
-                    {
-                        Attempt = (attempt++).ToString(),
-                        ChordArcRatio = Fmt(op.PChordArcRatio),
-                        RiseSpanRatio = Fmt(op.RiseSpanRatio),
-                        VertexCurvature = Fmt(op.VertexCurvature)
-                    };
-                    rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt, r.ChordArcRatio, r.RiseSpanRatio, r.VertexCurvature });
-                }
-                if (!any)
-                    csvRows.Add(new[] { name, "", "", "", "" });
-                grid.ItemsSource = rows;
-
-                panel.Children.Add(grid);
-            }
-
-            var headers = new[] { "Specimen", "Attempt", "Chord-arc ratio", "Rise-span ratio", "Vertex curvature" };
-            return WrapTab("Parabolic Arc", panel, headers, csvRows, "parabolic_arc_history.csv");
-        }
-
-        private TabItem BuildSplineTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
-        {
-            var panel = new StackPanel();
-            var csvRows = new List<string[]>();
-            var attemptHeader = new AttemptHeader();
-
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                panel.Children.Add(SpecimenHeader(name));
-
-                var grid = MakeGrid();
-                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(SplineHistoryRow.Attempt), 70);
-                AddColumn(grid, "Turn. Angles / Length", nameof(SplineHistoryRow.TurnPerLength));
-                AddColumn(grid, "Chord-arc ratio", nameof(SplineHistoryRow.ChordArcRatio));
-                AddColumn(grid, "Length", nameof(SplineHistoryRow.Length));
-
-                var rows = new List<SplineHistoryRow>();
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<SplineOperation>())
-                {
-                    any = true;
-                    var r = new SplineHistoryRow
-                    {
-                        Attempt = (attempt++).ToString(),
-                        TurnPerLength = Fmt(op.TurningAngleArcRatio),
-                        ChordArcRatio = Fmt(op.SChordArcRatio),
-                        Length = FmtLength(op.SplineLengthPixels, scale)
-                    };
-                    rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt, r.TurnPerLength, r.ChordArcRatio, r.Length });
-                }
-                if (!any)
-                    csvRows.Add(new[] { name, "", "", "", "", "" });
-                grid.ItemsSource = rows;
-
-                panel.Children.Add(grid);
-            }
-
-            var headers = new[] { "Specimen", "Attempt", "Turn. Angles / Length", "Sum Turn. Angles", "Chord-arc ratio", "Length" };
-            return WrapTab("n-Point Spline", panel, headers, csvRows, "spline_history.csv");
-        }
-
-        private TabItem BuildTriangleTab(UndoRedoManager ur, string currentName, ScaleCalibration scale)
-        {
-            var panel = new StackPanel();
-            var csvRows = new List<string[]>();
-            var attemptHeader = new AttemptHeader();
-
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                panel.Children.Add(SpecimenHeader(name));
-
-                var grid = MakeGrid();
-                AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(TriangleHistoryRow.Attempt), 70);
-                AddColumn(grid, "Angle A", nameof(TriangleHistoryRow.AngleA));
-                AddColumn(grid, "Angle B", nameof(TriangleHistoryRow.AngleB));
-                AddColumn(grid, "Angle C", nameof(TriangleHistoryRow.AngleC));
-                AddColumn(grid, "Area", nameof(TriangleHistoryRow.Area));
-
-                var rows = new List<TriangleHistoryRow>();
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<GetAngleOperation>())
-                {
-                    any = true;
-                    var r = new TriangleHistoryRow
-                    {
-                        Attempt = (attempt++).ToString(),
-                        AngleA = Fmt(op.AngleA),
-                        AngleB = Fmt(op.AngleB),
-                        AngleC = Fmt(op.AngleC),
-                        Area = FmtArea(op.TriArea, scale)
-                    };
-                    rows.Add(r);
-                    csvRows.Add(new[] { name, r.Attempt, r.AngleA, r.AngleB, r.AngleC, r.Area });
-                }
-                if (!any)
-                    csvRows.Add(new[] { name, "", "", "", "", "" });
-                grid.ItemsSource = rows;
-
-                panel.Children.Add(grid);
-            }
-
-            var headers = new[] { "Specimen", "Attempt", "Angle A", "Angle B", "Angle C", "Area" };
-            return WrapTab("Triangle", panel, headers, csvRows, "triangle_history.csv");
+            var (csvHeaders, csvRows) = table.ToCsv();
+            return WrapTab(spec.Name, panel, csvHeaders, csvRows, spec.FileName);
         }
 
         #endregion
@@ -360,8 +222,7 @@ namespace DinoLino.Utilities
         #region Tab chrome and grid helpers
 
         // Wraps a tab's specimen panel in a scroll viewer + button row (Add to
-        // workbook / Export to CSV). csvHeaders/csvRows are the flat data captured
-        // while the grids were built.
+        // workbook / Export to CSV).
         private TabItem WrapTab(string header, StackPanel panel,
             string[] csvHeaders, List<string[]> csvRows, string suggestedFileName)
         {
@@ -376,18 +237,16 @@ namespace DinoLino.Utilities
             {
                 Content = WorkbookButtonLabel(IsInWorkbook(header)),
                 Margin = new Thickness(0, 0, 8, 0),
-                Padding = new Thickness(12, 4, 12, 4)
+                Padding = new Thickness(12, 4, 12, 4),
+                ToolTip = "Include this table in the exported workbook"
             };
             addButton.Click += (s, e) =>
             {
-                // Toggle: add this tab's table, or remove it if already staged.
-                var existing = _workbook.FirstOrDefault(w => w.Name == header);
-                if (existing != null)
-                    _workbook.Remove(existing);
-                else
-                    _workbook.Add(new WorkbookSheet { Name = header, Headers = csvHeaders, Rows = csvRows });
+                // Toggle: stage this tab's sheet, or drop it if already staged.
+                if (!_selectedSheets.Remove(header))
+                    _selectedSheets.Add(header);
 
-                addButton.Content = WorkbookButtonLabel(existing == null);
+                addButton.Content = WorkbookButtonLabel(IsInWorkbook(header));
                 UpdateWorkbookStatus();
             };
 
@@ -414,7 +273,7 @@ namespace DinoLino.Utilities
             return new TabItem { Header = header, Content = dock };
         }
 
-        private bool IsInWorkbook(string sheetName) => _workbook.Any(w => w.Name == sheetName);
+        private static bool IsInWorkbook(string sheetName) => _selectedSheets.Contains(sheetName);
 
         private static string WorkbookButtonLabel(bool added) =>
             added ? "\u2713 Added to workbook" : "Add to workbook";
@@ -447,7 +306,7 @@ namespace DinoLino.Utilities
             return grid;
         }
 
-        // Read-only measurement column bound to one row-DTO property.
+        // Read-only measurement column bound to one cell of the row array.
         private static void AddColumn(DataGrid grid, string header, string path, double? fixedWidth = null)
         {
             grid.Columns.Add(new DataGridTextColumn
@@ -472,7 +331,7 @@ namespace DinoLino.Utilities
                 Background = Brushes.Transparent,
                 FontWeight = FontWeights.Bold,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                ToolTip = "Edit this column title (affects this window and its exports only)",
+                ToolTip = "Edit this column title (affects this window only)",
                 DataContext = model
             };
             box.SetBinding(TextBox.TextProperty, new Binding(nameof(AttemptHeader.Text))
@@ -535,7 +394,7 @@ namespace DinoLino.Utilities
 
         private void UpdateWorkbookStatus()
         {
-            int n = _workbook.Count;
+            int n = _selectedSheets.Count;
             _workbookStatus.Text = n == 0
                 ? "No tables added to workbook"
                 : n == 1 ? "1 table added to workbook"
@@ -585,7 +444,8 @@ namespace DinoLino.Utilities
 
         private void ExportWorkbook()
         {
-            if (_workbook.Count == 0) return;
+            var sheets = StagedSheets(_undoRedo, _currentName, _scale);
+            if (sheets.Count == 0) return;
 
             var dlg = new SaveFileDialog
             {
@@ -599,7 +459,7 @@ namespace DinoLino.Utilities
 
             try
             {
-                WriteXlsx(dlg.FileName, _workbook);
+                WriteXlsx(dlg.FileName, sheets);
             }
             catch (Exception ex)
             {
@@ -610,7 +470,7 @@ namespace DinoLino.Utilities
 
         #endregion
 
-        #region Export-all entry point and headless data builders
+        #region Workbook entry points
 
         public static void ExportAllOperationHistory(
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
@@ -636,157 +496,59 @@ namespace DinoLino.Utilities
             }
         }
 
+        /// Writes the Batch Workshop's All Geometric Data workbook: the sheets staged
+        /// in the History window, or every sheet when none have been staged.
+        public static void ExportAllGeometricData(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale)
+        {
+            var sheets = _selectedSheets.Count > 0
+                ? StagedSheets(ur, currentName, scale)
+                : BuildAllSheets(ur, currentName, scale);
+
+            if (sheets.Count == 0) return;
+
+            var dlg = new SaveFileDialog
+            {
+                Title = "Export All Geometric Data",
+                Filter = "Excel workbook (*.xlsx)|*.xlsx|All files (*.*)|*.*",
+                DefaultExt = ".xlsx",
+                FileName = "all_geometric_data.xlsx",
+                AddExtension = true
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                WriteXlsx(dlg.FileName, sheets);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Could not save the workbook:\n{ex.Message}", "Export failed",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        // Staged sheets, rebuilt from live history rather than from the rows captured
+        // when the tabs were drawn, so a workbook exported after an edit is current.
+        private static List<WorkbookSheet> StagedSheets(
+            UndoRedoManager ur, string currentName, ScaleCalibration scale) =>
+            BuildAllSheets(ur, currentName, scale)
+                .Where(s => _selectedSheets.Contains(s.Name))
+                .ToList();
+
+        // One sheet per tab, in tab order.
         private static List<WorkbookSheet> BuildAllSheets(
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
             var sheets = new List<WorkbookSheet>();
 
-            var (h1, r1) = BuildCircularArcData(ur, currentName);
-            sheets.Add(new WorkbookSheet { Name = "Circular Arc", Headers = h1, Rows = r1 });
-
-            var (h2, r2) = BuildParabolicArcData(ur, currentName);
-            sheets.Add(new WorkbookSheet { Name = "Parabolic Arc", Headers = h2, Rows = r2 });
-
-            var (h3, r3) = BuildSplineData(ur, currentName, scale);
-            sheets.Add(new WorkbookSheet { Name = "n-Point Spline", Headers = h3, Rows = r3 });
-
-            var (h4, r4) = BuildTriangleData(ur, currentName, scale);
-            sheets.Add(new WorkbookSheet { Name = "Triangle", Headers = h4, Rows = r4 });
-
-            var (h5, r5) = BuildLineData(ur, currentName, scale);
-            sheets.Add(new WorkbookSheet { Name = "Lines", Headers = h5, Rows = r5 });
-
-            var (h6, r6) = BuildOutlineData(ur, currentName, scale);
-            sheets.Add(new WorkbookSheet { Name = "Outline", Headers = h6, Rows = r6 });
+            foreach (var spec in Tabs)
+            {
+                var (headers, rows) = BuildTable(spec, ur, currentName, scale).ToCsv();
+                sheets.Add(new WorkbookSheet { Name = spec.Name, Headers = headers, Rows = rows });
+            }
 
             return sheets;
-        }
-
-        private static (string[] Headers, List<string[]> Rows) BuildCircularArcData(
-            UndoRedoManager ur, string currentName)
-        {
-            var headers = new[] { "Specimen", "Attempt", "Central angle", "Chord-arc ratio", "Rise-span ratio" };
-            var rows = new List<string[]>();
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<CircularArcOperation>())
-                {
-                    any = true;
-                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.CentralAngle), Fmt(op.ChordArcRatio), Fmt(op.AspectRatio) });
-                }
-                if (!any) rows.Add(new[] { name, "", "", "", "" });
-            }
-            return (headers, rows);
-        }
-
-        private static (string[] Headers, List<string[]> Rows) BuildParabolicArcData(
-            UndoRedoManager ur, string currentName)
-        {
-            var headers = new[] { "Specimen", "Attempt", "Chord-arc ratio", "Rise-span ratio", "Vertex curvature" };
-            var rows = new List<string[]>();
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<ParabolaOperation>())
-                {
-                    any = true;
-                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.PChordArcRatio), Fmt(op.RiseSpanRatio), Fmt(op.VertexCurvature) });
-                }
-                if (!any) rows.Add(new[] { name, "", "", "", "" });
-            }
-            return (headers, rows);
-        }
-
-        private static (string[] Headers, List<string[]> Rows) BuildSplineData(
-            UndoRedoManager ur, string currentName, ScaleCalibration scale)
-        {
-            // SplineOperation carries no sum-of-turning-angles value, so the table has
-            // five columns; the ratio column below is that sum divided by length.
-            var headers = new[] { "Specimen", "Attempt", "Turn. Angles / Length", "Chord-arc ratio", "Length" };
-            var rows = new List<string[]>();
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<SplineOperation>())
-                {
-                    any = true;
-                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.TurningAngleArcRatio), Fmt(op.SChordArcRatio), FmtLength(op.SplineLengthPixels, scale) });
-                }
-                if (!any) rows.Add(new[] { name, "", "", "", "" });
-            }
-            return (headers, rows);
-        }
-
-        private static (string[] Headers, List<string[]> Rows) BuildTriangleData(
-            UndoRedoManager ur, string currentName, ScaleCalibration scale)
-        {
-            var headers = new[] { "Specimen", "Attempt", "Angle A", "Angle B", "Angle C", "Area" };
-            var rows = new List<string[]>();
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<GetAngleOperation>())
-                {
-                    any = true;
-                    rows.Add(new[] { name, (attempt++).ToString(), Fmt(op.AngleA), Fmt(op.AngleB), Fmt(op.AngleC), FmtArea(op.TriArea, scale) });
-                }
-                if (!any) rows.Add(new[] { name, "", "", "", "", "" });
-            }
-            return (headers, rows);
-        }
-
-        private static (string[] Headers, List<string[]> Rows) BuildLineData(
-    UndoRedoManager ur, string currentName, ScaleCalibration scale)
-        {
-            var headers = new[] { "Specimen", "Attempt", "Length", "Line ratio" };
-            var rows = new List<string[]>();
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<LineOperation>())
-                {
-                    any = true;
-                    rows.Add(new[] { name, (attempt++).ToString(), FmtLength(op.LineLength, scale), FmtRatio(op.LineLengthRatio) });
-                }
-                if (!any) rows.Add(new[] { name, "", "", "" });
-            }
-            return (headers, rows);
-        }
-
-        private static (string[] Headers, List<string[]> Rows) BuildOutlineData(
-    UndoRedoManager ur, string currentName, ScaleCalibration scale)
-        {
-            var headers = new[] { "Specimen", "Attempt", "Aspect ratio", "Perimeter", "Area", "Perim / Area", "Circularity", "Solidity", "Sum Turn. Angles", "Turn. Angles / Length" };
-            var rows = new List<string[]>();
-            foreach (var (name, ops) in Blocks(ur, currentName))
-            {
-                int attempt = 1;
-                bool any = false;
-                foreach (var op in ops.OfType<OutlineOperation>().Where(o => o.HasMetadata))
-                {
-                    any = true;
-                    rows.Add(new[]
-                    {
-                name, (attempt++).ToString(),
-                Fmt4(op.AspectRatio),
-                FmtLength(op.Perimeter, scale),
-                FmtArea(op.Area, scale),
-                Fmt4(op.PerimeterAreaRatio),
-                Fmt4(op.Circularity),
-                Fmt4(op.Solidity),
-                Fmt4(op.SumTurningAngles),
-                Fmt4(op.TurningAngleLength)
-            });
-                }
-                if (!any) rows.Add(new[] { name, "", "", "", "", "", "", "", "", "" });
-            }
-            return (headers, rows);
         }
 
         #endregion
@@ -798,11 +560,7 @@ namespace DinoLino.Utilities
         public static IEnumerable<(string Name, IReadOnlyList<WorkOperation> Ops)> SpecimenBlocks(
             UndoRedoManager ur, string currentName) => Blocks(ur, currentName);
 
-        // The Batch Workshop exports one wide CSV per category: every variable of
-        // that mode is a column, and attempts are joined across operation kinds by
-        // WorkshopTables, which is the same table the edit window shows.
-
-        /// <summary>Writes one category's wide table to a CSV.</summary>
+        /// <summary>Writes one Batch Workshop category's wide table to a CSV.</summary>
         public static void ExportWorkshopCsv(
             WorkshopCategory category, UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {
@@ -973,7 +731,7 @@ namespace DinoLino.Utilities
             Math.Round(v, 2).ToString(CultureInfo.InvariantCulture);
 
         internal static string Fmt4(double v) =>
-    Math.Round(v, 4).ToString(CultureInfo.InvariantCulture);
+            Math.Round(v, 4).ToString(CultureInfo.InvariantCulture);
 
         // LineLengthRatio is boxed as a double or "N/A"; handle both.
         internal static string FmtRatio(object ratio) =>
@@ -992,57 +750,5 @@ namespace DinoLino.Utilities
                 : $"{Math.Round(pixelArea, 1).ToString(CultureInfo.InvariantCulture)} px\u00B2";
 
         #endregion
-    }
-
-    // DataGrid row DTOs, one per tab.
-    public class CircularArcHistoryRow
-    {
-        public string Attempt { get; set; }
-        public string CentralAngle { get; set; }
-        public string ChordArcRatio { get; set; }
-        public string RiseSpanRatio { get; set; }
-    }
-
-    public class ParabolicArcHistoryRow
-    {
-        public string Attempt { get; set; }
-        public string ChordArcRatio { get; set; }
-        public string RiseSpanRatio { get; set; }
-        public string VertexCurvature { get; set; }
-    }
-
-    public class SplineHistoryRow
-    {
-        public string Attempt { get; set; }
-        public string TurnPerLength { get; set; }
-        public string ChordArcRatio { get; set; }
-        public string Length { get; set; }
-    }
-
-    public class TriangleHistoryRow
-    {
-        public string Attempt { get; set; }
-        public string AngleA { get; set; }
-        public string AngleB { get; set; }
-        public string AngleC { get; set; }
-        public string Area { get; set; }
-    }
-
-    public class LineHistoryRow
-    {
-        public string Attempt { get; set; }
-        public string Length { get; set; }
-    }
-
-    public class OutlineHistoryRow
-    {
-        public string Attempt { get; set; }
-        public string AspectRatio { get; set; }
-        public string Perimeter { get; set; }
-        public string Area { get; set; }
-        public string PerimeterAreaRatio { get; set; }
-        public string Circularity { get; set; }
-        public string Solidity { get; set; }
-        public string TurningAngleLength { get; set; }
     }
 }

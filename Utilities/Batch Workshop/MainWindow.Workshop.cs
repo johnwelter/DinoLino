@@ -52,6 +52,20 @@ namespace DinoLino
             UpdateSidebarLayout();
         }
 
+        /// <summary>Hides the Batch Workshop panel and unchecks its View menu item.</summary>
+        private void Workshop_Minimize(object sender, RoutedEventArgs e)
+        {
+            UI_SeeWorkshop.IsChecked = false;
+            SetWorkshopVisible(false);
+        }
+
+        /// <summary>Hides the Directory panel and unchecks its View menu item.</summary>
+        private void Directory_Minimize(object sender, RoutedEventArgs e)
+        {
+            UI_SeeDirectory.IsChecked = false;
+            SetDirectoryVisible(false);
+        }
+
         /// Applies the current toggles to the sidebar: which panels are shown, how the
         /// rows divide the column, and whether the column exists at all.
         private void UpdateSidebarLayout()
@@ -166,6 +180,16 @@ namespace DinoLino
                 category, UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
         }
 
+        /// Writes one xlsx holding the tables staged in the History window, or every
+        /// table when none have been staged.
+        private void Workshop_ExportAllGeometric(object sender, RoutedEventArgs e)
+        {
+            if (UndoRedoManager == null) return;
+
+            GeomOpHistoryWindow.ExportAllGeometricData(
+                UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
+        }
+
         /// Exports every committed outline as a standardized black-on-white silhouette.
         /// Unlike the CSV rows this writes many files, so it asks for a folder and a
         /// file type first.
@@ -244,6 +268,11 @@ namespace DinoLino
 
         private void Workshop_Edit2DOutlines(object sender, RoutedEventArgs e)
             => OpenWorkshopEditor(WorkshopCategory.Outlines2D);
+
+        /// Opens the History window, where each tab can be staged for the workbook
+        /// that the All Geometric Data export writes.
+        private void Workshop_EditAllGeometric(object sender, RoutedEventArgs e)
+            => Menu_SeeHistory(this, new RoutedEventArgs());
 
         /// Opens the table editor for one category and clears the workspace visuals of
         /// anything deleted while it was open.

@@ -10,6 +10,7 @@
     Title="DinoLino" Height="750" Width="1514"
     MinWidth="800" MinHeight="500"
     ResizeMode="CanResize"
+    WindowState="Maximized"
     FontFamily="Arial">
 
     <DockPanel>
@@ -408,12 +409,35 @@
                     <RowDefinition x:Name="UI_DirectoryRow" Height="*"/>
                 </Grid.RowDefinitions>
 
+                <!-- Both panel headers use this button: a fixed-size minus that hides
+                     the panel. FontFamily and FontSize are set locally so View ▸ Font
+                     cannot scale the glyph out of its box. -->
+                <Grid.Resources>
+                    <Style x:Key="SidebarMinimizeButton" TargetType="Button">
+                        <Setter Property="DockPanel.Dock" Value="Right"/>
+                        <Setter Property="Content" Value="&#x2212;"/>
+                        <Setter Property="Width" Value="20"/>
+                        <Setter Property="Height" Value="20"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="FontFamily" Value="Segoe UI"/>
+                        <Setter Property="FontSize" Value="14"/>
+                        <Setter Property="VerticalAlignment" Value="Top"/>
+                        <Setter Property="ToolTipService.Placement" Value="Mouse"/>
+                        <Setter Property="ToolTipService.InitialShowDelay" Value="150"/>
+                    </Style>
+                </Grid.Resources>
+
                 <!-- Batch Workshop: per-category export for every specimen in the
                  session. Toggled from View ▸ See Batch Workshop. -->
                 <DockPanel x:Name="UI_WorkshopPanel" Grid.Row="0" TextElement.FontSize="14" Margin="8,10,8,10">
-                    <TextBlock DockPanel.Dock="Top" Text="Batch Workshop"
-                           FontWeight="Bold" FontSize="16"
-                           HorizontalAlignment="Left" Margin="2,0,0,2"/>
+                    <DockPanel DockPanel.Dock="Top" Margin="2,0,0,2">
+                        <Button Style="{StaticResource SidebarMinimizeButton}"
+                                Click="Workshop_Minimize"
+                                ToolTip="Hide the Batch Workshop. Show it again from View ▸ See Batch Workshop."/>
+                        <TextBlock Text="Batch Workshop"
+                               FontWeight="Bold" FontSize="16"
+                               HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    </DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="Export measurements for all specimens."
                            Foreground="#777" TextWrapping="Wrap"
                            HorizontalAlignment="Left" Margin="2,0,0,8"/>
@@ -522,6 +546,20 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="All Geometric Data" Style="{StaticResource WorkshopRowLabel}"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Button x:Name="UI_EditAllGeometric" Style="{StaticResource WorkshopEditButton}"
+                                            Click="Workshop_EditAllGeometric"/>
+                                    <Button Style="{StaticResource WorkshopExportButton}"
+                                            Click="Workshop_ExportAllGeometric"/>
+                                </StackPanel>
+                            </Grid>
+                            
+                            <Grid Style="{StaticResource WorkshopRow}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="EFA Data" Style="{StaticResource WorkshopRowLabel}"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="UI_EditEfa" Style="{StaticResource WorkshopEditButton}"
@@ -556,9 +594,14 @@
                  images and 3D models. Logic lives in MainWindow_Directory.cs. -->
                 <DockPanel x:Name="UI_DirectoryPanel" Grid.Row="2" TextElement.FontSize="14"
                        Margin="8,10,8,10">
-                    <TextBlock DockPanel.Dock="Top" Text="Directory"
-                           FontWeight="Bold" FontSize="16"
-                           HorizontalAlignment="Left" Margin="2,0,0,2"/>
+                    <DockPanel DockPanel.Dock="Top" Margin="2,0,0,2">
+                        <Button Style="{StaticResource SidebarMinimizeButton}"
+                                Click="Directory_Minimize"
+                                ToolTip="Hide the Directory. Show it again from View ▸ See Directory."/>
+                        <TextBlock Text="Directory"
+                               FontWeight="Bold" FontSize="16"
+                               HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    </DockPanel>
 
                     <!-- Files browses the disk; Sample lists this session's specimens.
                      Files is first, so it is the tab shown at startup. -->
