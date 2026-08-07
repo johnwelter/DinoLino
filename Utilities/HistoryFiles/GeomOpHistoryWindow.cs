@@ -18,6 +18,7 @@ namespace DinoLino.Utilities
     // Per-session operation viewer: one tab per operation kind, grouped by specimen.
     // Every tab takes its columns from the Batch Workshop table that measures the
     // same kind, so the two views and their exports always carry the same variables.
+    // Specimen group columns appear in every grid, CSV, and workbook sheet.
     public class GeomOpHistoryWindow : Window
     {
         #region Fields and tab definitions
@@ -56,8 +57,8 @@ namespace DinoLino.Utilities
             public event PropertyChangedEventHandler PropertyChanged;
         }
 
-        // One grid row: the attempt label plus the measurement cells, indexed to
-        // match the table's headers.
+        // One grid row: the attempt label plus the cells, where the cell array is the
+        // specimen's group values followed by the measurement values.
         private class HistoryRow
         {
             public string Attempt { get; set; }
@@ -180,11 +181,13 @@ namespace DinoLino.Utilities
             return WorkshopTables.BuildFromGroups(null, groups, ur, currentName);
         }
 
-        // For each specimen, a header and a grid of that kind's operations. The tab's
-        // CSV comes from the same table, so the file matches what is on screen.
+        // For each specimen, a header and a grid of that kind's operations. The grid
+        // shows the specimen's group columns before the measurement columns, and the
+        // tab's CSV comes from the same table, so the file matches what is on screen.
         private TabItem BuildTab(TabSpec spec)
         {
             var table = BuildTable(spec, _undoRedo, _currentName, _scale);
+            var groupColumns = SpecimenGroups.Columns;
 
             var panel = new StackPanel();
             var attemptHeader = new AttemptHeader();
@@ -196,8 +199,14 @@ namespace DinoLino.Utilities
                 var grid = MakeGrid();
                 AddAttemptColumn(grid, MakeAttemptHeaderBox(attemptHeader), nameof(HistoryRow.Attempt), 70);
 
+                for (int g = 0; g < groupColumns.Count; g++)
+                    AddColumn(grid, groupColumns[g], $"{nameof(HistoryRow.Cells)}[{g}]");
+
                 for (int i = 0; i < table.MeasurementHeaders.Length; i++)
-                    AddColumn(grid, table.MeasurementHeaders[i], $"{nameof(HistoryRow.Cells)}[{i}]");
+                    AddColumn(grid, table.MeasurementHeaders[i],
+                        $"{nameof(HistoryRow.Cells)}[{groupColumns.Count + i}]");
+
+                var groupValues = SpecimenGroups.ValuesFor(block.Name);
 
                 // Attempt 0 marks the placeholder row a specimen with no operations of
                 // this kind gets; it belongs in the export but not on screen.
@@ -206,7 +215,7 @@ namespace DinoLino.Utilities
                     .Select(r => new HistoryRow
                     {
                         Attempt = r.Attempt.ToString(),
-                        Cells = r.Cells
+                        Cells = groupValues.Concat(r.Cells).ToArray()
                     })
                     .ToList();
 
@@ -306,7 +315,7 @@ namespace DinoLino.Utilities
             return grid;
         }
 
-        // Read-only measurement column bound to one cell of the row array.
+        // Read-only column bound to one cell of the row array.
         private static void AddColumn(DataGrid grid, string header, string path, double? fixedWidth = null)
         {
             grid.Columns.Add(new DataGridTextColumn
@@ -575,7 +584,7 @@ namespace DinoLino.Utilities
                 return;
             }
 
-            // Hidden columns are already dropped by ToCsv.
+            // Hidden columns are already dropped by ToCsv; group columns are included.
             var (headers, rows) = table.ToCsv();
             ExportCsv(headers, rows, WorkshopTables.FileNameFor(category));
         }

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 
@@ -12,7 +13,8 @@ namespace DinoLino
 {
     /// <summary>
     /// Directory browser in the right sidebar: sets the working directory and opens
-    /// images and 3D models straight from disk.
+    /// images and 3D models straight from disk. Also owns the Sample tab, where
+    /// specimens can be ticked, assigned to groups, and removed.
     /// </summary>
     public partial class MainWindow
     {
@@ -377,12 +379,20 @@ namespace DinoLino
         // the name box, so the list is only refreshed while its tab is on screen.
         private bool _sampleTabSelected;
 
+        // Specimens ticked for grouping or removal. Held by reference so the selection
+        // survives list rebuilds and renames.
+        private readonly HashSet<Specimen> _sampleChecked = new HashSet<Specimen>();
+
         /// Subscribes the Sample list to specimen changes. Called once from the
         /// Directory tree's Loaded handler, which runs after the panel is built.
         private void HookSampleList()
         {
             if (_sampleHooked) return;
             _sampleHooked = true;
+
+            // The data tables name specimens rather than holding them, so the group
+            // store needs the roster to look one up.
+            SpecimenGroups.Bind(SpecimenManager);
 
             SpecimenManager.PropertyChanged += (s, e) =>
             {
@@ -401,30 +411,38 @@ namespace DinoLino
                 (tab.Header as string) == "Sample";
 
             if (_sampleTabSelected) RebuildSampleList();
+
+            // The Plot tab refreshes only when the TAB selection itself changed: its own
+            // combo boxes bubble SelectionChanged up to here too, and refreshing on those
+            // would rebuild the variable lists in the middle of the user's pick.
+            if (ReferenceEquals(e.OriginalSource, UI_DirectoryTabs) &&
+                UI_DirectoryTabs.SelectedItem is TabItem plotTab &&
+                (plotTab.Header as string) == "Plot")
+            {
+                RefreshPlotTab();
+            }
         }
 
+        /// The specimens the Sample tab lists. The session starts with one empty
+        /// placeholder record, which is not a real specimen until a file has been
+        /// opened into it; deleted specimens keep their slot so the auto numbering of
+        /// the others never shifts, but they are gone from the roster.
+        private IEnumerable<Specimen> VisibleSampleSpecimens() =>
+            SpecimenManager.Specimens.Where(s => s.FileName != null && !s.Deleted);
+
         /// Redraws the specimen roster. Rebuilt wholesale rather than patched, so the
-        /// list is always truthful after opens, renames, and cache releases.
+        /// list is always truthful after opens, renames, cache releases, and grouping.
         private void RebuildSampleList()
         {
             UI_SampleList.Children.Clear();
 
-            bool any = false;
-            foreach (var specimen in SpecimenManager.Specimens)
-            {
-                // The session starts with one empty placeholder record; it is not a
-                // real specimen until a file has been opened into it.
-                if (specimen.FileName == null) continue;
+            // A removed specimen must not stay ticked, or the next action would count
+            // something that is no longer in the sample.
+            _sampleChecked.RemoveWhere(s => s.Deleted);
 
-                // Deleted specimens keep their slot so the auto numbering of the others
-                // never shifts, but they are gone from the roster.
-                if (specimen.Deleted) continue;
+            var specimens = VisibleSampleSpecimens().ToList();
 
-                any = true;
-                UI_SampleList.Children.Add(BuildSampleRow(specimen));
-            }
-
-            if (!any)
+            if (specimens.Count == 0)
             {
                 UI_SampleList.Children.Add(new TextBlock
                 {
@@ -432,10 +450,113 @@ namespace DinoLino
                     Opacity = 0.6,
                     Margin = new Thickness(2)
                 });
+                return;
             }
+
+            var groupColumns = SpecimenGroups.Columns;
+
+            UI_SampleList.Children.Add(BuildSampleHeaderRow(specimens, groupColumns));
+
+            foreach (var specimen in specimens)
+                UI_SampleList.Children.Add(BuildSampleRow(specimen, groupColumns));
         }
 
-        private UIElement BuildSampleRow(Specimen specimen)
+        // Column layout shared by the header and every row. The auto columns are tied
+        // together by shared size groups so the group values line up under their
+        // headers; the name column takes the remaining width.
+        private static Grid SampleGridSkeleton(int groupCount)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = GridLength.Auto,
+                SharedSizeGroup = "SampleCheck"
+            });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            for (int g = 0; g < groupCount; g++)
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = GridLength.Auto,
+                    SharedSizeGroup = "SampleGroup" + g
+                });
+            }
+
+            return grid;
+        }
+
+        /// Header row: the select-all box above the column of tick boxes, and a
+        /// heading over each group column.
+        private UIElement BuildSampleHeaderRow(
+            IReadOnlyList<Specimen> specimens, IReadOnlyList<string> groupColumns)
+        {
+            var grid = SampleGridSkeleton(groupColumns.Count);
+            grid.Margin = new Thickness(0, 0, 0, 4);
+
+            bool allTicked = specimens.All(_sampleChecked.Contains);
+            bool noneTicked = !specimens.Any(_sampleChecked.Contains);
+
+            var master = new CheckBox
+            {
+                // The third state is display only: it marks a partial selection.
+                IsThreeState = true,
+                IsChecked = allTicked ? true : noneTicked ? (bool?)false : null,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 4, 0),
+                ToolTip = "Select or deselect every specimen"
+            };
+
+            // Decided from the ticked set rather than from the box's own new state, so
+            // a partial selection becomes a full one rather than cycling through the
+            // third state.
+            master.Click += (s, e) =>
+            {
+                var listed = VisibleSampleSpecimens().ToList();
+                bool everythingTicked = listed.Count > 0 && listed.All(_sampleChecked.Contains);
+
+                _sampleChecked.Clear();
+
+                if (!everythingTicked)
+                {
+                    foreach (var specimen in listed)
+                        _sampleChecked.Add(specimen);
+                }
+
+                RebuildSampleList();
+            };
+
+            Grid.SetColumn(master, 0);
+            grid.Children.Add(master);
+
+            var masterLabel = new TextBlock
+            {
+                Text = "Select All",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(2, 0, 6, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = "Select or deselect every specimen"
+            };
+            Grid.SetColumn(masterLabel, 1);
+            grid.Children.Add(masterLabel);
+
+            for (int g = 0; g < groupColumns.Count; g++)
+            {
+                var header = new TextBlock
+                {
+                    Text = groupColumns[g],
+                    FontWeight = FontWeights.Bold,
+                    Margin = new Thickness(10, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Bottom
+                };
+                Grid.SetColumn(header, 2 + g);
+                grid.Children.Add(header);
+            }
+
+            return grid;
+        }
+
+        private UIElement BuildSampleRow(Specimen specimen, IReadOnlyList<string> groupColumns)
         {
             bool loaded = SpecimenManager.IsCurrent(specimen);
 
@@ -444,9 +565,22 @@ namespace DinoLino
             bool pendingModel = specimen.NeedsPositioning;
             bool released = specimen.Image == null && !pendingModel;
 
-            var grid = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var grid = SampleGridSkeleton(groupColumns.Count);
+            grid.Margin = new Thickness(0, 2, 0, 2);
+
+            var captured = specimen;
+
+            var check = new CheckBox
+            {
+                IsChecked = _sampleChecked.Contains(specimen),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 4, 0),
+                ToolTip = "Select this specimen"
+            };
+            check.Checked += (s, e) => _sampleChecked.Add(captured);
+            check.Unchecked += (s, e) => _sampleChecked.Remove(captured);
+            Grid.SetColumn(check, 0);
+            grid.Children.Add(check);
 
             // Name on top, file name beneath, so both are readable in a narrow panel.
             var text = new StackPanel { Margin = new Thickness(2, 0, 6, 0) };
@@ -485,7 +619,7 @@ namespace DinoLino
             // A released specimen has no image to show, so it cannot be opened.
             if (released) text.Opacity = 0.55;
 
-            // Transparent background so the whole row, not just the glyphs, is a
+            // Transparent background so the whole cell, not just the glyphs, is a
             // double-click target.
             var hit = new Border
             {
@@ -498,7 +632,6 @@ namespace DinoLino
                         : "Double-click to open this specimen in the workspace"
             };
 
-            var captured = specimen;
             hit.MouseLeftButtonDown += (s, e) =>
             {
                 if (e.ClickCount == 2)
@@ -508,26 +641,134 @@ namespace DinoLino
                 }
             };
 
-            Grid.SetColumn(hit, 0);
+            Grid.SetColumn(hit, 1);
             grid.Children.Add(hit);
 
-            // Offered even for a released specimen, whose measurements still exist.
-            var remove = new Button
+            for (int g = 0; g < groupColumns.Count; g++)
             {
-                Content = "\u2715",
-                Width = 20,
-                Height = 20,
-                Padding = new Thickness(0),
-                FontSize = 10,
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = "Delete this specimen and all of its measurements"
-            };
-
-            remove.Click += (s, e) => DeleteSpecimenFromSample(captured);
-            Grid.SetColumn(remove, 1);
-            grid.Children.Add(remove);
+                var cell = new TextBlock
+                {
+                    Text = SpecimenGroups.ValueFor(groupColumns[g], specimen),
+                    Margin = new Thickness(10, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                Grid.SetColumn(cell, 2 + g);
+                grid.Children.Add(cell);
+            }
 
             return grid;
+        }
+
+        /// Assigns the ticked specimens to a group, which adds the column to every
+        /// data table. The ticks are left in place so the same set can be given a
+        /// second column without re-ticking it.
+        private void Sample_AddToGroup(object sender, RoutedEventArgs e)
+        {
+            var chosen = _sampleChecked.Where(s => !s.Deleted).ToList();
+
+            if (chosen.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "Check at least one specimen first.",
+                    "Add to group",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var dialog = new AddToGroupWindow
+            {
+                Owner = this,
+                FontSize = _currentFontSize,
+                FontFamily = _currentFont
+            };
+
+            if (dialog.ShowDialog() != true) return;
+
+            SpecimenGroups.Assign(dialog.ColumnName, dialog.GroupName, chosen);
+            RebuildSampleList();
+            RefreshPlotTab();   
+        }
+
+        /// Removes every ticked specimen from the sample: the cached image, and every
+        /// measurement and outline in its operation history.
+        private void Sample_RemoveFromSample(object sender, RoutedEventArgs e)
+        {
+            var chosen = _sampleChecked.Where(s => !s.Deleted).ToList();
+
+            if (chosen.Count == 0)
+            {
+                MessageBox.Show(this,
+                    "Check at least one specimen first.",
+                    "Remove From Sample",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (!_suppressDeleteSpecimenPrompt)
+            {
+                string message = chosen.Count == 1
+                    ? "This will delete this image from the cache and remove all of its " +
+                      "associated measurements and outlines. Are you sure?"
+                    : $"This will delete {chosen.Count} images from the cache and remove all " +
+                      "of their associated measurements and outlines. Are you sure?";
+
+                bool dontAskAgain;
+                bool confirmed = ConfirmPromptWindow.Show(
+                    this, "Remove From Sample", message, out dontAskAgain);
+
+                // The preference is remembered even when the user cancels, matching how
+                // "don't ask again" behaves elsewhere.
+                if (dontAskAgain) _suppressDeleteSpecimenPrompt = true;
+                if (!confirmed) return;
+            }
+
+            // The workspace is moved on once at the end rather than after each
+            // removal, so the user does not watch it hop through the survivors.
+            bool removedLoaded = false;
+
+            foreach (var specimen in chosen)
+            {
+                // Drop the measurements first, while the specimen still knows where
+                // they live. The active specimen's operations are the live history; an
+                // inactive one keeps them in its archived record.
+                if (SpecimenManager.IsCurrent(specimen))
+                {
+                    removedLoaded = true;
+                    UndoRedoManager.RemoveActiveSpecimenOperations();
+
+                    // Those operations drew on the canvas, so clear what is left of them.
+                    ClearWorkspaceVisualsOnly();
+                }
+                else if (specimen.Record != null)
+                {
+                    UndoRedoManager.RemoveArchivedSpecimen(specimen.Record);
+                }
+
+                SpecimenManager.DeleteSpecimen(specimen);
+                _sampleChecked.Remove(specimen);
+            }
+
+            // Removing the specimen on screen leaves the workspace showing something
+            // that no longer exists, so move to a surviving specimen or empty it.
+            if (removedLoaded)
+            {
+                var survivor = SpecimenManager.MovePrevious() ?? SpecimenManager.MoveNext();
+
+                if (survivor != null)
+                {
+                    // departing is null on purpose: the removed specimen must not be
+                    // stashed back into the archive on the way out.
+                    ReloadSpecimen(null, survivor);
+                }
+                else
+                {
+                    ClearWorkspaceImage();
+                }
+            }
+
+            RebuildSampleList();
+            UpdateAttemptCounter();
         }
 
         /// Loads a specimen picked from the Sample list, reusing the same swap the
@@ -561,69 +802,6 @@ namespace DinoLino
             ReloadSpecimen(departing, SpecimenManager.MoveTo(specimen));
 
             RebuildSampleList();
-        }
-
-        /// Deletes a specimen and everything recorded for it: the cached image, and
-        /// every measurement and outline in its operation history.
-        private void DeleteSpecimenFromSample(Specimen specimen)
-        {
-            if (specimen == null || specimen.Deleted) return;
-
-            if (!_suppressDeleteSpecimenPrompt)
-            {
-                bool dontAskAgain;
-                bool confirmed = ConfirmPromptWindow.Show(
-                    this,
-                    "Delete Specimen",
-                    "This will delete this image from the cache and remove all of its " +
-                    "associated measurements and outlines. Are you sure?",
-                    out dontAskAgain);
-
-                // The preference is remembered even when the user cancels, matching how
-                // "don't ask again" behaves elsewhere.
-                if (dontAskAgain) _suppressDeleteSpecimenPrompt = true;
-                if (!confirmed) return;
-            }
-
-            bool wasCurrent = SpecimenManager.IsCurrent(specimen);
-
-            // Drop the measurements first, while the specimen still knows where they
-            // live. The active specimen's operations are the live history; an inactive
-            // one keeps them in its archived record.
-            if (wasCurrent)
-            {
-                UndoRedoManager.RemoveActiveSpecimenOperations();
-
-                // Those operations drew on the canvas, so clear what is left of them.
-                ClearWorkspaceVisualsOnly();
-            }
-            else if (specimen.Record != null)
-            {
-                UndoRedoManager.RemoveArchivedSpecimen(specimen.Record);
-            }
-
-            SpecimenManager.DeleteSpecimen(specimen);
-
-            // Deleting the specimen on screen leaves the workspace showing something
-            // that no longer exists, so move to a surviving specimen or empty it.
-            if (wasCurrent)
-            {
-                var survivor = SpecimenManager.MovePrevious() ?? SpecimenManager.MoveNext();
-
-                if (survivor != null)
-                {
-                    // departing is null on purpose: the deleted specimen must not be
-                    // stashed back into the archive on the way out.
-                    ReloadSpecimen(null, survivor);
-                }
-                else
-                {
-                    ClearWorkspaceImage();
-                }
-            }
-
-            RebuildSampleList();
-            UpdateAttemptCounter();
         }
 
         // Remembers "Don't show this message again" for the rest of the session.
@@ -956,5 +1134,119 @@ namespace DinoLino
                 _box.Focus();
             };
         }
+    }
+
+    /// <summary>
+    /// Dialog for assigning the ticked specimens to a group: a column name whose
+    /// drop-down offers every previously used column, a group name, and OK/Cancel.
+    /// Both names are capped at SpecimenGroups.MaxNameLength characters.
+    /// </summary>
+    internal class AddToGroupWindow : Window
+    {
+        private readonly ComboBox _columnBox;
+        private readonly TextBox _groupBox;
+        private readonly Button _okButton;
+
+        /// <summary>The column name entered, trimmed and capped.</summary>
+        public string ColumnName => SpecimenGroups.Clip(_columnBox.Text);
+
+        /// <summary>The group name entered, trimmed and capped.</summary>
+        public string GroupName => SpecimenGroups.Clip(_groupBox.Text);
+
+        public AddToGroupWindow()
+        {
+            Title = "Add to group";
+            SizeToContent = SizeToContent.WidthAndHeight;
+            ResizeMode = ResizeMode.NoResize;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            ShowInTaskbar = false;
+
+            var panel = new StackPanel { Margin = new Thickness(16), MinWidth = 280 };
+
+            panel.Children.Add(new TextBlock { Text = "Column name" });
+
+            _columnBox = new ComboBox
+            {
+                IsEditable = true,
+                ItemsSource = SpecimenGroups.Columns,
+                Margin = new Thickness(0, 4, 0, 12)
+            };
+
+            // The length cap belongs to the editable text box inside the ComboBox
+            // template, which only exists once the control has loaded.
+            _columnBox.Loaded += (s, e) =>
+            {
+                if (_columnBox.Template.FindName("PART_EditableTextBox", _columnBox) is TextBox inner)
+                    inner.MaxLength = SpecimenGroups.MaxNameLength;
+            };
+
+            // Catches both typing and a pick from the drop-down.
+            _columnBox.AddHandler(TextBoxBase.TextChangedEvent,
+                new TextChangedEventHandler((s, e) => UpdateOkEnabled()));
+
+            panel.Children.Add(_columnBox);
+
+            panel.Children.Add(new TextBlock { Text = "Group name" });
+
+            _groupBox = new TextBox
+            {
+                MaxLength = SpecimenGroups.MaxNameLength,
+                Margin = new Thickness(0, 4, 0, 12)
+            };
+            _groupBox.TextChanged += (s, e) => UpdateOkEnabled();
+            panel.Children.Add(_groupBox);
+
+            panel.Children.Add(new TextBlock
+            {
+                Text = "This will create a new column in all data tables.",
+                Foreground = Brushes.Gray,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 14)
+            });
+
+            _okButton = new Button
+            {
+                Content = "OK",
+                MinWidth = 72,
+                Margin = new Thickness(0, 0, 8, 0),
+                IsDefault = true,
+                IsEnabled = false
+            };
+            _okButton.Click += (s, e) =>
+            {
+                // DialogResult may only be set while running modally; guard it the same
+                // way ScaleWindow does.
+                try
+                {
+                    DialogResult = true;
+                }
+                catch (InvalidOperationException)
+                {
+                    Close();
+                }
+            };
+
+            var cancelButton = new Button
+            {
+                Content = "Cancel",
+                MinWidth = 72,
+                IsCancel = true
+            };
+
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            buttons.Children.Add(_okButton);
+            buttons.Children.Add(cancelButton);
+            panel.Children.Add(buttons);
+
+            Content = panel;
+        }
+
+        // OK requires both names to be non-blank after trimming.
+        private void UpdateOkEnabled() =>
+            _okButton.IsEnabled = ColumnName.Length > 0 && GroupName.Length > 0;
     }
 }

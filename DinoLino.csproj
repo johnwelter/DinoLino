@@ -66,7 +66,9 @@
     <Compile Include="MainWindow.Navigation.cs" />
     <Compile Include="Utilities\Batch Workshop\MainWindow.Workshop.cs" />
     <Compile Include="Utilities\Batch Workshop\WorkshopTables.cs" />
-    <Compile Include="Utilities\MainWindow.Directory.cs" />
+    <Compile Include="Utilities\Directory\Directory.Plot.cs" />
+    <Compile Include="Utilities\Directory\MainWindow.Directory.cs" />
+    <Compile Include="Utilities\Directory\PlotAdvancedWindow.cs" />
     <Compile Include="Utilities\MainWindow.Import.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml.cs">
       <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>

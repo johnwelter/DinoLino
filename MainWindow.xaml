@@ -644,14 +644,108 @@
                         <TabItem Header="Sample">
                             <DockPanel Margin="0,6,0,0">
                                 <TextBlock DockPanel.Dock="Top" Margin="2,0,0,6"
-                                       Foreground="#777" TextWrapping="Wrap"
-                                       Text="Specimens loaded this session. Double-click a name to open it; ✕ deletes it and its measurements."/>
+                                            Foreground="#777" TextWrapping="Wrap"
+                                            Text="Specimens loaded this session. Double-click to view."/>
+
+                                <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                                    <Button Content="Add to group" Padding="10,4"
+                                            Click="Sample_AddToGroup"
+                                                   ToolTip="Assign the ticked specimens to a group. The group becomes a column in every data table."/>
+                                    <Button Content="Remove From Sample" Padding="10,4" Margin="0,4,0,0"
+                                            Click="Sample_RemoveFromSample"
+                                                   ToolTip="Delete the ticked specimens and all of their measurements"/>
+                                </StackPanel>
 
                                 <Border BorderBrush="#AAAAAA" BorderThickness="1" Background="White">
                                     <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Auto">
-                                        <StackPanel x:Name="UI_SampleList" Margin="4"/>
+                                                  HorizontalScrollBarVisibility="Auto">
+                                        <StackPanel x:Name="UI_SampleList" Margin="4"
+                                                    Grid.IsSharedSizeScope="True"/>
                                     </ScrollViewer>
+                                </Border>
+                            </DockPanel>
+                        </TabItem>
+
+                        <TabItem Header="Plot">
+                            <DockPanel Margin="0,6,0,0">
+                                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="2,0,0,6">
+                                    <TextBlock Text="Plot type" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox x:Name="UI_PlotTypeBox" MinWidth="120"
+                      SelectionChanged="Plot_TypeChanged"
+                      ToolTip="Choose how the session's measurements are graphed">
+                                        <ComboBoxItem Content="Boxplot"/>
+                                        <ComboBoxItem Content="Scatter plot"/>
+                                        <ComboBoxItem Content="Histogram"/>
+                                        <ComboBoxItem Content="QQ plot"/>
+                                        <ComboBoxItem Content="Dot plot"/>
+                                    </ComboBox>
+                                </StackPanel>
+
+                                <!-- Variable pickers. X and Y share one row: the two star columns split
+             the leftover width evenly, so both boxes stay usable in a narrow
+             sidebar. Single-variable plots hide the X pair, and its columns
+             collapse to nothing because the label and box are both Collapsed. -->
+                                <Grid x:Name="UI_PlotVarPanel" DockPanel.Dock="Top" Margin="2,0,0,6"
+              Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- X: categorical for boxplots, continuous for scatter plots,
+                 hidden for the single-variable plots. -->
+                                    <TextBlock x:Name="UI_PlotXLabel" Grid.Row="0" Grid.Column="0"
+                       Text="X" VerticalAlignment="Center" Margin="0,0,6,4"
+                       Visibility="Collapsed"/>
+                                    <ComboBox x:Name="UI_PlotXBox" Grid.Row="0" Grid.Column="1"
+                      MinWidth="60" Margin="0,0,10,4"
+                      SelectionChanged="Plot_OptionChanged"
+                      Visibility="Collapsed"
+                      ToolTip="Variable for the horizontal axis"/>
+
+                                    <!-- Y: the continuous variable, and the only variable the
+                 single-variable plots use. -->
+                                    <TextBlock x:Name="UI_PlotYLabel" Grid.Row="0" Grid.Column="2"
+                       Text="Y" VerticalAlignment="Center" Margin="0,0,6,4"/>
+                                    <ComboBox x:Name="UI_PlotYBox" Grid.Row="0" Grid.Column="3"
+                      MinWidth="60" Margin="0,0,0,4"
+                      SelectionChanged="Plot_OptionChanged"
+                      ToolTip="A variable measured this session"/>
+
+                                    <!-- Scatter only. -->
+                                    <TextBlock x:Name="UI_PlotTrendLabel" Grid.Row="1" Grid.Column="0"
+                       Text="Trend line" VerticalAlignment="Center" Margin="0,0,6,4"
+                       Visibility="Collapsed"/>
+                                    <ComboBox x:Name="UI_PlotTrendBox" Grid.Row="1" Grid.Column="1"
+                      Grid.ColumnSpan="3" Margin="0,0,0,4"
+                      SelectedIndex="0" SelectionChanged="Plot_OptionChanged"
+                      Visibility="Collapsed"
+                      ToolTip="lm fits a straight least-squares line; loess fits a local regression curve">
+                                        <ComboBoxItem Content="None"/>
+                                        <ComboBoxItem Content="lm"/>
+                                        <ComboBoxItem Content="loess"/>
+                                    </ComboBox>
+
+                                    <!-- Opens the dialog holding colour, fill, titles, and point shape. -->
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4"
+                       HorizontalAlignment="Left">
+                <Hyperlink x:Name="UI_PlotAdvancedLink" Click="Plot_OpenAdvanced"
+                           ToolTip="Customize colors, titles, and point shape">
+                    Advanced +
+                </Hyperlink>
+                                    </TextBlock>
+                                </Grid>
+
+                                <Border BorderBrush="#AAAAAA" BorderThickness="1" Background="White">
+                                    <Canvas x:Name="UI_PlotCanvas" ClipToBounds="True"
+                    SizeChanged="PlotCanvas_SizeChanged"/>
                                 </Border>
                             </DockPanel>
                         </TabItem>

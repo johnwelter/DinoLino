@@ -18,6 +18,108 @@ namespace DinoLino.Utilities
     }
 
     /// <summary>
+    /// Session-scoped group assignments for specimens. Each group column is a named
+    /// mapping from specimen to group name; specimens without an assignment read as
+    /// blank. Group columns appear after Specimen and Attempt in every data table
+    /// and export, and beside the names in the Directory's Sample tab.
+    /// </summary>
+    public static class SpecimenGroups
+    {
+        /// <summary>Longest permitted column or group name.</summary>
+        public const int MaxNameLength = 14;
+
+        // Creation order, preserved so every table shows the columns in the order
+        // they were made.
+        private static readonly List<string> _columns = new List<string>();
+
+        // column -> (specimen -> group). Column lookup ignores case, so "Locality"
+        // and "locality" are one column; the first-seen casing is what displays.
+        // Specimens are keyed by reference, so renaming one keeps its groups.
+        private static readonly Dictionary<string, Dictionary<Specimen, string>> _values =
+            new Dictionary<string, Dictionary<Specimen, string>>(StringComparer.OrdinalIgnoreCase);
+
+        // The data tables know specimens only by the name in their rows, so the
+        // roster is needed to turn a name back into the specimen that holds the
+        // groups. Set once from the Directory panel.
+        private static SpecimenManager _manager;
+
+        /// <summary>Supplies the roster used to resolve a row's specimen name.</summary>
+        public static void Bind(SpecimenManager manager) => _manager = manager;
+
+        /// <summary>Group column names in creation order.</summary>
+        public static IReadOnlyList<string> Columns => _columns;
+
+        public static bool HasColumns => _columns.Count > 0;
+
+        /// <summary>Trims a name and caps it at the permitted length.</summary>
+        public static string Clip(string name)
+        {
+            name = (name ?? "").Trim();
+            return name.Length <= MaxNameLength ? name : name.Substring(0, MaxNameLength);
+        }
+
+        /// Assigns the given specimens to a group, creating the column when it does
+        /// not exist yet. Reassigning a specimen under the same column overwrites
+        /// its previous group.
+        public static void Assign(string column, string groupName, IEnumerable<Specimen> specimens)
+        {
+            column = Clip(column);
+            groupName = Clip(groupName);
+            if (column.Length == 0 || groupName.Length == 0 || specimens == null) return;
+
+            Dictionary<Specimen, string> map;
+            if (!_values.TryGetValue(column, out map))
+            {
+                map = new Dictionary<Specimen, string>();
+                _values[column] = map;
+                _columns.Add(column);
+            }
+
+            foreach (var specimen in specimens)
+            {
+                if (specimen != null)
+                    map[specimen] = groupName;
+            }
+        }
+
+        /// <summary>The specimen's group under one column, or "" when unassigned.</summary>
+        public static string ValueFor(string column, Specimen specimen)
+        {
+            Dictionary<Specimen, string> map;
+            string value;
+
+            if (column == null || specimen == null) return "";
+            return _values.TryGetValue(column, out map) && map.TryGetValue(specimen, out value)
+                ? value
+                : "";
+        }
+
+        /// <summary>All group values of one specimen, aligned with Columns.</summary>
+        public static string[] ValuesFor(Specimen specimen) =>
+            _columns.Select(c => ValueFor(c, specimen)).ToArray();
+
+        /// All group values for the specimen a data-table row names. Unknown names
+        /// give blanks, which is also what happens before Bind has been called.
+        public static string[] ValuesFor(string specimenName) => ValuesFor(Resolve(specimenName));
+
+        // First live specimen whose display name matches. Two specimens sharing a
+        // name are indistinguishable here, exactly as they are in the tables.
+        private static Specimen Resolve(string specimenName)
+        {
+            if (_manager == null || specimenName == null) return null;
+
+            foreach (var specimen in _manager.Specimens)
+            {
+                if (specimen.Deleted) continue;
+                if (string.Equals(_manager.NameOf(specimen), specimenName, StringComparison.Ordinal))
+                    return specimen;
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Remembers which columns the user has hidden, per table, for the session.
     /// Hiding is display-and-export only: no measurement is destroyed, so it can be
     /// restored from the edit window at any time.
@@ -117,10 +219,13 @@ namespace DinoLino.Utilities
         public string Title;
         public bool AllowColumnHiding = true;
 
-        public string[] MeasurementHeaders;    // excludes Specimen and Attempt
+        // Excludes Specimen, Attempt, and the specimen group columns, all of which
+        // are added by the consumers.
+        public string[] MeasurementHeaders;
+
         public List<WorkshopBlock> Blocks = new List<WorkshopBlock>();
 
-        /// <summary>Headers actually shown, with hidden columns dropped.</summary>
+        /// <summary>Measurement columns actually shown, with hidden ones dropped.</summary>
         public List<int> VisibleColumnIndexes()
         {
             var keep = new List<int>(MeasurementHeaders.Length);
@@ -134,28 +239,37 @@ namespace DinoLino.Utilities
             return keep;
         }
 
-        /// Flattens to CSV form: Specimen, Attempt, then the visible measurement
-        /// columns in order.
+        /// Flattens to CSV form: Specimen, Attempt, the specimen group columns, then
+        /// the visible measurement columns. Group columns are never hidden, and every
+        /// row of a specimen repeats its group values the way it repeats its name.
         public (string[] Headers, List<string[]> Rows) ToCsv()
         {
             var keep = VisibleColumnIndexes();
+            var groupColumns = SpecimenGroups.Columns;
+            int groupCount = groupColumns.Count;
 
-            var headers = new string[keep.Count + 2];
+            var headers = new string[2 + groupCount + keep.Count];
             headers[0] = "Specimen";
             headers[1] = "Attempt";
+            for (int g = 0; g < groupCount; g++)
+                headers[2 + g] = groupColumns[g];
             for (int i = 0; i < keep.Count; i++)
-                headers[i + 2] = MeasurementHeaders[keep[i]];
+                headers[2 + groupCount + i] = MeasurementHeaders[keep[i]];
 
             var rows = new List<string[]>();
             foreach (var block in Blocks)
             {
+                var groupValues = SpecimenGroups.ValuesFor(block.Name);
+
                 foreach (var row in block.Rows)
                 {
-                    var cells = new string[keep.Count + 2];
+                    var cells = new string[headers.Length];
                     cells[0] = block.Name;
                     cells[1] = row.Attempt > 0 ? row.Attempt.ToString() : "";
+                    for (int g = 0; g < groupCount; g++)
+                        cells[2 + g] = groupValues[g];
                     for (int i = 0; i < keep.Count; i++)
-                        cells[i + 2] = row.Cells[keep[i]] ?? "";
+                        cells[2 + groupCount + i] = row.Cells[keep[i]] ?? "";
                     rows.Add(cells);
                 }
             }

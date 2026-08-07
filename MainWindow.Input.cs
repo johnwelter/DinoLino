@@ -1,8 +1,12 @@
 ﻿using DinoLino.DataTypes;
 using DinoLino.Utilities;
 using DinoLino.Utilities.Modes;
+using System;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace DinoLino
 {
@@ -276,6 +280,89 @@ namespace DinoLino
         private void WorkSpace_ScrollZoom(object sender, MouseWheelEventArgs e)
         {
             UpdateWorkSpaceZoom(e.Delta, e.GetPosition(UI_WorkImage));
+        }
+
+        // ---- Horizontal scrolling ----
+
+        // WPF raises no event for WM_MOUSEHWHEEL, the message a two-finger
+        // sideways trackpad gesture (or a tilt wheel) sends, so it is caught on
+        // the window handle instead.
+        private const int WM_MOUSEHWHEEL = 0x020E;
+
+        // One notch moves this many device-independent pixels sideways.
+        private const double HorizontalScrollPixelsPerNotch = 48;
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+
+            // The window has a handle only from here on, which is what the hook
+            // needs, so this cannot move into the constructor.
+            if (PresentationSource.FromVisual(this) is HwndSource source)
+                source.AddHook(HorizontalWheelHook);
+        }
+
+        private IntPtr HorizontalWheelHook(
+            IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg != WM_MOUSEHWHEEL) return IntPtr.Zero;
+
+            // The delta is the signed high word of wParam; positive means rightward.
+            int delta = (short)((wParam.ToInt64() >> 16) & 0xFFFF);
+
+            if (ScrollHorizontallyUnderCursor(delta / 120.0 * HorizontalScrollPixelsPerNotch))
+                handled = true;
+
+            return IntPtr.Zero;
+        }
+
+        /// Shift+wheel scrolls sideways too, which covers mice with no tilt
+        /// wheel. This tunnels from the window, so it is seen before the
+        /// workspace's own zoom handler; a gesture over anything that cannot
+        /// scroll sideways falls through to that untouched.
+        protected override void OnPreviewMouseWheel(MouseWheelEventArgs e)
+        {
+            base.OnPreviewMouseWheel(e);
+
+            if (e.Handled) return;
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != ModifierKeys.Shift) return;
+
+            // Wheel-up scrolls left, matching the usual convention.
+            if (ScrollHorizontallyUnderCursor(-e.Delta / 120.0 * HorizontalScrollPixelsPerNotch))
+                e.Handled = true;
+        }
+
+        // Applies the offset to the nearest horizontally scrollable ancestor of
+        // whatever the pointer is over. False when nothing can scroll, which
+        // leaves the gesture to whoever else wants it.
+        private static bool ScrollHorizontallyUnderCursor(double offset)
+        {
+            var target = FindHorizontalScrollViewer(Mouse.DirectlyOver as DependencyObject);
+            if (target == null) return false;
+
+            target.ScrollToHorizontalOffset(target.HorizontalOffset + offset);
+            return true;
+        }
+
+        private static ScrollViewer FindHorizontalScrollViewer(DependencyObject start)
+        {
+            var node = start;
+
+            while (node != null)
+            {
+                // A viewer with nothing to scroll sideways is skipped rather than
+                // swallowing the gesture, so an outer one can still take it.
+                if (node is ScrollViewer viewer && viewer.ScrollableWidth > 0)
+                    return viewer;
+
+                // Mouse.DirectlyOver can land on a content element (a Run inside a
+                // TextBlock, say), which has no visual parent.
+                node = node is Visual || node is System.Windows.Media.Media3D.Visual3D
+                    ? VisualTreeHelper.GetParent(node)
+                    : LogicalTreeHelper.GetParent(node);
+            }
+
+            return null;
         }
     }
 }

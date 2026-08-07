@@ -8,8 +8,9 @@ namespace DinoLino.Utilities
 {
     /// <summary>
     /// Edit window for one Batch Workshop category. Shows the category's whole wide
-    /// table — every variable of that mode as a column, every attempt as a row — and
-    /// allows deleting rows, hiding columns, and deleting specimens.
+    /// table — every variable of that mode as a column, every attempt as a row, with
+    /// the specimen group columns between Attempt and the measurements — and allows
+    /// deleting rows, hiding columns, and deleting specimens.
     /// </summary>
     public class WorkshopEditWindow : Window
     {
@@ -51,7 +52,8 @@ namespace DinoLino.Utilities
             var note = new TextBlock
             {
                 Text = "Deleting a row or specimen is permanent and cannot be undone with " +
-                       "Ctrl+Z. Hiding a column only removes it from the table and its export.",
+                       "Ctrl+Z. Hiding a column only removes it from the table and its export. " +
+                       "Group columns are set from the Sample tab and cannot be hidden here.",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.Gray,
                 Margin = new Thickness(0, 0, 0, 10)
@@ -130,11 +132,18 @@ namespace DinoLino.Utilities
         private UIElement BuildGrid(WorkshopTable table)
         {
             var visible = table.VisibleColumnIndexes();
+            var groupColumns = SpecimenGroups.Columns;
+            int groupCount = groupColumns.Count;
+
+            // Where the measurement columns begin, once Specimen, Attempt and the
+            // group columns have taken their places.
+            int firstMeasurement = 2 + groupCount;
 
             var grid = new Grid();
 
-            // Specimen, Attempt, one per visible measurement, then the row-delete button.
-            int columnCount = visible.Count + 3;
+            // Specimen, Attempt, the group columns, one per visible measurement, then
+            // the row-delete button.
+            int columnCount = firstMeasurement + visible.Count + 1;
             for (int i = 0; i < columnCount; i++)
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -145,6 +154,11 @@ namespace DinoLino.Utilities
 
             Add(grid, HeaderCell("Specimen", null), row, 0);
             Add(grid, HeaderCell("Attempt", null), row, 1);
+
+            // A group column belongs to the specimen rather than to this table, so it
+            // carries no hide button.
+            for (int g = 0; g < groupCount; g++)
+                Add(grid, HeaderCell(groupColumns[g], null), row, 2 + g);
 
             for (int i = 0; i < visible.Count; i++)
             {
@@ -162,7 +176,7 @@ namespace DinoLino.Utilities
                     };
                 }
 
-                Add(grid, HeaderCell(header, hide), row, i + 2);
+                Add(grid, HeaderCell(header, hide), row, firstMeasurement + i);
             }
 
             Add(grid, HeaderCell("", null), row, columnCount - 1);
@@ -206,6 +220,10 @@ namespace DinoLino.Utilities
                 Add(grid, Cell(banner, SpecimenFill), row, 0, columnCount);
                 row++;
 
+                // The specimen's groups are the same on all of its rows, the way its
+                // name is.
+                var groupValues = SpecimenGroups.ValuesFor(block.Name);
+
                 foreach (var tableRow in block.Rows)
                 {
                     grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -213,8 +231,11 @@ namespace DinoLino.Utilities
                     Add(grid, Cell(Text(block.Name), null), row, 0);
                     Add(grid, Cell(Text(tableRow.Attempt > 0 ? tableRow.Attempt.ToString() : ""), null), row, 1);
 
+                    for (int g = 0; g < groupCount; g++)
+                        Add(grid, Cell(Text(groupValues[g]), null), row, 2 + g);
+
                     for (int i = 0; i < visible.Count; i++)
-                        Add(grid, Cell(Text(tableRow.Cells[visible[i]]), null), row, i + 2);
+                        Add(grid, Cell(Text(tableRow.Cells[visible[i]]), null), row, firstMeasurement + i);
 
                     // A placeholder row for a specimen with no measurements has nothing
                     // to delete.
@@ -290,7 +311,7 @@ namespace DinoLino.Utilities
                 this,
                 $"Delete all {count} measurement(s) recorded for \"{block.Name}\"?\n\n" +
                 "This removes every kind of measurement for that specimen, not just the ones shown here, " +
-                "and cannot be restored with Undo. The specimen's image and name are kept.",
+                "and cannot be restored with Undo. The specimen's image, name and groups are kept.",
                 "Delete specimen",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
