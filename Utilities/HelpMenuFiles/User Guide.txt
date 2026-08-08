@@ -19,17 +19,19 @@ Hold Ctrl and left click to drag and move the viewable window while zoomed in.
 ------------------------------------------------------------------------------------------------
 KEYBOARD SHORTCUTS: 
 
-Undo: 			Ctrl + Z
-Redo: 			Ctrl + Y
-Clear: 			Ctrl + C
-Open image: 		Ctrl + F
-View history: 		Ctrl + H
-Export history: 	Ctrl + E
-Take screenshot: 	Ctrl + S
-Zoom:			Scroll wheel
-Drag image:		Ctrl + left click and drag
-Add landmark:		TBD
-Commit data to CSV:	TBD
+Undo: 					Ctrl + Z
+Redo: 					Ctrl + Y
+Clear: 					Ctrl + C
+Open image: 			Ctrl + F
+View history: 			Ctrl + H
+Export history: 		Ctrl + E
+Take screenshot: 		Ctrl + S
+View next specimen:		Up arrow key
+View previous specimen: Down arrow key
+Zoom:					Scroll wheel (mouse) or pinch (trackpad)
+Drag image:				Ctrl + left click and drag
+Add landmark:			TBD
+
 ------------------------------------------------------------------------------------------------
 CURVATURE MODE: 
 

@@ -68,6 +68,7 @@
     <Compile Include="Utilities\Batch Workshop\WorkshopTables.cs" />
     <Compile Include="Utilities\Directory\Directory.Plot.cs" />
     <Compile Include="Utilities\Directory\MainWindow.Directory.cs" />
+    <Compile Include="Utilities\Directory\Plot.Exporter.cs" />
     <Compile Include="Utilities\Directory\PlotAdvancedWindow.cs" />
     <Compile Include="Utilities\MainWindow.Import.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml.cs">
@@ -112,6 +113,7 @@
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineExportWindow.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineShapeExporter.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\PushTool.cs" />
+    <Compile Include="Utilities\PCA.Math.cs" />
     <Compile Include="Utilities\Scale\ScaleWindow.xaml.cs">
       <DependentUpon>ScaleWindow.xaml</DependentUpon>
     </Compile>

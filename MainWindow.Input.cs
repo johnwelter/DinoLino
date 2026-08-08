@@ -29,6 +29,28 @@ namespace DinoLino
 
         private void MainWindow_KeyDown(object sender, KeyEventArgs e)
         {
+            // Specimen navigation: plain Up/Down only.
+            if (Keyboard.Modifiers == ModifierKeys.None)
+            {
+                if (e.Key == Key.Up)
+                {
+                    SpecimenCount_Up(UI_SpecimenUp, new RoutedEventArgs());
+                    e.Handled = true;
+                    return;
+                }
+
+                if (e.Key == Key.Down)
+                {
+                    SpecimenCount_Down(UI_SpecimenDown, new RoutedEventArgs());
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
+            {
+                ClearAllOperations();
+            }
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
             {
                 ClearAllOperations();

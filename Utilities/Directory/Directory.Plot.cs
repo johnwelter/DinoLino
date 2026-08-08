@@ -1,4 +1,5 @@
 ﻿using DinoLino.Utilities;
+using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -14,11 +15,66 @@ namespace DinoLino
     /// Plot tab of the Directory panel: graphs measurements recorded this session.
     /// The variables offered are the columns the Batch Workshop tables carry,
     /// gathered across every specimen (archived records plus the live history).
-    /// Categories and colours come from the Sample tab's group columns.
-    /// Rendering is hand-rolled on a Canvas, keeping the project dependency-free.
+    /// Categories, fills, and point aesthetics come from the Sample tab's group
+    /// columns. Rendering is hand-rolled on a Canvas, keeping the project
+    /// dependency-free.
     /// </summary>
     public partial class MainWindow
     {
+        private void Plot_Export(object sender, RoutedEventArgs e)
+        {
+            if (UI_PlotCanvas == null ||
+                UI_PlotCanvas.ActualWidth < 1 ||
+                UI_PlotCanvas.ActualHeight < 1)
+            {
+                MessageBox.Show(
+                    this,
+                    "There is no plot available to export.",
+                    "Export Plot",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var dialog = new SaveFileDialog
+            {
+                Title = "Export Plot",
+                FileName = "plot",
+                AddExtension = true,
+                OverwritePrompt = true,
+                Filter =
+                    "PNG image (*.png)|*.png|" +
+                    "PDF document (*.pdf)|*.pdf|" +
+                    "JPEG image (*.jpg)|*.jpg;*.jpeg|" +
+                    "TIFF image (*.tif)|*.tif;*.tiff|" +
+                    "SVG image (*.svg)|*.svg",
+                FilterIndex = 1
+            };
+
+            if (dialog.ShowDialog(this) != true)
+                return;
+
+            try
+            {
+                PlotExporter.Export(UI_PlotCanvas, dialog.FileName);
+
+                MessageBox.Show(
+                    this,
+                    $"Plot exported to:\n{dialog.FileName}",
+                    "Export Plot",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    $"Could not export the plot:\n{ex.Message}",
+                    "Export failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
         // =====================
         // Data collection
         // =====================
@@ -40,9 +96,9 @@ namespace DinoLino
             public double Y;
         }
 
-        // One colour split of the data: every item sharing a value of the
-        // colour-by column. With colouring off there is a single unnamed series,
-        // so every renderer can use one code path.
+        // One fill split of the data: every item sharing a value of the Color by
+        // column. With splitting off there is a single unnamed series, so the
+        // boxplot renderer can use one code path.
         private sealed class PlotSeries<T>
         {
             public string Label;
@@ -80,14 +136,440 @@ namespace DinoLino
         // survive closing the dialog and switching tabs.
         private readonly PlotOptions _plotOptions = new PlotOptions();
 
-        /// Refreshes the tab from live history. Called when the tab is selected and
-        /// after a group is assigned, so new measurements and new group columns
-        /// appear without a manual reload.
+        // Variables staged for the PCA, likewise session-scoped. Kept apart from
+        // the Batch Workshop's tables: nothing here changes what those export.
+        private readonly PcaDataFrame _pcaDataFrame = new PcaDataFrame();
+
+        /// Refreshes the tab from live history. Called when the tab is selected,
+        /// from the Refresh link, and after a group is assigned, so new
+        /// measurements and new group columns appear without a manual reload.
         internal void RefreshPlotTab()
         {
             RebuildPlotData();
+
+            if (SelectedPlotType == "PCA")
+            {
+                // A staged variable whose specimens have gone must stop counting
+                // toward the dataframe.
+                _pcaDataFrame.PruneMissing(BuildPcaCatalog());
+
+                // An analysis already on screen is re-fitted against the refreshed
+                // data rather than left showing stale scores.
+                if (_pcaResult != null || _pcaFailure != null) RunPca();
+            }
+
             RepopulatePlotChoices();
             RedrawPlot();
+        }
+
+        // =====================
+        // PCA dataframe
+        // =====================
+
+        /// Key of the single entry standing for the whole EFA coefficient block.
+        /// It is not a measurement header, so it cannot collide with one.
+        internal const string PcaEfaTableKey = "efa_coefficients_table";
+
+        // Every table the PCA can draw columns from. Unlike PlotCategories this
+        // includes EFA, whose coefficients are offered as one bundled entry.
+        private static readonly WorkshopCategory[] PcaCategories =
+        {
+            WorkshopCategory.Curvature,
+            WorkshopCategory.Angle,
+            WorkshopCategory.Shape,
+            WorkshopCategory.OutlineMetadata,
+            WorkshopCategory.Efa
+        };
+
+        // Result of the last run, and the specimen behind each of its rows. Null
+        // until the user runs an analysis, which is what keeps the PC choices out
+        // of the X and Y boxes until there are components to choose.
+        private PcaAnalysis.Result _pcaResult;
+        private List<string> _pcaRowSpecimens;
+
+        // Why the last run produced nothing, shown on the canvas in place of a plot.
+        private string _pcaFailure;
+
+        // Columns dropped for having the same value in every specimen, and
+        // specimens dropped for missing a staged variable. Both are reported under
+        // the plot so a surprising n is explainable.
+        private List<string> _pcaConstantColumns = new List<string>();
+        private int _pcaIncompleteSpecimens;
+
+        /// Every variable measured this session, grouped by the mode that produced
+        /// it. EFA is collapsed into one entry rather than listing a4, b4, c4 and
+        /// the rest of its coefficients individually.
+        private List<PcaVariableEntry> BuildPcaCatalog()
+        {
+            var entries = new List<PcaVariableEntry>();
+            if (UndoRedoManager == null) return entries;
+
+            foreach (var category in PlotCategories)
+            {
+                var table = WorkshopTables.Build(
+                    category, UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
+
+                string group = WorkshopTables.TitleFor(category);
+
+                for (int c = 0; c < table.MeasurementHeaders.Length; c++)
+                {
+                    string header = table.MeasurementHeaders[c];
+
+                    // circ_ appears in two tables; the first one to claim it wins,
+                    // as it does in the other plot types' variable list.
+                    if (entries.Any(e => e.Key == header)) continue;
+                    if (!ColumnHasValues(table, c)) continue;
+
+                    entries.Add(new PcaVariableEntry
+                    {
+                        Key = header,
+                        Label = header,
+                        Group = group,
+                        Columns = new[] { header }
+                    });
+                }
+            }
+
+            var efa = WorkshopTables.Build(
+                WorkshopCategory.Efa, UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
+
+            // Outlines are analysed to whatever harmonic count each one supports,
+            // so the deepest specimen has coefficients the shallowest never
+            // measured. Only the harmonics every specimen reached describe the
+            // same thing in every row, so the entry covers those and stops.
+            int shared = SharedEfaHarmonics(efa);
+
+            if (shared > 0)
+            {
+                var coefficients = new List<string>();
+                for (int h = 1; h <= shared; h++)
+                {
+                    coefficients.Add($"efa_a{h}");
+                    coefficients.Add($"efa_b{h}");
+                    coefficients.Add($"efa_c{h}");
+                    coefficients.Add($"efa_d{h}");
+                }
+
+                entries.Add(new PcaVariableEntry
+                {
+                    Key = PcaEfaTableKey,
+                    Label = "EFA coefficients table",
+                    Group = WorkshopTables.TitleFor(WorkshopCategory.Efa),
+                    Columns = coefficients,
+                    IsBundle = true,
+                    Note = $"Pruned to harmonics 1\u2013{shared} ({coefficients.Count} coefficients), "
+                         + "the most every measured specimen shares. Higher harmonics are left "
+                         + "out so every specimen contributes the same columns."
+                });
+            }
+
+            return entries;
+        }
+
+        /// Highest harmonic every EFA-bearing row reached. Rows with no
+        /// coefficients at all are ignored: a specimen that was never outlined
+        /// would otherwise prune the block to nothing for everyone.
+        private static int SharedEfaHarmonics(WorkshopTable efa)
+        {
+            var index = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int c = 0; c < efa.MeasurementHeaders.Length; c++)
+                index[efa.MeasurementHeaders[c]] = c;
+
+            var measured = new List<WorkshopRow>();
+
+            foreach (var block in efa.Blocks)
+            {
+                foreach (var row in block.Rows)
+                {
+                    if (row.Attempt <= 0) continue;              // placeholder row
+                    if (HarmonicPresent(row, index, 1)) measured.Add(row);
+                }
+            }
+
+            if (measured.Count == 0) return 0;
+
+            int shared = 0;
+            for (int h = 1; index.ContainsKey($"efa_a{h}"); h++)
+            {
+                if (!measured.All(r => HarmonicPresent(r, index, h))) break;
+                shared = h;
+            }
+
+            return shared;
+        }
+
+        // A harmonic counts as present only with all four of its coefficients, so
+        // a partly-filled harmonic never enters the matrix.
+        private static bool HarmonicPresent(
+            WorkshopRow row, Dictionary<string, int> index, int harmonic)
+        {
+            foreach (char component in new[] { 'a', 'b', 'c', 'd' })
+            {
+                if (!index.TryGetValue($"efa_{component}{harmonic}", out int c)) return false;
+                if (!TryParsePlotValue(row.Cells[c], out _)) return false;
+            }
+
+            return true;
+        }
+
+        // True when at least one specimen recorded a numeric value in this column.
+        private static bool ColumnHasValues(WorkshopTable table, int column)
+        {
+            foreach (var block in table.Blocks)
+            {
+                foreach (var row in block.Rows)
+                {
+                    if (row.Attempt <= 0) continue;   // placeholder row
+                    if (TryParsePlotValue(row.Cells[column], out _)) return true;
+                }
+            }
+
+            return false;
+        }
+
+        // =====================
+        // PCA analysis
+        // =====================
+
+        // One complete numeric matrix, ready for PcaAnalysis.Fit.
+        private sealed class PcaMatrix
+        {
+            public List<string> Specimens = new List<string>();
+            public List<string> Columns = new List<string>();
+            public List<double[]> Rows = new List<double[]>();
+            public List<string> ConstantColumns = new List<string>();
+            public int IncompleteSpecimens;
+        }
+
+        /// Fits a PCA to the staged dataframe. Stores either a result or the
+        /// reason there is none; the caller refreshes the choices and redraws.
+        private void RunPca()
+        {
+            _pcaResult = null;
+            _pcaRowSpecimens = null;
+            _pcaFailure = null;
+            _pcaConstantColumns = new List<string>();
+            _pcaIncompleteSpecimens = 0;
+
+            var matrix = BuildPcaMatrix(out string failure);
+            if (matrix == null)
+            {
+                _pcaFailure = failure;
+                return;
+            }
+
+            _pcaConstantColumns = matrix.ConstantColumns;
+            _pcaIncompleteSpecimens = matrix.IncompleteSpecimens;
+
+            try
+            {
+                // Standardized, because the staged variables sit on unrelated
+                // scales: an area in px² would otherwise dominate every component
+                // over an EFD coefficient near zero.
+                _pcaResult = PcaAnalysis.Fit(matrix.Rows, matrix.Columns, standardize: true);
+                _pcaRowSpecimens = matrix.Specimens;
+            }
+            catch (Exception ex)
+            {
+                _pcaFailure = "The PCA could not run:\n" + ex.Message;
+            }
+        }
+
+        /// One row per specimen, each variable averaged over that specimen's
+        /// attempts. A specimen missing any staged variable is left out rather
+        /// than filled in, since PCA cannot take a gap.
+        private PcaMatrix BuildPcaMatrix(out string failure)
+        {
+            failure = null;
+
+            var catalog = BuildPcaCatalog();
+
+            // Staged keys in the order they were added, dropping any the catalog
+            // no longer offers.
+            var staged = _pcaDataFrame.Keys
+                .Select(k => catalog.FirstOrDefault(e => e.Key == k))
+                .Where(e => e != null)
+                .ToList();
+
+            if (staged.Count == 0)
+            {
+                failure = "Please specify dataframe in the Advanced plot editing window.";
+                return null;
+            }
+
+            var matrix = new PcaMatrix();
+
+            foreach (var entry in staged)
+                foreach (var column in entry.Columns)
+                    if (!matrix.Columns.Contains(column)) matrix.Columns.Add(column);
+
+            if (matrix.Columns.Count < 2)
+            {
+                failure = "A PCA needs at least two variables.\n" +
+                          "Add another from the Advanced plot editing window.";
+                return null;
+            }
+
+            CollectPcaValues(matrix.Columns, out var specimens, out var values);
+
+            foreach (string specimen in specimens)
+            {
+                var row = new double[matrix.Columns.Count];
+                bool complete = true;
+
+                for (int i = 0; i < matrix.Columns.Count; i++)
+                {
+                    if (values.TryGetValue(matrix.Columns[i], out var perSpecimen) &&
+                        perSpecimen.TryGetValue(specimen, out double v))
+                    {
+                        row[i] = v;
+                    }
+                    else
+                    {
+                        complete = false;
+                        break;
+                    }
+                }
+
+                if (complete)
+                {
+                    matrix.Specimens.Add(specimen);
+                    matrix.Rows.Add(row);
+                }
+                else
+                {
+                    matrix.IncompleteSpecimens++;
+                }
+            }
+
+            if (matrix.Rows.Count < 2)
+            {
+                failure = matrix.IncompleteSpecimens > 0
+                    ? "Fewer than two specimens have every staged variable.\n" +
+                      "Measure the missing variables, or remove them from the dataframe."
+                    : "A PCA needs at least two specimens.";
+                return null;
+            }
+
+            DropConstantColumns(matrix);
+
+            if (matrix.Columns.Count < 2)
+            {
+                failure = "Fewer than two staged variables vary between specimens.\n" +
+                          "A variable with the same value everywhere carries nothing " +
+                          "for the analysis to rotate.";
+                return null;
+            }
+
+            return matrix;
+        }
+
+        // A column identical in every row has zero variance, which the standardized
+        // fit divides by. Normalized EFD guarantees this for a1, b1 and c1, so the
+        // check is not a corner case.
+        private static void DropConstantColumns(PcaMatrix matrix)
+        {
+            var keep = new List<int>();
+
+            for (int c = 0; c < matrix.Columns.Count; c++)
+            {
+                double first = matrix.Rows[0][c];
+                bool varies = matrix.Rows.Any(r => Math.Abs(r[c] - first) > 1e-12);
+
+                if (varies) keep.Add(c);
+                else matrix.ConstantColumns.Add(matrix.Columns[c]);
+            }
+
+            if (keep.Count == matrix.Columns.Count) return;
+
+            matrix.Columns = keep.Select(c => matrix.Columns[c]).ToList();
+
+            for (int r = 0; r < matrix.Rows.Count; r++)
+            {
+                var trimmed = new double[keep.Count];
+                for (int i = 0; i < keep.Count; i++) trimmed[i] = matrix.Rows[r][keep[i]];
+                matrix.Rows[r] = trimmed;
+            }
+        }
+
+        /// Mean of each requested column per specimen, plus the specimen order the
+        /// tables list. A header claimed by an earlier table is not re-read from a
+        /// later one, matching how the catalog resolves a shared name.
+        private void CollectPcaValues(
+            IReadOnlyList<string> headers,
+            out List<string> specimens,
+            out Dictionary<string, Dictionary<string, double>> values)
+        {
+            specimens = new List<string>();
+            values = new Dictionary<string, Dictionary<string, double>>(StringComparer.Ordinal);
+
+            if (UndoRedoManager == null) return;
+
+            var wanted = new HashSet<string>(headers, StringComparer.Ordinal);
+            var sums = new Dictionary<string, Dictionary<string, (double Sum, int Count)>>(
+                StringComparer.Ordinal);
+
+            foreach (var category in PcaCategories)
+            {
+                var table = WorkshopTables.Build(
+                    category, UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
+
+                // Blocks are the same for every category, so the first table seen
+                // fixes the specimen order.
+                if (specimens.Count == 0)
+                    specimens.AddRange(table.Blocks.Select(b => b.Name));
+
+                for (int c = 0; c < table.MeasurementHeaders.Length; c++)
+                {
+                    string header = table.MeasurementHeaders[c];
+                    if (!wanted.Contains(header) || sums.ContainsKey(header)) continue;
+
+                    var perSpecimen = new Dictionary<string, (double, int)>(StringComparer.Ordinal);
+
+                    foreach (var block in table.Blocks)
+                    {
+                        foreach (var row in block.Rows)
+                        {
+                            if (row.Attempt <= 0) continue;   // placeholder row
+                            if (!TryParsePlotValue(row.Cells[c], out double v)) continue;
+
+                            perSpecimen.TryGetValue(block.Name, out var running);
+                            perSpecimen[block.Name] = (running.Item1 + v, running.Item2 + 1);
+                        }
+                    }
+
+                    sums[header] = perSpecimen;
+                }
+            }
+
+            foreach (var header in sums)
+            {
+                var means = new Dictionary<string, double>(StringComparer.Ordinal);
+                foreach (var entry in header.Value)
+                    means[entry.Key] = entry.Value.Sum / entry.Value.Count;
+
+                values[header.Key] = means;
+            }
+        }
+
+        /// Component names the X and Y boxes offer. Empty until a PCA has been
+        /// run, which is what keeps those boxes unusable beforehand.
+        private List<string> PcaComponentChoices()
+        {
+            var choices = new List<string>();
+            if (_pcaResult == null) return choices;
+
+            for (int i = 0; i < _pcaResult.ComponentCount; i++)
+                choices.Add($"PC{i + 1}");
+
+            return choices;
+        }
+
+        // "PC3" -> 2. Negative when the text is not a component name.
+        private static int PcaComponentIndex(string name)
+        {
+            if (name == null || !name.StartsWith("PC", StringComparison.Ordinal)) return -1;
+            return int.TryParse(name.Substring(2), out int n) && n > 0 ? n - 1 : -1;
         }
 
         private void RebuildPlotData()
@@ -193,16 +675,11 @@ namespace DinoLino
             return string.IsNullOrEmpty(value) ? UnassignedLabel : value;
         }
 
-        /// Splits items into colour series. Levels are sorted by name so a series
-        /// keeps its colour between redraws; colouring off yields one series in the
-        /// chosen single fill, which every renderer then treats like any other.
-
-        /// Splits items into colour series. Levels are sorted by name so a series
-        /// keeps its colour between redraws; colouring off yields one series in
-        /// defaultBrush, which lets each renderer supply the right uncoloured ink
-        /// (a fill for boxes and bars, a point color for markers).
-        private List<PlotSeries<T>> SplitByColour<T>(
-            IEnumerable<T> items, string colourBy, Func<T, string> specimenOf, Brush defaultBrush)
+        /// Splits items into fill series. Levels are sorted by name so a series
+        /// keeps its colour between redraws; splitting off yields one series in
+        /// the fixed default fill.
+        private List<PlotSeries<T>> SplitByFill<T>(
+            IEnumerable<T> items, string colourBy, Func<T, string> specimenOf)
         {
             var index = new Dictionary<string, PlotSeries<T>>();
             var series = new List<PlotSeries<T>>();
@@ -224,7 +701,7 @@ namespace DinoLino
 
             if (colourBy == null)
             {
-                foreach (var s in series) s.Fill = defaultBrush;
+                foreach (var s in series) s.Fill = PlotOptions.DefaultFillBrush();
                 return series;
             }
 
@@ -244,25 +721,38 @@ namespace DinoLino
                 string keepY = UI_PlotYBox.SelectedItem as string;
 
                 var variables = _plotVariables.ToList();
-                UI_PlotYBox.ItemsSource = variables;
 
-                // X holds categories for a boxplot and continuous variables for a
-                // scatter plot, so its contents follow the plot type.
-                bool boxplot = SelectedPlotType == "Boxplot";
-                UI_PlotXBox.ItemsSource = boxplot ? PlotCategoryChoices() : variables.ToList();
+                string type = SelectedPlotType;
+                bool boxplot = type == "Boxplot";
+                bool pca = type == "PCA";
+
+                // PCA plots components against components, and has none to offer
+                // until an analysis has been run. A boxplot's X lists categories;
+                // everything else lists the measured variables.
+                var components = pca ? PcaComponentChoices() : null;
+
+                var xItems = pca ? components
+                          : boxplot ? PlotCategoryChoices()
+                          : variables.ToList();
+
+                var yItems = pca ? components.ToList() : variables;
+
+                UI_PlotXBox.ItemsSource = xItems;
+                UI_PlotYBox.ItemsSource = yItems;
 
                 // Selections survive a refresh as long as they still exist.
-                var xItems = (List<string>)UI_PlotXBox.ItemsSource;
                 if (keepX != null && xItems.Contains(keepX))
                     UI_PlotXBox.SelectedItem = keepX;
                 else if (boxplot)
                     UI_PlotXBox.SelectedItem = CategorySpecimen;   // always available
+                else if (pca && xItems.Count > 0)
+                    UI_PlotXBox.SelectedItem = xItems[0];          // PC1
 
-                if (keepY != null && variables.Contains(keepY))
+                if (keepY != null && yItems.Contains(keepY))
                     UI_PlotYBox.SelectedItem = keepY;
+                else if (pca && yItems.Count > 1)
+                    UI_PlotYBox.SelectedItem = yItems[1];          // PC2
 
-                // A group column can disappear only by never having existed, but
-                // the dialog's stored choices are validated on open regardless.
                 _plotOptions.PruneMissingColumns();
             }
             finally
@@ -280,12 +770,139 @@ namespace DinoLino
             return categories;
         }
 
-        /// Colour-by choices: no colouring, by specimen, or by any group column.
+        /// Fill-split choices: no split, by specimen, or by any group column.
         internal static List<string> PlotColourChoices()
         {
             var colours = new List<string> { ColourNone, CategorySpecimen };
             colours.AddRange(SpecimenGroups.Columns);
             return colours;
+        }
+
+        /// <summary>Point color choices: hidden, one flat color, or by group.</summary>
+        internal static List<string> PlotPointColorChoices()
+        {
+            var choices = new List<string> { PlotOptions.AestheticNone, PlotOptions.AestheticBlack };
+            choices.AddRange(SpecimenGroups.Columns);
+            return choices;
+        }
+
+        /// <summary>Point shape choices: hidden, one flat shape, or by group.</summary>
+        internal static List<string> PlotPointShapeChoices()
+        {
+            var choices = new List<string> { PlotOptions.AestheticNone, PlotOptions.AestheticCircle };
+            choices.AddRange(SpecimenGroups.Columns);
+            return choices;
+        }
+
+        /// True when a point aesthetic names a group column rather than one of the
+        /// two reserved values.
+        internal static bool IsGroupAesthetic(string value) =>
+            value != null &&
+            value != PlotOptions.AestheticNone &&
+            value != PlotOptions.AestheticBlack &&
+            value != PlotOptions.AestheticCircle;
+
+        // =====================
+        // Point aesthetics
+        // =====================
+
+        // level -> index for whichever column each point aesthetic is mapped to.
+        // Built once per redraw so a level keeps its colour and shape across the
+        // whole plot, and rebuilt each time so a new group appears.
+        private readonly Dictionary<string, int> _pointColorLevels = new Dictionary<string, int>();
+        private readonly Dictionary<string, int> _pointShapeLevels = new Dictionary<string, int>();
+
+        private bool PointColorIsColumn => IsGroupAesthetic(_plotOptions.PointColor);
+        private bool PointShapeIsColumn => IsGroupAesthetic(_plotOptions.PointShape);
+
+        // Points vanish entirely when either aesthetic is None. forceVisible is
+        // set by plots whose data *is* the points, where hiding them would leave
+        // an empty frame.
+        private bool PointsVisible(bool forceVisible) =>
+            forceVisible ||
+            (_plotOptions.PointColor != PlotOptions.AestheticNone &&
+             _plotOptions.PointShape != PlotOptions.AestheticNone);
+
+        /// Numbers the levels of each mapped column, in name order, so the palette
+        /// and the shape cycle hand out stable values.
+        private void PreparePointAesthetics(IEnumerable<string> specimenNames)
+        {
+            _pointColorLevels.Clear();
+            _pointShapeLevels.Clear();
+
+            var names = specimenNames.Distinct().ToList();
+
+            if (PointColorIsColumn) NumberLevels(_pointColorLevels, _plotOptions.PointColor, names);
+            if (PointShapeIsColumn) NumberLevels(_pointShapeLevels, _plotOptions.PointShape, names);
+        }
+
+        private void NumberLevels(Dictionary<string, int> map, string column, List<string> names)
+        {
+            var levels = names
+                .Select(n => CategoryValue(column, n) ?? UnassignedLabel)
+                .Distinct()
+                .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            for (int i = 0; i < levels.Count; i++) map[levels[i]] = i;
+        }
+
+        private int LevelIndex(Dictionary<string, int> map, string column, string specimenName)
+        {
+            string level = CategoryValue(column, specimenName) ?? UnassignedLabel;
+            return map.TryGetValue(level, out int i) ? i : 0;
+        }
+
+        /// The brush a specimen's points take, or null when they are hidden.
+        private Brush PointBrushFor(string specimenName, bool forceVisible)
+        {
+            if (_plotOptions.PointColor == PlotOptions.AestheticNone)
+                return forceVisible ? PlotOptions.DefaultPointBrush() : null;
+
+            if (!PointColorIsColumn) return PlotOptions.DefaultPointBrush();
+
+            var palette = _plotOptions.PaletteBrushes();
+            int index = LevelIndex(_pointColorLevels, _plotOptions.PointColor, specimenName);
+            return palette[index % palette.Length];
+        }
+
+        /// The shape a specimen's points take, or None when they are hidden.
+        private PlotPointShape PointShapeFor(string specimenName, bool forceVisible)
+        {
+            if (_plotOptions.PointShape == PlotOptions.AestheticNone)
+                return forceVisible ? PlotPointShape.Circle : PlotPointShape.None;
+
+            if (!PointShapeIsColumn) return PlotPointShape.Circle;
+
+            int index = LevelIndex(_pointShapeLevels, _plotOptions.PointShape, specimenName);
+            return PlotOptions.ShapeCycle[index % PlotOptions.ShapeCycle.Length];
+        }
+
+        /// Groups items by point-color level, so a statistic drawn per color (a
+        /// trend line, a QQ reference line) matches what the eye groups. One
+        /// series when the color is not mapped to a column.
+        private List<(string Label, Brush Brush, List<T> Items)> SplitByPointColor<T>(
+            IEnumerable<T> items, Func<T, string> specimenOf)
+        {
+            var result = new List<(string, Brush, List<T>)>();
+
+            if (!PointColorIsColumn)
+            {
+                result.Add(("", PlotOptions.DefaultPointBrush(), items.ToList()));
+                return result;
+            }
+
+            var palette = _plotOptions.PaletteBrushes();
+
+            foreach (var group in items
+                .GroupBy(i => CategoryValue(_plotOptions.PointColor, specimenOf(i)) ?? UnassignedLabel)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                int index = _pointColorLevels.TryGetValue(group.Key, out int i) ? i : 0;
+                result.Add((group.Key, palette[index % palette.Length], group.ToList()));
+            }
+
+            return result;
         }
 
         // =====================
@@ -298,13 +915,13 @@ namespace DinoLino
         private string SelectedTrend =>
             (UI_PlotTrendBox?.SelectedItem as ComboBoxItem)?.Content as string;
 
-        // Null when colouring is off or the plot type does not support it, so the
+        // Null when the fill is not split or the plot type has no fill, so the
         // renderers can test one thing.
         private string ActiveColourBy
         {
             get
             {
-                if (!PlotCapabilities.For(SelectedPlotType).SupportsColour) return null;
+                if (!PlotCapabilities.For(SelectedPlotType).SupportsFill) return null;
                 return _plotOptions.ColourBy == ColourNone ? null : _plotOptions.ColourBy;
             }
         }
@@ -331,8 +948,43 @@ namespace DinoLino
         // plot always fills the panel.
         private void PlotCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => RedrawPlot();
 
+        /// Re-reads the session's measurements and redraws. The tab refreshes
+        /// itself when it is selected, so this covers the case where the Plot tab
+        /// stayed on screen while new operations were performed.
+        private void Plot_Refresh(object sender, RoutedEventArgs e) => RefreshPlotTab();
+
         private void Plot_OpenAdvanced(object sender, RoutedEventArgs e)
         {
+            if (SelectedPlotType == "PCA")
+            {
+                // Built fresh on open, so a variable measured since the last visit
+                // is listed and a vanished one is dropped from what is staged.
+                var catalog = BuildPcaCatalog();
+                _pcaDataFrame.PruneMissing(catalog);
+
+                var pcaDialog = new PcaAdvancedWindow(_pcaDataFrame, catalog)
+                {
+                    Owner = this,
+                    FontSize = _currentFontSize,
+                    FontFamily = _currentFont
+                };
+
+                // Run PCA closes with true; Cancel leaves the staged dataframe and
+                // any existing result alone.
+                if (pcaDialog.ShowDialog() == true)
+                {
+                    pcaDialog.CommitTo(_pcaDataFrame);
+                    RunPca();
+
+                    // The components the run produced are what the X and Y boxes
+                    // now offer, so they are refilled before the redraw.
+                    RepopulatePlotChoices();
+                    RedrawPlot();
+                }
+
+                return;
+            }
+
             var capabilities = PlotCapabilities.For(SelectedPlotType);
 
             var dialog = new PlotAdvancedWindow(_plotOptions, capabilities)
@@ -342,8 +994,6 @@ namespace DinoLino
                 FontFamily = _currentFont
             };
 
-            // The dialog edits a copy and commits on OK, so Cancel leaves the
-            // current plot untouched.
             if (dialog.ShowDialog() == true)
             {
                 dialog.CommitTo(_plotOptions);
@@ -351,12 +1001,14 @@ namespace DinoLino
             }
         }
 
+        
         private void UpdatePlotControlVisibility()
         {
             string type = SelectedPlotType;
             bool scatter = type == "Scatter plot";
             bool boxplot = type == "Boxplot";
-            bool twoVariable = scatter || boxplot;
+            bool pca = type == "PCA";
+            bool twoVariable = scatter || boxplot || pca;
 
             UI_PlotVarPanel.Visibility = type == null ? Visibility.Collapsed : Visibility.Visible;
 
@@ -418,14 +1070,40 @@ namespace DinoLino
                 return;
             }
 
+            if (type == "PCA")
+            {
+                if (_pcaDataFrame.Count == 0)
+                {
+                    PlotMessage("Please specify dataframe in the Advanced plot editing window.");
+                    return;
+                }
+
+                if (_pcaResult == null)
+                {
+                    PlotMessage(_pcaFailure
+                        ?? "Run the PCA from the Advanced plot editing window.");
+                    return;
+                }
+
+                string xPc = UI_PlotXBox.SelectedItem as string;
+                string yPc = UI_PlotYBox.SelectedItem as string;
+
+                if (xPc == null || yPc == null)
+                {
+                    PlotMessage("Choose the components for X and Y.");
+                    return;
+                }
+
+                DrawPcaScores(xPc, yPc);
+                return;
+            }
+
             if (_plotVariables.Count == 0)
             {
                 PlotMessage("No measurements have been recorded this session yet.\n" +
                             "Perform operations on a specimen, then reopen this tab.");
                 return;
             }
-
-            string colourBy = ActiveColourBy;
 
             if (type == "Scatter plot")
             {
@@ -445,7 +1123,7 @@ namespace DinoLino
                     return;
                 }
 
-                DrawScatter(pairs, xVar, yVar, colourBy);
+                DrawScatter(pairs, xVar, yVar);
                 return;
             }
 
@@ -462,7 +1140,7 @@ namespace DinoLino
             {
                 case "Boxplot":
                     string category = UI_PlotXBox.SelectedItem as string ?? CategorySpecimen;
-                    DrawBoxplot(variable, category, colourBy);
+                    DrawBoxplot(variable, category, ActiveColourBy);
                     break;
                 case "Histogram":
                     DrawHistogram(variable);
@@ -473,11 +1151,60 @@ namespace DinoLino
                         PlotMessage("A QQ plot needs at least 3 values.");
                         return;
                     }
-                    DrawQQPlot(variable, colourBy);
+                    DrawQQPlot(variable);
                     break;
                 case "Dot plot":
-                    DrawDotPlot(variable, colourBy);
+                    DrawDotPlot(variable);
                     break;
+            }
+        }
+
+        // The user's title when set, otherwise whatever the renderer generated.
+        private string EffectiveXAxisTitle(string generated) =>
+            string.IsNullOrWhiteSpace(_plotOptions.XAxisTitle) ? generated : _plotOptions.XAxisTitle;
+
+        private string EffectiveYAxisTitle(string generated) =>
+            string.IsNullOrWhiteSpace(_plotOptions.YAxisTitle) ? generated : _plotOptions.YAxisTitle;
+
+        /// Reserves room for whichever axis titles will be drawn. Must run before
+        /// PlotArea is read.
+        private void PrepareAxisTitles(string xGenerated = null, string yGenerated = null)
+        {
+            _plotLeftExtra = string.IsNullOrWhiteSpace(EffectiveYAxisTitle(yGenerated))
+                ? 0 : PlotAxisTitleHeight;
+            _plotBottomExtra += string.IsNullOrWhiteSpace(EffectiveXAxisTitle(xGenerated))
+                ? 0 : PlotAxisTitleHeight;
+        }
+
+        /// Draws whichever axis titles apply. The y title is rotated to read
+        /// bottom-to-top, as axis labels conventionally do.
+        private void DrawAxisTitles(string xGenerated = null, string yGenerated = null)
+        {
+            var (l, t, w, h) = PlotArea();
+
+            string xTitle = EffectiveXAxisTitle(xGenerated);
+            string yTitle = EffectiveYAxisTitle(yGenerated);
+
+            if (!string.IsNullOrWhiteSpace(xTitle))
+                PlotText(xTitle, l + w / 2, t + h + 20, anchorX: 0.5, fontSize: 10);
+
+            if (!string.IsNullOrWhiteSpace(yTitle))
+            {
+                var tb = new TextBlock
+                {
+                    Text = yTitle,
+                    FontSize = 10,
+                    Foreground = PlotAxis,
+                    RenderTransform = new RotateTransform(-90),
+                    RenderTransformOrigin = new Point(0.5, 0.5)
+                };
+                tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+                // Rotation happens about the centre, so position the unrotated box
+                // centred on where the rotated text should sit.
+                Canvas.SetLeft(tb, 4 + PlotAxisTitleHeight / 2 - tb.DesiredSize.Width / 2);
+                Canvas.SetTop(tb, t + h / 2 - tb.DesiredSize.Height / 2);
+                UI_PlotCanvas.Children.Add(tb);
             }
         }
 
@@ -516,18 +1243,20 @@ namespace DinoLino
 
         private static readonly Brush PlotAxis = Brushes.Black;
 
-        private static Brush FrozenBrush(byte a, byte r, byte g, byte b)
+        /// One legend item. A null shape draws the filled square a fill series
+        /// uses; a shape draws that marker, for the point aesthetics.
+        private sealed class LegendEntry
         {
-            var brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
-            brush.Freeze();
-            return brush;
+            public string Label;
+            public Brush Fill;
+            public PlotPointShape? Shape;
         }
 
         // Extra bottom and left space claimed by the legend and axis titles, so
         // the plot area shrinks to make room rather than being drawn over.
         private double _plotBottomExtra;
         private double _plotLeftExtra;
-        private List<(string Label, Brush Fill, double X, int Row)> _legendLayout;
+        private List<(LegendEntry Entry, double X, int Row)> _legendLayout;
 
         private (double L, double T, double W, double H) PlotArea()
         {
@@ -548,21 +1277,76 @@ namespace DinoLino
                 ? 0 : PlotAxisTitleHeight;
         }
 
+        /// Legend entries for the fill split, empty when the fill is not split.
+        private List<LegendEntry> FillLegendEntries<T>(List<PlotSeries<T>> series, string colourBy)
+        {
+            if (colourBy == null) return new List<LegendEntry>();
+
+            return series
+                .Select(s => new LegendEntry { Label = s.Label, Fill = s.Fill })
+                .ToList();
+        }
+
+        /// Legend entries for whichever point aesthetics are mapped to a column.
+        /// One column driving both colour and shape gives a single set showing
+        /// both, rather than two sets repeating the same level names.
+        private List<LegendEntry> PointLegendEntries(bool pointsDrawn)
+        {
+            var entries = new List<LegendEntry>();
+            if (!pointsDrawn) return entries;
+
+            bool sameColumn = PointColorIsColumn && PointShapeIsColumn &&
+                string.Equals(_plotOptions.PointColor, _plotOptions.PointShape,
+                    StringComparison.OrdinalIgnoreCase);
+
+            if (PointColorIsColumn)
+            {
+                var palette = _plotOptions.PaletteBrushes();
+
+                foreach (var level in _pointColorLevels.OrderBy(kv => kv.Value))
+                {
+                    entries.Add(new LegendEntry
+                    {
+                        Label = level.Key,
+                        Fill = palette[level.Value % palette.Length],
+                        Shape = sameColumn
+                            ? PlotOptions.ShapeCycle[level.Value % PlotOptions.ShapeCycle.Length]
+                            : PlotPointShape.Circle
+                    });
+                }
+            }
+
+            if (PointShapeIsColumn && !sameColumn)
+            {
+                foreach (var level in _pointShapeLevels.OrderBy(kv => kv.Value))
+                {
+                    entries.Add(new LegendEntry
+                    {
+                        Label = level.Key,
+                        Fill = PlotOptions.DefaultPointBrush(),
+                        Shape = PlotOptions.ShapeCycle[level.Value % PlotOptions.ShapeCycle.Length]
+                    });
+                }
+            }
+
+            return entries;
+        }
+
         /// Lays the legend out and reserves its height. Must run before PlotArea is
         /// read, since it changes how much room the plot itself gets.
-        private void PrepareLegend<T>(List<PlotSeries<T>> series, string colourBy)
+        private void PrepareLegend(List<LegendEntry> entries)
         {
-            _legendLayout = new List<(string, Brush, double, int)>();
+            _legendLayout = new List<(LegendEntry, double, int)>();
 
-            if (colourBy == null || series.Count == 0) return;
+            if (entries == null || entries.Count == 0) return;
 
             double available = Math.Max(60, UI_PlotCanvas.ActualWidth - 8);
             double x = 4;
             int row = 0;
 
-            foreach (var s in series)
+            foreach (var entry in entries)
             {
-                double itemWidth = 14 + MeasureTextWidth(s.Label, 10) + 10;
+                double itemWidth = 14 + MeasureTextWidth(entry.Label, 10) + 10;
 
                 // Wrap rather than run off the edge: the sidebar is narrow.
                 if (x > 4 && x + itemWidth > available)
@@ -571,7 +1355,7 @@ namespace DinoLino
                     x = 4;
                 }
 
-                _legendLayout.Add((s.Label, s.Fill, x, row));
+                _legendLayout.Add((entry, x, row));
                 x += itemWidth;
             }
 
@@ -586,23 +1370,30 @@ namespace DinoLino
             int rows = _legendLayout.Max(item => item.Row) + 1;
             double top = UI_PlotCanvas.ActualHeight - (rows * LegendRowHeight + 4) + 2;
 
-            foreach (var (label, fill, x, row) in _legendLayout)
+            foreach (var (entry, x, row) in _legendLayout)
             {
                 double y = top + row * LegendRowHeight;
 
-                var swatch = new Rectangle
+                if (entry.Shape.HasValue)
                 {
-                    Width = 10,
-                    Height = 10,
-                    Fill = fill,
-                    Stroke = PlotAxis,
-                    StrokeThickness = 0.5
-                };
-                Canvas.SetLeft(swatch, x);
-                Canvas.SetTop(swatch, y + 2);
-                UI_PlotCanvas.Children.Add(swatch);
+                    DrawMarker(x + 5, y + 7, 4, entry.Fill, entry.Shape.Value);
+                }
+                else
+                {
+                    var swatch = new Rectangle
+                    {
+                        Width = 10,
+                        Height = 10,
+                        Fill = entry.Fill,
+                        Stroke = PlotAxis,
+                        StrokeThickness = 0.5
+                    };
+                    Canvas.SetLeft(swatch, x);
+                    Canvas.SetTop(swatch, y + 2);
+                    UI_PlotCanvas.Children.Add(swatch);
+                }
 
-                PlotText(label, x + 14, y);
+                PlotText(entry.Label, x + 14, y);
             }
         }
 
@@ -701,19 +1492,12 @@ namespace DinoLino
             UI_PlotCanvas.Children.Add(tb);
         }
 
-        /// One data point in the shape the user picked. Filled shapes take the
-        /// brush as a fill; the cross and plus are stroked, so they read as marks
-        /// rather than blobs at small sizes. forceVisible substitutes a circle for
-        /// the None shape, for plots whose data *is* the points.
-        private void PlotMarker(double cx, double cy, double r, Brush fill, bool forceVisible = false)
+        /// One point in the given shape. Filled shapes take the brush as a fill;
+        /// the cross and plus are stroked, so they read as marks rather than blobs
+        /// at small sizes. A null brush or the None shape draws nothing.
+        private void DrawMarker(double cx, double cy, double r, Brush fill, PlotPointShape shape)
         {
-            var shape = _plotOptions.PointShape;
-
-            if (shape == PlotPointShape.None)
-            {
-                if (!forceVisible) return;
-                shape = PlotPointShape.Circle;
-            }
+            if (fill == null || shape == PlotPointShape.None) return;
 
             switch (shape)
             {
@@ -770,9 +1554,17 @@ namespace DinoLino
             }
         }
 
+        /// One data point, in whatever colour and shape its specimen resolves to.
+        private void DrawPoint(double cx, double cy, double r, string specimen, bool forceVisible)
+        {
+            DrawMarker(cx, cy, r,
+                PointBrushFor(specimen, forceVisible),
+                PointShapeFor(specimen, forceVisible));
+        }
+
         // Deterministic offset in [-1, 1] for spreading stacked points sideways.
         // Derived from the index rather than a live RNG so a redraw, a resize, or
-        // a color change never reshuffles the same data.
+        // an option change never reshuffles the same data.
         private static double PointJitter(int index)
         {
             unchecked
@@ -1087,15 +1879,20 @@ namespace DinoLino
         // =====================
 
         /// Boxplot: one group of boxes per level of the categorical X, and within
-        /// each level one box per colour series present, dodged side by side.
-        /// Choosing a point shape overlays the individual measurements on the
-        /// boxes; the None shape leaves only the outliers showing.
+        /// each level one box per fill series present, dodged side by side. The
+        /// individual measurements are overlaid on the boxes unless either point
+        /// aesthetic is set to None.
         private void DrawBoxplot(string yVar, string category, string colourBy)
         {
             var samples = _plotData[yVar];
-            var series = SplitByColour(samples, colourBy, s => s.Specimen,
-                _plotOptions.SingleFillBrush());
-            PrepareLegend(series, colourBy);
+            var series = SplitByFill(samples, colourBy, s => s.Specimen);
+
+            PreparePointAesthetics(samples.Select(s => s.Specimen));
+
+            var legend = new List<LegendEntry>();
+            legend.AddRange(FillLegendEntries(series, colourBy));
+            legend.AddRange(PointLegendEntries(PointsVisible(false)));
+            PrepareLegend(legend);
             PrepareAxisTitles();
 
             var levels = samples
@@ -1124,19 +1921,13 @@ namespace DinoLino
                 var present = series
                     .Select(s => new
                     {
-                        Fill = s.Fill,
-
-                        // Uncoloured, the boxes and the points get their own inks;
-                        // coloured, both follow the series so a box and its points
-                        // stay visibly one group.
-                        Point = colourBy == null ? _plotOptions.PointBrush() : s.Fill,
-                        Values = s.Items
+                        s.Fill,
+                        Items = s.Items
                             .Where(it => (CategoryValue(category, it.Specimen) ?? CategorySpecimen) == level)
-                            .Select(it => it.Value)
-                            .OrderBy(v => v)
+                            .OrderBy(it => it.Value)
                             .ToList()
                     })
-                    .Where(p => p.Values.Count > 0)
+                    .Where(p => p.Items.Count > 0)
                     .ToList();
 
                 double sub = slot / Math.Max(1, present.Count);
@@ -1145,7 +1936,7 @@ namespace DinoLino
                 {
                     double cx = slotLeft + sub * (si + 0.5);
                     double half = Math.Min(sub * 0.34, 26);
-                    DrawOneBox(present[si].Values, cx, half, present[si].Fill, present[si].Point, ToPy);
+                    DrawOneBox(present[si].Items, cx, half, present[si].Fill, ToPy);
                 }
 
                 PlotSlotLabel(level, slotLeft, slot, t + h + 6);
@@ -1156,9 +1947,12 @@ namespace DinoLino
         }
 
         // Tukey whiskers: out to the farthest value within 1.5 IQR of the box.
-        private void DrawOneBox(List<double> sorted, double cx, double half,
-            Brush fill, Brush pointBrush, Func<double, double> toPy)
+        // Items arrive sorted by value.
+        private void DrawOneBox(List<PlotSample> items, double cx, double half,
+            Brush fill, Func<double, double> toPy)
         {
+            var sorted = items.Select(i => i.Value).ToList();
+
             double q1 = Quantile(sorted, 0.25);
             double median = Quantile(sorted, 0.50);
             double q3 = Quantile(sorted, 0.75);
@@ -1168,7 +1962,7 @@ namespace DinoLino
             double whiskerLo = sorted.First(v => v >= loFence);
             double whiskerHi = sorted.Last(v => v <= hiFence);
 
-            Brush outline = _plotOptions.OutlineBrush();
+            Brush outline = PlotOptions.OutlineBrush();
 
             PlotLine(cx, toPy(whiskerLo), cx, toPy(q1), outline);
             PlotLine(cx, toPy(q3), cx, toPy(whiskerHi), outline);
@@ -1189,13 +1983,16 @@ namespace DinoLino
 
             PlotLine(cx - half, toPy(median), cx + half, toPy(median), outline, 2);
 
-            if (_plotOptions.PointShape != PlotPointShape.None)
+            if (PointsVisible(false))
             {
                 // Every measurement, spread sideways so points at similar values
                 // do not stack into one mark on the centre line.
                 double spread = half * 0.72;
-                for (int i = 0; i < sorted.Count; i++)
-                    PlotMarker(cx + PointJitter(i) * spread, toPy(sorted[i]), 2.6, pointBrush);
+                for (int i = 0; i < items.Count; i++)
+                {
+                    DrawPoint(cx + PointJitter(i) * spread, toPy(items[i].Value), 2.6,
+                        items[i].Specimen, forceVisible: false);
+                }
             }
             else
             {
@@ -1203,54 +2000,14 @@ namespace DinoLino
                 // it stays as a plain dot.
                 foreach (double v in sorted)
                     if (v < loFence || v > hiFence)
-                        PlotDot(cx, toPy(v), 3, pointBrush);
+                        PlotDot(cx, toPy(v), 3, PlotOptions.OutlineBrush());
             }
         }
 
-        // Tukey whiskers: out to the farthest value within 1.5 IQR of the box,
-        // with anything past that drawn as an outlier point.
-        private void DrawOneBox(List<double> sorted, double cx, double half,
-            Brush fill, Func<double, double> toPy)
+        private void DrawScatter(List<ScatterPoint> pairs, string xVar, string yVar)
         {
-            double q1 = Quantile(sorted, 0.25);
-            double median = Quantile(sorted, 0.50);
-            double q3 = Quantile(sorted, 0.75);
-            double iqr = q3 - q1;
-
-            double loFence = q1 - 1.5 * iqr, hiFence = q3 + 1.5 * iqr;
-            double whiskerLo = sorted.First(v => v >= loFence);
-            double whiskerHi = sorted.Last(v => v <= hiFence);
-
-            Brush outline = _plotOptions.OutlineBrush();
-
-            PlotLine(cx, toPy(whiskerLo), cx, toPy(q1), outline);
-            PlotLine(cx, toPy(q3), cx, toPy(whiskerHi), outline);
-            PlotLine(cx - half * 0.6, toPy(whiskerLo), cx + half * 0.6, toPy(whiskerLo), outline);
-            PlotLine(cx - half * 0.6, toPy(whiskerHi), cx + half * 0.6, toPy(whiskerHi), outline);
-
-            var box = new Rectangle
-            {
-                Width = half * 2,
-                Height = Math.Max(1, toPy(q1) - toPy(q3)),
-                Stroke = outline,
-                StrokeThickness = 1.2,
-                Fill = fill
-            };
-            Canvas.SetLeft(box, cx - half);
-            Canvas.SetTop(box, toPy(q3));
-            UI_PlotCanvas.Children.Add(box);
-
-            PlotLine(cx - half, toPy(median), cx + half, toPy(median), outline, 2);
-
-            foreach (double v in sorted)
-                if (v < loFence || v > hiFence)
-                    PlotMarker(cx, toPy(v), 3, fill);
-        }
-
-        private void DrawScatter(List<ScatterPoint> pairs, string xVar, string yVar, string colourBy)
-        {
-            var series = SplitByColour(pairs, colourBy, p => p.Specimen, _plotOptions.PointBrush());
-            PrepareLegend(series, colourBy);
+            PreparePointAesthetics(pairs.Select(p => p.Specimen));
+            PrepareLegend(PointLegendEntries(pointsDrawn: true));
             PrepareAxisTitles();
 
             var (l, t, w, h) = PlotArea();
@@ -1265,23 +2022,24 @@ namespace DinoLino
             DrawXAxis(l, t, w, h, ToPx, NiceTicks(xMin, xMax));
             PlotTitle($"{yVar} vs {xVar}   (n = {pairs.Count})");
 
-            foreach (var s in series)
-                foreach (var p in s.Items)
-                    PlotMarker(ToPx(p.X), ToPy(p.Y), 3, s.Fill, forceVisible: true);
+            foreach (var p in pairs)
+                DrawPoint(ToPx(p.X), ToPy(p.Y), 3, p.Specimen, forceVisible: true);
 
             string trend = SelectedTrend;
             if (trend == "lm" || trend == "loess")
             {
-                // One fit per colour series, so a colour split compares trends
-                // rather than pooling them into a single misleading line.
-                foreach (var s in series)
+                // One fit per point-color group, so a colored split compares
+                // trends rather than pooling them into a single misleading line.
+                var groups = SplitByPointColor(pairs, p => p.Specimen);
+
+                foreach (var group in groups)
                 {
-                    Brush ink = colourBy == null ? _plotOptions.TrendBrush() : s.Fill;
-                    DrawTrend(s.Items, trend, xMin, xMax, ToPx, ToPy, ink, l, t, w, h);
+                    Brush ink = PointColorIsColumn ? group.Brush : PlotOptions.TrendBrush();
+                    DrawTrend(group.Items, trend, xMin, xMax, ToPx, ToPy, ink, l, t, w, h);
                 }
 
                 // The caption would be ambiguous with several fits on screen.
-                if (trend == "lm" && series.Count == 1 &&
+                if (trend == "lm" && groups.Count == 1 &&
                     FitLinear(pairs, out double a, out double b, out double r2))
                 {
                     string sign = a < 0 ? "\u2212" : "+";
@@ -1323,8 +2081,8 @@ namespace DinoLino
         }
 
         /// Histogram. Colour splitting is deliberately absent: overlapping or
-        /// stacked bars change what the bar heights mean, so the bars take the
-        /// single fill.
+        /// stacked bars change what the bar heights mean, so every bar takes the
+        /// one fill.
         private void DrawHistogram(string variable)
         {
             var samples = _plotData[variable];
@@ -1360,8 +2118,8 @@ namespace DinoLino
             DrawXAxis(l, t, w, h, ToPx, NiceTicks(dataMin, dataMax));
             PlotTitle($"{variable}   (n = {samples.Count})");
 
-            var fill = _plotOptions.SingleFillBrush();
-            var outline = _plotOptions.OutlineBrush();
+            var fill = PlotOptions.DefaultFillBrush();
+            var outline = PlotOptions.OutlineBrush();
 
             for (int i = 0; i < bins; i++)
             {
@@ -1387,29 +2145,33 @@ namespace DinoLino
             DrawAxisTitles();
         }
 
-        /// QQ plot against a normal. Each colour series is ranked and referenced
-        /// against its own fitted line, so a split compares distributions rather
-        /// than ranking the pooled data.
-        private void DrawQQPlot(string variable, string colourBy)
+        /// QQ plot against a normal. Each point-color group is ranked and
+        /// referenced against its own fitted line, so a split compares
+        /// distributions rather than ranking the pooled data.
+        private void DrawQQPlot(string variable)
         {
             var samples = _plotData[variable];
-            var series = SplitByColour(samples, colourBy, s => s.Specimen, _plotOptions.PointBrush());
-            PrepareLegend(series, colourBy);
+            PreparePointAesthetics(samples.Select(s => s.Specimen));
+            PrepareLegend(PointLegendEntries(pointsDrawn: true));
             PrepareAxisTitles();
 
             var (l, t, w, h) = PlotArea();
 
-            // Series of one or two cannot be ranked meaningfully.
-            var usable = series.Where(s => s.Items.Count >= 3).ToList();
+            // Groups of one or two cannot be ranked meaningfully.
+            var usable = SplitByPointColor(samples, s => s.Specimen)
+                .Where(g => g.Items.Count >= 3)
+                .ToList();
+
             if (usable.Count == 0)
             {
                 PlotMessage("Each color needs at least 3 values for a QQ plot.");
                 return;
             }
 
-            var prepared = usable.Select(s =>
+            var prepared = usable.Select(g =>
             {
-                var sorted = s.Items.Select(i => i.Value).OrderBy(v => v).ToList();
+                var items = g.Items.OrderBy(i => i.Value).ToList();
+                var sorted = items.Select(i => i.Value).ToList();
                 int n = sorted.Count;
 
                 // Theoretical quantiles at the midpoints of n equal probability
@@ -1420,7 +2182,15 @@ namespace DinoLino
                 double mean = sorted.Average();
                 double sd = Math.Sqrt(sorted.Sum(v => (v - mean) * (v - mean)) / (n - 1));
 
-                return new { s.Fill, Sorted = sorted, Theoretical = theoretical, Mean = mean, Sd = sd };
+                return new
+                {
+                    g.Brush,
+                    Items = items,
+                    Sorted = sorted,
+                    Theoretical = theoretical,
+                    Mean = mean,
+                    Sd = sd
+                };
             }).ToList();
 
             var (xMin, xMax) = PadRange(
@@ -1439,25 +2209,29 @@ namespace DinoLino
 
             foreach (var p in prepared)
             {
-                // Reference line y = mean + sd·x for this series.
+                // Reference line y = mean + sd·x for this group.
                 PlotClippedLine(
                     ToPx(xMin), ToPy(p.Mean + p.Sd * xMin),
                     ToPx(xMax), ToPy(p.Mean + p.Sd * xMax),
-                    l, t, w, h, colourBy == null ? _plotOptions.TrendBrush() : p.Fill, 1);
+                    l, t, w, h,
+                    PointColorIsColumn ? p.Brush : PlotOptions.TrendBrush(), 1);
 
-                for (int i = 0; i < p.Sorted.Count; i++)
-                    PlotMarker(ToPx(p.Theoretical[i]), ToPy(p.Sorted[i]), 3, p.Fill, forceVisible: true);
+                for (int i = 0; i < p.Items.Count; i++)
+                {
+                    DrawPoint(ToPx(p.Theoretical[i]), ToPy(p.Sorted[i]), 3,
+                        p.Items[i].Specimen, forceVisible: true);
+                }
             }
 
             DrawAxisTitles();
             DrawLegend();
         }
 
-        private void DrawDotPlot(string variable, string colourBy)
+        private void DrawDotPlot(string variable)
         {
             var samples = _plotData[variable];
-            var series = SplitByColour(samples, colourBy, s => s.Specimen, _plotOptions.PointBrush());
-            PrepareLegend(series, colourBy);
+            PreparePointAesthetics(samples.Select(s => s.Specimen));
+            PrepareLegend(PointLegendEntries(pointsDrawn: true));
             PrepareAxisTitles();
 
             var (l, t, w, h) = PlotArea();
@@ -1470,22 +2244,24 @@ namespace DinoLino
             int bins = Math.Max(8, Math.Min(50, (int)(w / 14)));
             double binW = (dataMax - dataMin) / bins;
 
-            var counts = new int[series.Count][];
-            var totals = new int[bins];
+            // Bin the samples themselves, so each drawn dot still knows which
+            // specimen it came from and can resolve its own colour and shape.
+            var binned = new List<PlotSample>[bins];
+            for (int i = 0; i < bins; i++) binned[i] = new List<PlotSample>();
 
-            for (int si = 0; si < series.Count; si++)
+            // Colour groups are stacked together, so one group's dots sit in a
+            // contiguous run rather than interleaving with another's.
+            foreach (var group in SplitByPointColor(samples, s => s.Specimen))
             {
-                counts[si] = new int[bins];
-                foreach (var s in series[si].Items)
+                foreach (var s in group.Items)
                 {
                     int i = (int)((s.Value - dataMin) / binW);
                     if (i >= bins) i = bins - 1;
-                    counts[si][i]++;
-                    totals[i]++;
+                    binned[i].Add(s);
                 }
             }
 
-            int maxStack = totals.Max();
+            int maxStack = binned.Max(b => b.Count);
 
             double ToPx(double v) => l + (v - xMin) / (xMax - xMin) * w;
 
@@ -1502,19 +2278,98 @@ namespace DinoLino
             for (int i = 0; i < bins; i++)
             {
                 double cx = ToPx(dataMin + (i + 0.5) * binW);
-                int stacked = 0;
 
-                for (int si = 0; si < series.Count; si++)
+                for (int k = 0; k < binned[i].Count; k++)
                 {
-                    for (int k = 0; k < counts[si][i]; k++)
-                    {
-                        PlotMarker(cx, baseY - r - stacked * spacing, r, series[si].Fill, forceVisible: true);
-                        stacked++;
-                    }
+                    DrawPoint(cx, baseY - r - k * spacing, r,
+                        binned[i][k].Specimen, forceVisible: true);
                 }
             }
 
             DrawAxisTitles();
+            DrawLegend();
+        }
+
+        /// Scores plot: one point per specimen in the plane of two components,
+        /// taking the same colour and shape mappings every other plot uses.
+        private void DrawPcaScores(string xPc, string yPc)
+        {
+            int xi = PcaComponentIndex(xPc);
+            int yi = PcaComponentIndex(yPc);
+
+            if (xi < 0 || yi < 0 ||
+                xi >= _pcaResult.ComponentCount || yi >= _pcaResult.ComponentCount)
+            {
+                PlotMessage("Choose the components for X and Y.");
+                return;
+            }
+
+            var points = new List<ScatterPoint>();
+            for (int r = 0; r < _pcaResult.ObservationCount; r++)
+            {
+                points.Add(new ScatterPoint
+                {
+                    Specimen = _pcaRowSpecimens[r],
+                    X = _pcaResult.Scores[r, xi],
+                    Y = _pcaResult.Scores[r, yi]
+                });
+            }
+
+            string xTitle = $"{xPc} ({_pcaResult.ExplainedVariancePercent[xi]:F1}%)";
+            string yTitle = $"{yPc} ({_pcaResult.ExplainedVariancePercent[yi]:F1}%)";
+
+            PreparePointAesthetics(points.Select(p => p.Specimen));
+            PrepareLegend(PointLegendEntries(pointsDrawn: true));
+            PrepareAxisTitles(xTitle, yTitle);
+
+            var (l, t, w, h) = PlotArea();
+
+            var (xMin, xMax) = PadRange(points.Min(p => p.X), points.Max(p => p.X));
+            var (yMin, yMax) = PadRange(points.Min(p => p.Y), points.Max(p => p.Y));
+
+            double ToPx(double v) => l + (v - xMin) / (xMax - xMin) * w;
+            double ToPy(double v) => t + h - (v - yMin) / (yMax - yMin) * h;
+
+            DrawYAxis(l, t, h, ToPy, NiceTicks(yMin, yMax));
+            DrawXAxis(l, t, w, h, ToPx, NiceTicks(xMin, xMax));
+
+            PlotTitle($"PCA scores   (n = {points.Count}, " +
+                      $"{_pcaResult.VariableCount} variables)");
+
+            // The scores are centred, so the origin is the sample mean: worth a
+            // reference line, since distance from it is what the plot shows.
+            var guide = PlotOptions.TrendBrush();
+            PlotClippedLine(ToPx(0), t, ToPx(0), t + h, l, t, w, h, guide, 0.6);
+            PlotClippedLine(l, ToPy(0), l + w, ToPy(0), l, t, w, h, guide, 0.6);
+
+            foreach (var p in points)
+                DrawPoint(ToPx(p.X), ToPy(p.Y), 3, p.Specimen, forceVisible: true);
+
+            // A dropped specimen or column changes what the plot is of, so say so
+            // rather than leaving an unexplained n.
+            var caveats = new List<string>();
+
+            if (_pcaIncompleteSpecimens > 0)
+            {
+                caveats.Add(_pcaIncompleteSpecimens == 1
+                    ? "1 specimen omitted (missing a variable)"
+                    : $"{_pcaIncompleteSpecimens} specimens omitted (missing a variable)");
+            }
+
+            if (_pcaConstantColumns.Count > 0)
+            {
+                caveats.Add(_pcaConstantColumns.Count == 1
+                    ? "1 constant column dropped"
+                    : $"{_pcaConstantColumns.Count} constant columns dropped");
+            }
+
+            if (caveats.Count > 0)
+            {
+                PlotText(string.Join("  \u2022  ", caveats),
+                    l + w, t + h - 2, anchorX: 1, anchorY: 1, fontSize: 10);
+            }
+
+            DrawAxisTitles(xTitle, yTitle);
             DrawLegend();
         }
     }

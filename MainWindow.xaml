@@ -671,13 +671,14 @@
                                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="2,0,0,6">
                                     <TextBlock Text="Plot type" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     <ComboBox x:Name="UI_PlotTypeBox" MinWidth="120"
-                      SelectionChanged="Plot_TypeChanged"
-                      ToolTip="Choose how the session's measurements are graphed">
+                                            SelectionChanged="Plot_TypeChanged"
+                                            ToolTip="Choose how the session's measurements are graphed">
                                         <ComboBoxItem Content="Boxplot"/>
                                         <ComboBoxItem Content="Scatter plot"/>
                                         <ComboBoxItem Content="Histogram"/>
                                         <ComboBoxItem Content="QQ plot"/>
                                         <ComboBoxItem Content="Dot plot"/>
+                                        <ComboBoxItem Content="PCA"/>
                                     </ComboBox>
                                 </StackPanel>
 
@@ -733,14 +734,23 @@
                                         <ComboBoxItem Content="loess"/>
                                     </ComboBox>
 
-                                    <!-- Opens the dialog holding colour, fill, titles, and point shape. -->
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4"
-                       HorizontalAlignment="Left">
-                <Hyperlink x:Name="UI_PlotAdvancedLink" Click="Plot_OpenAdvanced"
-                           ToolTip="Customize colors, titles, and point shape">
-                    Advanced +
-                </Hyperlink>
-                                    </TextBlock>
+                                    <!-- Advanced opens the dialog holding colour, fill, titles, and
+                                         point shape; Refresh re-reads the session's measurements. -->
+                                    <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4"
+                                                Orientation="Horizontal" HorizontalAlignment="Left">
+                                        <TextBlock Margin="4,0,0,0">
+                                            <Hyperlink x:Name="UI_PlotAdvancedLink" Click="Plot_OpenAdvanced"
+                                                       ToolTip="Customize colors, titles, and point shape">Advanced +</Hyperlink>
+                                        </TextBlock>
+                                        <TextBlock Margin="22,-2,0,0">
+                                            <Hyperlink x:Name="UI_PlotRefreshLink" Click="Plot_Refresh"
+                                                       ToolTip="Re-read every specimen's measurements and redraw the plot">Refresh <Run FontFamily="Segoe UI Symbol" Text="&#x21BB;"/></Hyperlink>
+                                        </TextBlock>
+                                        <TextBlock Margin="22,1,0,0">
+                                            <Hyperlink x:Name="UI_PlotExportLink" Click="Plot_Export"
+                                                       ToolTip="Export the most recently-drawn plot">Export </Hyperlink>
+                                        </TextBlock>
+                                    </StackPanel>
                                 </Grid>
 
                                 <Border BorderBrush="#AAAAAA" BorderThickness="1" Background="White">

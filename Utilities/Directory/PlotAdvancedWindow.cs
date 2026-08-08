@@ -5,15 +5,10 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Shapes;
 
 namespace DinoLino
 {
-    /// <summary>
-    /// Marker shapes offered for plotted points. None hides the overlaid points on
-    /// a boxplot; plots whose data *is* points fall back to Circle rather than
-    /// drawing nothing.
-    /// </summary>
+    /// <summary>Marker shapes a plotted point can take.</summary>
     public enum PlotPointShape
     {
         None,
@@ -31,33 +26,26 @@ namespace DinoLino
     /// </summary>
     public class PlotOptions
     {
-        public const string ManualPaletteName = "Manual";
+        // Point color and Point shape each hold one of these, or the name of a
+        // group column, in which case each level of that column gets its own
+        // color or shape.
+        public const string AestheticNone = "None";
+        public const string AestheticBlack = "Black";
+        public const string AestheticCircle = "Circle";
+
         public const string DefaultPaletteName = "Colorblind friendly";
 
-        /// <summary>Group column the plot colours by, or "None".</summary>
+        /// <summary>Group column the fill is split by, or "None".</summary>
         public string ColourBy { get; set; } = MainWindow.ColourNone;
 
-        /// <summary>Palette the colour levels cycle through.</summary>
+        /// <summary>Palette the fill and point-color levels cycle through.</summary>
         public string Palette { get; set; } = DefaultPaletteName;
 
-        /// Colours used when Palette is "Manual", in cycling order. Entries are
-        /// either a named colour or a "#RRGGBB" string.
-        public List<string> ManualPalette { get; set; } =
-            new List<string> { "Blue", "Orange", "Green" };
+        /// <summary>"None", "Black", or a group column name.</summary>
+        public string PointColor { get; set; } = AestheticBlack;
 
-        /// Fill for shapes that enclose an area (boxplot boxes, histogram bars)
-        /// when nothing is colour-split.
-        public string SingleFill { get; set; } = "Blue";
-
-        /// Colour for plotted points when nothing is colour-split. Kept separate
-        /// from SingleFill because a scatter plot has points but no filled areas,
-        /// and a histogram the reverse.
-        public string PointColor { get; set; } = "Blue";
-
-        /// <summary>Ink for box outlines, bar borders, and trend lines.</summary>
-        public string Outline { get; set; } = "Black";
-
-        public PlotPointShape PointShape { get; set; } = PlotPointShape.Circle;
+        /// <summary>"None", "Circle", or a group column name.</summary>
+        public string PointShape { get; set; } = AestheticCircle;
 
         // Blank means "use the generated text", so a user who clears a box gets
         // the default back rather than an empty title.
@@ -67,17 +55,25 @@ namespace DinoLino
 
         // ---- Named choices ----
 
-        public static readonly string[] FillNames =
-        {
-            "Blue", "Orange", "Green", "Purple", "Red", "Gray", "Black"
-        };
-
         public static readonly string[] PaletteNames =
         {
-            DefaultPaletteName, "Bright", "Muted", "Grayscale", ManualPaletteName
+            DefaultPaletteName, "Bright", "Muted", "Grayscale"
         };
 
-        private static readonly Dictionary<string, Color> FillColors = new()
+        /// Shapes handed out, in order, when Point shape is mapped to a column.
+        /// Circle leads so a two-level split reads as circle-versus-triangle,
+        /// the pairing that stays clearest at small sizes.
+        public static readonly PlotPointShape[] ShapeCycle =
+        {
+            PlotPointShape.Circle,
+            PlotPointShape.Triangle,
+            PlotPointShape.Square,
+            PlotPointShape.Diamond,
+            PlotPointShape.Plus,
+            PlotPointShape.Cross
+        };
+
+        private static readonly Dictionary<string, Color> NamedColors = new()
         {
             ["Blue"] = Color.FromRgb(0x3E, 0x7C, 0xB8),
             ["Orange"] = Color.FromRgb(0xD5, 0x5E, 0x00),
@@ -88,83 +84,42 @@ namespace DinoLino
             ["Black"] = Color.FromRgb(0x22, 0x22, 0x22)
         };
 
-        /// A brush for a named colour or a "#RRGGBB" string, at the given alpha.
-        /// Anything unrecognised falls back rather than throwing, so a malformed
-        /// stored value cannot break a redraw.
-        internal static Brush BrushFor(string name, byte alpha)
+        // An unrecognised name falls back rather than throwing, so a stale stored
+        // value cannot break a redraw.
+        private static Brush BrushFor(string name, byte alpha)
         {
-            Color c;
-
-            if (name != null && FillColors.TryGetValue(name, out var known))
-            {
-                c = known;
-            }
-            else if (name != null && name.StartsWith("#"))
-            {
-                try { c = (Color)ColorConverter.ConvertFromString(name); }
-                catch { c = FillColors["Blue"]; }
-            }
-            else
-            {
-                c = FillColors["Blue"];
-            }
+            if (name == null || !NamedColors.TryGetValue(name, out var c))
+                c = NamedColors["Blue"];
 
             var brush = new SolidColorBrush(Color.FromArgb(alpha, c.R, c.G, c.B));
             brush.Freeze();
             return brush;
         }
 
-        /// <summary>Swatch colour for the dialog's own preview squares.</summary>
-        internal static Brush SwatchFor(string name) => BrushFor(name, 0xFF);
+        // ---- Fixed inks ----
+        // Fill, outline, and trend colors are no longer user-editable, so they
+        // are constants rather than settings.
 
-        /// Accepts a known colour name or a hex string with or without the leading
-        /// hash, and returns it in the form the options store.
-        internal static bool TryNormalizeColor(string text, out string name)
-        {
-            name = null;
-            if (string.IsNullOrWhiteSpace(text)) return false;
+        private static readonly Brush _defaultFill = BrushFor("Blue", 0xB4);
+        private static readonly Brush _outline = BrushFor("Black", 0xFF);
+        private static readonly Brush _trend = BrushFor("Black", 0xCC);
+        private static readonly Brush _defaultPoint = BrushFor("Black", 0xC8);
 
-            text = text.Trim();
+        /// <summary>Fill for boxes and bars that are not split by color.</summary>
+        public static Brush DefaultFillBrush() => _defaultFill;
 
-            foreach (string known in FillNames)
-            {
-                if (string.Equals(known, text, StringComparison.OrdinalIgnoreCase))
-                {
-                    name = known;
-                    return true;
-                }
-            }
+        /// <summary>Ink for box outlines and bar borders.</summary>
+        public static Brush OutlineBrush() => _outline;
 
-            if (!text.StartsWith("#")) text = "#" + text;
+        /// <summary>Ink for trend lines and QQ reference lines.</summary>
+        public static Brush TrendBrush() => _trend;
 
-            try
-            {
-                var c = (Color)ColorConverter.ConvertFromString(text);
-                name = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        public Brush SingleFillBrush() => BrushFor(SingleFill, 0xB4);
-
-        public Brush PointBrush() => BrushFor(PointColor, 0xC8);
-
-        public Brush OutlineBrush() => BrushFor(Outline, 0xFF);
-
-        public Brush TrendBrush() => BrushFor(Outline, 0xCC);
+        /// <summary>Point color when not mapped to a column.</summary>
+        public static Brush DefaultPointBrush() => _defaultPoint;
 
         /// <summary>Series colours for the chosen palette, in cycling order.</summary>
         public Brush[] PaletteBrushes()
         {
-            // An empty manual list would leave every series brushless, so it falls
-            // through to the default rather than drawing nothing.
-            if (Palette == ManualPaletteName && ManualPalette.Count > 0)
-                return ManualPalette.Select(n => BrushFor(n, 0xC8)).ToArray();
-
             // The default is Okabe-Ito derived, chosen to stay distinguishable in
             // common forms of colour blindness.
             string[] names = Palette switch
@@ -178,28 +133,31 @@ namespace DinoLino
             return names.Select(n => BrushFor(n, 0xC8)).ToArray();
         }
 
-        /// Drops a colour-by column that no longer exists, which keeps a stale
-        /// choice from silently colouring by the fallback.
+        /// Drops any mapping whose group column no longer exists, which keeps a
+        /// stale choice from silently falling back to something else.
         public void PruneMissingColumns()
         {
-            if (ColourBy == MainWindow.ColourNone || ColourBy == MainWindow.CategorySpecimen)
-                return;
+            ColourBy = KeepIfPresent(ColourBy, MainWindow.ColourNone,
+                MainWindow.ColourNone, MainWindow.CategorySpecimen);
 
-            if (!SpecimenGroups.Columns.Any(
-                    c => string.Equals(c, ColourBy, StringComparison.OrdinalIgnoreCase)))
-            {
-                ColourBy = MainWindow.ColourNone;
-            }
+            PointColor = KeepIfPresent(PointColor, AestheticBlack,
+                AestheticNone, AestheticBlack);
+
+            PointShape = KeepIfPresent(PointShape, AestheticCircle,
+                AestheticNone, AestheticCircle);
         }
 
-        /// Deep copy. The manual palette is copied explicitly, or the dialog's
-        /// working copy would edit the live list and Cancel would not undo it.
-        public PlotOptions Clone()
+        private static string KeepIfPresent(string value, string fallback, params string[] reserved)
         {
-            var copy = (PlotOptions)MemberwiseClone();
-            copy.ManualPalette = new List<string>(ManualPalette);
-            return copy;
+            if (reserved.Contains(value)) return value;
+
+            return SpecimenGroups.Columns.Any(
+                c => string.Equals(c, value, StringComparison.OrdinalIgnoreCase))
+                ? value
+                : fallback;
         }
+
+        public PlotOptions Clone() => (PlotOptions)MemberwiseClone();
     }
 
     /// <summary>
@@ -209,35 +167,29 @@ namespace DinoLino
     /// </summary>
     public sealed class PlotCapabilities
     {
-        public bool SupportsColour;
+        /// True when the plot has filled areas that a column can split.
         public bool SupportsFill;
-        public bool SupportsPointColor;
+
         public bool SupportsPoints;
-        public bool SupportsOutline;
         public bool SupportsXAxisTitle;
         public bool SupportsYAxisTitle;
 
-        // Explain a greyed-out row, so "why can't I set this" is answerable from
+        // Explain a disabled row, so "why can't I set this" is answerable from
         // the dialog itself.
-        public string ColourNote = "";
         public string FillNote = "";
         public string PointNote = "";
-        public string OutlineNote = "";
 
         public static PlotCapabilities For(string plotType)
         {
             switch (plotType)
             {
                 case "Boxplot":
-                    // The only plot with both: filled boxes and, when a shape is
-                    // chosen, the individual points overlaid on them.
+                    // The only plot with both: filled boxes, and the individual
+                    // measurements overlaid on them.
                     return new PlotCapabilities
                     {
-                        SupportsColour = true,
                         SupportsFill = true,
-                        SupportsPointColor = true,
                         SupportsPoints = true,
-                        SupportsOutline = true,
                         SupportsXAxisTitle = true,
                         SupportsYAxisTitle = true
                     };
@@ -245,64 +197,46 @@ namespace DinoLino
                 case "Scatter plot":
                     return new PlotCapabilities
                     {
-                        SupportsColour = true,
-
-                        // Nothing on a scatter plot encloses an area; the markers
-                        // take their colour from Point color instead.
                         SupportsFill = false,
-                        SupportsPointColor = true,
                         SupportsPoints = true,
-                        SupportsOutline = true,
                         SupportsXAxisTitle = true,
                         SupportsYAxisTitle = true,
-                        FillNote = "Scatter plots have no filled areas \u2014 use Point color."
+                        FillNote = "Scatter plots have no filled areas."
                     };
 
                 case "Histogram":
                     return new PlotCapabilities
                     {
                         // Splitting bars by colour changes what their heights
-                        // mean, so a histogram takes the single fill only.
-                        SupportsColour = false,
-                        SupportsFill = true,
-                        SupportsPointColor = false,
+                        // mean, so a histogram takes one fill for every bar.
+                        SupportsFill = false,
                         SupportsPoints = false,
-                        SupportsOutline = true,
                         SupportsXAxisTitle = true,
                         SupportsYAxisTitle = true,
-                        ColourNote = "Histograms use a single fill.",
+                        FillNote = "Histograms use a single fill.",
                         PointNote = "Histograms draw bars, not points."
                     };
 
                 case "QQ plot":
                     return new PlotCapabilities
                     {
-                        SupportsColour = true,
                         SupportsFill = false,
-                        SupportsPointColor = true,
                         SupportsPoints = true,
-
-                        // Outline inks the reference line.
-                        SupportsOutline = true,
                         SupportsXAxisTitle = true,
                         SupportsYAxisTitle = true,
-                        FillNote = "QQ plots have no filled areas \u2014 use Point color."
+                        FillNote = "QQ plots have no filled areas."
                     };
 
                 case "Dot plot":
                     return new PlotCapabilities
                     {
-                        SupportsColour = true,
                         SupportsFill = false,
-                        SupportsPointColor = true,
                         SupportsPoints = true,
-                        SupportsOutline = false,
                         SupportsXAxisTitle = true,
 
                         // The vertical axis is a stack count with no scale drawn.
                         SupportsYAxisTitle = false,
-                        FillNote = "Dot plots have no filled areas \u2014 use Point color.",
-                        OutlineNote = "Dot plots draw no outlined shapes."
+                        FillNote = "Dot plots have no filled areas."
                     };
 
                 default:
@@ -312,9 +246,9 @@ namespace DinoLino
     }
 
     /// <summary>
-    /// "Advanced +" dialog: colour, fill, titles, and point shape for the current
-    /// plot. Edits a copy so Cancel leaves the plot untouched, and disables
-    /// whatever the chosen plot type does not use.
+    /// "Advanced +" dialog: fill, points, and titles for the current plot. Edits
+    /// a copy so Cancel leaves the plot untouched, and disables whatever the
+    /// chosen plot type does not use.
     /// </summary>
     internal class PlotAdvancedWindow : Window
     {
@@ -323,18 +257,11 @@ namespace DinoLino
 
         private ComboBox _colourByBox;
         private ComboBox _paletteBox;
-        private ComboBox _fillBox;
         private ComboBox _pointColorBox;
-        private ComboBox _outlineBox;
         private ComboBox _shapeBox;
         private TextBox _titleBox;
         private TextBox _xTitleBox;
         private TextBox _yTitleBox;
-
-        // Manual palette editor.
-        private StackPanel _manualPanel;
-        private ListBox _manualList;
-        private ComboBox _manualAddBox;
 
         internal PlotAdvancedWindow(PlotOptions current, PlotCapabilities capabilities)
         {
@@ -343,9 +270,9 @@ namespace DinoLino
 
             Title = "Advanced plot options";
             Width = 440;
-            Height = 600;
+            Height = 480;
             MinWidth = 380;
-            MinHeight = 380;
+            MinHeight = 320;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             ShowInTaskbar = false;
 
@@ -353,15 +280,15 @@ namespace DinoLino
 
             var note = new TextBlock
             {
-                Text = "Options that do not apply to the current plot type are greyed out.",
-                Foreground = Brushes.Gray,
+                Text = "Manually set plot parameters.",
+                Foreground = Brushes.Black,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 12)
             };
             DockPanel.SetDock(note, Dock.Top);
             root.Children.Add(note);
 
-            // Docked BEFORE the scroll viewer is added, and built once: the bar
+            // Docked before the scroll viewer is added, and built once: the bar
             // has to be a child in its own right for the dock to apply, and the
             // last child added is the one that fills the remaining space.
             var buttonBar = BuildButtonBar();
@@ -385,52 +312,37 @@ namespace DinoLino
         {
             var panel = new StackPanel();
 
-            panel.Children.Add(SectionHeader("Color"));
+            panel.Children.Add(SectionHeader("Fill"));
 
-            // Colour-by offers the same choices the Sample tab's groups define.
+            // Color by offers the same choices the Sample tab's groups define.
             _colourByBox = new ComboBox { ItemsSource = MainWindow.PlotColourChoices() };
-            _colourByBox.SelectedItem =
-                ((List<string>)_colourByBox.ItemsSource).Contains(_working.ColourBy)
-                    ? _working.ColourBy
-                    : MainWindow.ColourNone;
-            _colourByBox.SelectionChanged += (s, e) => UpdateColourDependentRows();
+            _colourByBox.SelectedItem = Select(_colourByBox, _working.ColourBy, MainWindow.ColourNone);
+            _colourByBox.SelectionChanged += (s, e) => UpdateDependentRows();
             panel.Children.Add(Row("Color by", _colourByBox,
-                "Split the plot's colors by specimen or by a group column"));
+                "Split the fill of boxes by specimen or by a group column"));
 
             _paletteBox = new ComboBox { ItemsSource = PlotOptions.PaletteNames.ToList() };
             _paletteBox.SelectedItem =
-                PlotOptions.PaletteNames.Contains(_working.Palette)
-                    ? _working.Palette
-                    : PlotOptions.DefaultPaletteName;
-            _paletteBox.SelectionChanged += (s, e) => UpdateColourDependentRows();
+                Select(_paletteBox, _working.Palette, PlotOptions.DefaultPaletteName);
             panel.Children.Add(Row("Palette", _paletteBox,
-                "Colors the levels cycle through when coloring is on"));
-
-            panel.Children.Add(Row("Manual colors", BuildManualEditor(),
-                "Colors used, in order, when the palette is set to Manual"));
-
-            _fillBox = MakeSwatchBox(_working.SingleFill);
-            panel.Children.Add(Row("Fill", _fillBox,
-                "Fill for boxes and bars when the plot is not split by color"));
-
-            _pointColorBox = MakeSwatchBox(_working.PointColor);
-            panel.Children.Add(Row("Point color", _pointColorBox,
-                "Color for plotted points when the plot is not split by color"));
-
-            _outlineBox = MakeSwatchBox(_working.Outline);
-            panel.Children.Add(Row("Outline", _outlineBox,
-                "Ink for box outlines, bar borders, and trend lines"));
+                "Colors the levels cycle through"));
 
             panel.Children.Add(SectionHeader("Points"));
 
-            _shapeBox = new ComboBox
-            {
-                ItemsSource = Enum.GetValues(typeof(PlotPointShape)).Cast<PlotPointShape>().ToList(),
-                SelectedItem = _working.PointShape
-            };
-            panel.Children.Add(Row("Shape", _shapeBox,
-                "Marker drawn for each point. On a boxplot this overlays the "
-                + "individual measurements; None hides them."));
+            _pointColorBox = new ComboBox { ItemsSource = MainWindow.PlotPointColorChoices() };
+            _pointColorBox.SelectedItem =
+                Select(_pointColorBox, _working.PointColor, PlotOptions.AestheticBlack);
+            _pointColorBox.SelectionChanged += (s, e) => UpdateDependentRows();
+            panel.Children.Add(Row("Point color", _pointColorBox,
+                "Black draws every point the same. A group column gives each of "
+                + "its groups its own color; None hides the points."));
+
+            _shapeBox = new ComboBox { ItemsSource = MainWindow.PlotPointShapeChoices() };
+            _shapeBox.SelectedItem =
+                Select(_shapeBox, _working.PointShape, PlotOptions.AestheticCircle);
+            panel.Children.Add(Row("Point shape", _shapeBox,
+                "Circle draws every point the same. A group column gives each of "
+                + "its groups its own marker; None hides the points."));
 
             panel.Children.Add(SectionHeader("Titles"));
 
@@ -446,141 +358,12 @@ namespace DinoLino
             return panel;
         }
 
-        // The whole editor is enabled or disabled as one unit, which greys every
-        // control inside it without wiring each separately.
-        private FrameworkElement BuildManualEditor()
+        // A stored choice whose group column has since gone falls back rather
+        // than leaving the box blank.
+        private static object Select(ComboBox box, string value, string fallback)
         {
-            _manualPanel = new StackPanel();
-
-            _manualList = new ListBox { Height = 92, Margin = new Thickness(0, 0, 0, 4) };
-            foreach (string name in _working.ManualPalette)
-                _manualList.Items.Add(ManualItem(name));
-            _manualPanel.Children.Add(_manualList);
-
-            _manualAddBox = MakeSwatchBox(PlotOptions.FillNames[0], includeCustom: true);
-            _manualAddBox.Margin = new Thickness(0, 0, 0, 4);
-            _manualPanel.Children.Add(_manualAddBox);
-
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal };
-
-            var add = new Button { Content = "Add", Width = 60, Height = 24 };
-            add.Click += (s, e) => AddManualColor();
-            buttons.Children.Add(add);
-
-            var remove = new Button
-            {
-                Content = "Remove",
-                Width = 68,
-                Height = 24,
-                Margin = new Thickness(6, 0, 0, 0)
-            };
-            remove.Click += (s, e) =>
-            {
-                if (_manualList.SelectedIndex >= 0)
-                    _manualList.Items.RemoveAt(_manualList.SelectedIndex);
-            };
-            buttons.Children.Add(remove);
-
-            var clear = new Button
-            {
-                Content = "Clear",
-                Width = 60,
-                Height = 24,
-                Margin = new Thickness(6, 0, 0, 0)
-            };
-            clear.Click += (s, e) => _manualList.Items.Clear();
-            buttons.Children.Add(clear);
-
-            _manualPanel.Children.Add(buttons);
-            return _manualPanel;
-        }
-
-        private void AddManualColor()
-        {
-            string picked = SwatchValue(_manualAddBox, fallback: null);
-
-            // The Custom entry carries no tag: ask for a hex value instead.
-            if (picked == null)
-            {
-                string entered = TextPromptWindow.Show(
-                    this, "Custom color", "Enter a hex color, for example #7C3AED:", "#");
-
-                if (entered == null) return;
-
-                if (!PlotOptions.TryNormalizeColor(entered, out picked))
-                {
-                    MessageBox.Show(this,
-                        "That is not a color this can read.\n\n" +
-                        "Use a hex value such as #7C3AED, or pick a named color.",
-                        "Custom color", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-            }
-
-            _manualList.Items.Add(ManualItem(picked));
-            _manualList.SelectedIndex = _manualList.Items.Count - 1;
-        }
-
-        private static ListBoxItem ManualItem(string name) => new ListBoxItem
-        {
-            Content = SwatchRow(name),
-            Tag = name
-        };
-
-        private static StackPanel SwatchRow(string name)
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
-
-            row.Children.Add(new Rectangle
-            {
-                Width = 12,
-                Height = 12,
-                Fill = PlotOptions.SwatchFor(name),
-                Stroke = Brushes.Gray,
-                StrokeThickness = 0.5,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
-            });
-            row.Children.Add(new TextBlock
-            {
-                Text = name,
-                VerticalAlignment = VerticalAlignment.Center
-            });
-
-            return row;
-        }
-
-        // Colour name plus its swatch, so the choice is visible without applying it.
-        private static ComboBox MakeSwatchBox(string selected, bool includeCustom = false)
-        {
-            var box = new ComboBox();
-
-            foreach (string name in PlotOptions.FillNames)
-                box.Items.Add(new ComboBoxItem { Content = SwatchRow(name), Tag = name });
-
-            // A null tag marks the entry that prompts for a hex value.
-            if (includeCustom)
-                box.Items.Add(new ComboBoxItem { Content = "Custom\u2026", Tag = null });
-
-            foreach (ComboBoxItem item in box.Items)
-            {
-                if ((string)item.Tag == selected)
-                {
-                    box.SelectedItem = item;
-                    break;
-                }
-            }
-
-            if (box.SelectedItem == null && box.Items.Count > 0)
-                box.SelectedIndex = 0;
-
-            return box;
-        }
-
-        private static string SwatchValue(ComboBox box, string fallback = "Blue")
-        {
-            if (box.SelectedItem is ComboBoxItem item) return item.Tag as string;
-            return fallback;
+            var items = (List<string>)box.ItemsSource;
+            return items.Contains(value) ? value : fallback;
         }
 
         private static TextBlock SectionHeader(string text) => new TextBlock
@@ -601,8 +384,8 @@ namespace DinoLino
             var text = new TextBlock
             {
                 Text = label,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 3, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
                 TextWrapping = TextWrapping.Wrap
             };
             Grid.SetColumn(text, 0);
@@ -618,8 +401,8 @@ namespace DinoLino
             return grid;
         }
 
-        // Fixed-size buttons in a horizontal row along the bottom, above nothing
-        // else, with a rule separating them from the settings.
+        // Fixed-size buttons in a horizontal row along the bottom, under
+        // everything else, with a rule separating them from the settings.
         private FrameworkElement BuildButtonBar()
         {
             var buttons = new StackPanel
@@ -628,13 +411,7 @@ namespace DinoLino
                 HorizontalAlignment = HorizontalAlignment.Right
             };
 
-            var ok = new Button
-            {
-                Content = "OK",
-                Width = 92,
-                Height = 28,
-                IsDefault = true
-            };
+            var ok = new Button { Content = "OK", Width = 92, Height = 28, IsDefault = true };
             ok.Click += (s, e) =>
             {
                 // DialogResult may only be set while running modally; guard it the
@@ -673,59 +450,38 @@ namespace DinoLino
 
         private void ApplyCapabilities()
         {
-            _colourByBox.IsEnabled = _capabilities.SupportsColour;
+            _colourByBox.IsEnabled = _capabilities.SupportsFill;
+            _pointColorBox.IsEnabled = _capabilities.SupportsPoints;
             _shapeBox.IsEnabled = _capabilities.SupportsPoints;
-            _outlineBox.IsEnabled = _capabilities.SupportsOutline;
             _xTitleBox.IsEnabled = _capabilities.SupportsXAxisTitle;
             _yTitleBox.IsEnabled = _capabilities.SupportsYAxisTitle;
 
-            if (!string.IsNullOrEmpty(_capabilities.ColourNote))
-                _colourByBox.ToolTip = _capabilities.ColourNote;
-            if (!string.IsNullOrEmpty(_capabilities.PointNote))
-                _shapeBox.ToolTip = _capabilities.PointNote;
-            if (!string.IsNullOrEmpty(_capabilities.OutlineNote))
-                _outlineBox.ToolTip = _capabilities.OutlineNote;
+            if (!_capabilities.SupportsFill && !string.IsNullOrEmpty(_capabilities.FillNote))
+                _colourByBox.ToolTip = _capabilities.FillNote;
 
-            UpdateColourDependentRows();
+            if (!_capabilities.SupportsPoints && !string.IsNullOrEmpty(_capabilities.PointNote))
+            {
+                _pointColorBox.ToolTip = _capabilities.PointNote;
+                _shapeBox.ToolTip = _capabilities.PointNote;
+            }
+
+            UpdateDependentRows();
         }
 
-        // Two things gate these rows: whether the plot type uses them at all, and
-        // whether coloring is currently on, since a palette and a single color are
-        // mutually exclusive.
-        private void UpdateColourDependentRows()
+        // The palette feeds two things now, so it stays live while either the
+        // fill or the point color is split by a column.
+        private void UpdateDependentRows()
         {
-            bool colouring = _capabilities.SupportsColour &&
+            bool fillSplit = _capabilities.SupportsFill &&
                              (_colourByBox.SelectedItem as string) != MainWindow.ColourNone;
-            bool manual = (_paletteBox.SelectedItem as string) == PlotOptions.ManualPaletteName;
 
-            _paletteBox.IsEnabled = colouring;
-            _manualPanel.IsEnabled = colouring && manual;
-            _fillBox.IsEnabled = _capabilities.SupportsFill && !colouring;
-            _pointColorBox.IsEnabled = _capabilities.SupportsPointColor && !colouring;
+            bool pointSplit = _capabilities.SupportsPoints &&
+                              MainWindow.IsGroupAesthetic(_pointColorBox.SelectedItem as string);
 
-            _paletteBox.ToolTip = colouring
+            _paletteBox.IsEnabled = fillSplit || pointSplit;
+            _paletteBox.ToolTip = _paletteBox.IsEnabled
                 ? "Colors the levels cycle through"
-                : "Set \"Color by\" to use a palette";
-
-            _manualPanel.ToolTip = !colouring
-                ? "Set \"Color by\" to use a palette"
-                : manual
-                    ? "Colors used, in order, for each level"
-                    : "Set the palette to Manual to edit these";
-
-            _fillBox.ToolTip = !_capabilities.SupportsFill
-                ? (string.IsNullOrEmpty(_capabilities.FillNote)
-                    ? "This plot type has no filled areas."
-                    : _capabilities.FillNote)
-                : colouring
-                    ? "Not used while the plot is split by color"
-                    : "Fill for boxes and bars";
-
-            _pointColorBox.ToolTip = !_capabilities.SupportsPointColor
-                ? "This plot type draws no points."
-                : colouring
-                    ? "Not used while the plot is split by color"
-                    : "Color for plotted points";
+                : "Set \"Color by\" or \"Point color\" to a group to use a palette";
         }
 
         // ---- Commit ----
@@ -739,27 +495,410 @@ namespace DinoLino
                 target.ColourBy = _colourByBox.SelectedItem as string ?? MainWindow.ColourNone;
 
             if (_paletteBox.IsEnabled)
-            {
                 target.Palette = _paletteBox.SelectedItem as string ?? PlotOptions.DefaultPaletteName;
 
-                // Committed whenever the palette row is live, not only while
-                // Manual is selected, so edits are not lost by switching away.
-                target.ManualPalette = _manualList.Items
-                    .Cast<ListBoxItem>()
-                    .Select(i => (string)i.Tag)
-                    .ToList();
-            }
+            if (_pointColorBox.IsEnabled)
+                target.PointColor = _pointColorBox.SelectedItem as string ?? PlotOptions.AestheticBlack;
 
-            if (_fillBox.IsEnabled) target.SingleFill = SwatchValue(_fillBox);
-            if (_pointColorBox.IsEnabled) target.PointColor = SwatchValue(_pointColorBox);
-            if (_outlineBox.IsEnabled) target.Outline = SwatchValue(_outlineBox);
-
-            if (_shapeBox.IsEnabled && _shapeBox.SelectedItem is PlotPointShape shape)
-                target.PointShape = shape;
+            if (_shapeBox.IsEnabled)
+                target.PointShape = _shapeBox.SelectedItem as string ?? PlotOptions.AestheticCircle;
 
             target.Title = _titleBox.Text?.Trim() ?? "";
             if (_xTitleBox.IsEnabled) target.XAxisTitle = _xTitleBox.Text?.Trim() ?? "";
             if (_yTitleBox.IsEnabled) target.YAxisTitle = _yTitleBox.Text?.Trim() ?? "";
         }
+    }
+
+    /// <summary>
+    /// One selectable item in the PCA variable list. Most entries stand for a
+    /// single measurement column; the EFA entry stands for the whole block of
+    /// coefficient columns, which are added and removed together.
+    /// </summary>
+    public sealed class PcaVariableEntry
+    {
+        /// <summary>Stable id stored in the dataframe.</summary>
+        public string Key;
+
+        /// <summary>Text shown in the list.</summary>
+        public string Label;
+
+        /// <summary>Heading this entry is listed under, i.e. the mode it came from.</summary>
+        public string Group;
+
+        /// <summary>Measurement headers this entry stands for.</summary>
+        public IReadOnlyList<string> Columns = new string[0];
+
+        /// <summary>True for an entry covering several columns at once.</summary>
+        public bool IsBundle;
+
+        /// <summary>Optional grey line shown under the row, explaining the entry.</summary>
+        public string Note;
+    }
+
+    /// <summary>
+    /// The set of variables a PCA runs on, in the order they were added. This is
+    /// the Plot tab's own selection: it is unrelated to the Batch Workshop's
+    /// tables, its hidden-column filter, and its exports.
+    /// </summary>
+    public class PcaDataFrame
+    {
+        private readonly List<string> _keys = new List<string>();
+
+        /// <summary>Entry keys, in the order the user added them.</summary>
+        public IReadOnlyList<string> Keys => _keys;
+
+        public int Count => _keys.Count;
+
+        public bool Contains(string key) => key != null && _keys.Contains(key);
+
+        /// <summary>Adds an entry. Adding one already present is a no-op.</summary>
+        public bool Add(string key)
+        {
+            if (key == null || _keys.Contains(key)) return false;
+            _keys.Add(key);
+            return true;
+        }
+
+        public bool Remove(string key) => key != null && _keys.Remove(key);
+
+        public void Clear() => _keys.Clear();
+
+        /// Drops staged entries the catalog no longer offers, which happens when
+        /// the specimens that supplied a variable are removed from the sample.
+        public void PruneMissing(IEnumerable<PcaVariableEntry> catalog)
+        {
+            var live = new HashSet<string>(catalog.Select(e => e.Key));
+            _keys.RemoveAll(k => !live.Contains(k));
+        }
+
+        public void CopyFrom(PcaDataFrame other)
+        {
+            _keys.Clear();
+            if (other != null) _keys.AddRange(other._keys);
+        }
+
+        public PcaDataFrame Clone()
+        {
+            var copy = new PcaDataFrame();
+            copy._keys.AddRange(_keys);
+            return copy;
+        }
+    }
+
+    /// <summary>
+    /// "Advanced +" dialog for the PCA plot type. Lists every variable measured
+    /// this session and lets each be added to or removed from the PCA dataframe.
+    /// Edits a copy, so Cancel leaves the staged dataframe untouched.
+    /// </summary>
+    internal class PcaAdvancedWindow : Window
+    {
+        private readonly PcaDataFrame _working;
+        private readonly List<PcaVariableEntry> _catalog;
+
+        // Each row's buttons are enabled or disabled as the dataframe changes, so
+        // every row keeps a handle on its own pair.
+        private readonly List<(PcaVariableEntry Entry, Button Add, Button Remove, TextBlock Label)>
+            _rows = new List<(PcaVariableEntry, Button, Button, TextBlock)>();
+
+        private TextBlock _includedHeader;
+        private TextBlock _includedText;
+        private Button _runButton;
+
+        internal PcaAdvancedWindow(PcaDataFrame current, IEnumerable<PcaVariableEntry> catalog)
+        {
+            _working = current?.Clone() ?? new PcaDataFrame();
+            _catalog = catalog?.ToList() ?? new List<PcaVariableEntry>();
+
+            Title = "Advanced PCA options";
+            Width = 460;
+            Height = 560;
+            MinWidth = 400;
+            MinHeight = 380;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            ShowInTaskbar = false;
+
+            var root = new DockPanel { Margin = new Thickness(16) };
+
+            var note = new TextBlock
+            {
+                Text = "Choose the variables the PCA runs on. This dataframe is the "
+                     + "Plot tab's own: it does not affect the Batch Workshop tables "
+                     + "or their exports.",
+                Foreground = Brushes.Gray,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            DockPanel.SetDock(note, Dock.Top);
+            root.Children.Add(note);
+
+            // Docked bottom-first: in a DockPanel the earlier child takes the outer
+            // edge, so the button bar has to be added before the included list for
+            // the buttons to end up beneath it.
+            var buttonBar = BuildButtonBar();
+            DockPanel.SetDock(buttonBar, Dock.Bottom);
+            root.Children.Add(buttonBar);
+
+            var included = BuildIncludedPanel();
+            DockPanel.SetDock(included, Dock.Bottom);
+            root.Children.Add(included);
+
+            root.Children.Add(new ScrollViewer
+            {
+                Content = BuildList(),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            });
+
+            Content = root;
+            UpdateState();
+        }
+
+        // ---- Available list ----
+
+        private UIElement BuildList()
+        {
+            var panel = new StackPanel();
+
+            if (_catalog.Count == 0)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "No measurements have been recorded this session yet. "
+                         + "Perform operations on a specimen, then reopen this window.",
+                    Opacity = 0.6,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                return panel;
+            }
+
+            // The catalog arrives grouped by mode, so a heading is emitted whenever
+            // the group changes rather than by sorting again here.
+            string lastGroup = null;
+
+            foreach (var entry in _catalog)
+            {
+                if (!string.Equals(entry.Group, lastGroup, StringComparison.Ordinal))
+                {
+                    panel.Children.Add(SectionHeader(entry.Group));
+                    lastGroup = entry.Group;
+                }
+
+                panel.Children.Add(BuildRow(entry));
+            }
+
+            return panel;
+        }
+
+        private UIElement BuildRow(PcaVariableEntry entry)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var label = new TextBlock
+            {
+                Text = entry.Label,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(2, 0, 8, 0),
+                ToolTip = entry.IsBundle
+                    ? $"{entry.Columns.Count} columns, added and removed together"
+                    : null
+            };
+            Grid.SetColumn(label, 0);
+            grid.Children.Add(label);
+
+            var add = SmallButton("+", "Add to the PCA dataframe");
+            var remove = SmallButton("\u2212", "Remove from the PCA dataframe");
+
+            add.Click += (s, e) => { _working.Add(entry.Key); UpdateState(); };
+            remove.Click += (s, e) => { _working.Remove(entry.Key); UpdateState(); };
+
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+            buttons.Children.Add(add);
+            buttons.Children.Add(remove);
+            Grid.SetColumn(buttons, 1);
+            grid.Children.Add(buttons);
+
+            _rows.Add((entry, add, remove, label));
+
+            // A bare row needs no wrapper, so only entries carrying a note pay for one.
+            if (string.IsNullOrEmpty(entry.Note))
+            {
+                grid.Margin = new Thickness(0, 0, 0, 4);
+                return grid;
+            }
+
+            var stack = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+            stack.Children.Add(grid);
+            stack.Children.Add(new TextBlock
+            {
+                Text = entry.Note,
+                Foreground = Brushes.Gray,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(2, 2, 34, 0)
+            });
+
+            return stack;
+        }
+
+        // Segoe UI is pinned so the minus sign renders in its own box rather than
+        // falling back, matching the sidebar's minimize button.
+        private static Button SmallButton(string glyph, string tip) => new Button
+        {
+            Content = glyph,
+            Width = 24,
+            Height = 22,
+            Padding = new Thickness(0),
+            Margin = new Thickness(4, 0, 0, 0),
+            FontFamily = new FontFamily("Segoe UI"),
+            ToolTip = tip,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        private static TextBlock SectionHeader(string text) => new TextBlock
+        {
+            Text = text,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 8, 0, 6)
+        };
+
+        // ---- Running list ----
+
+        private FrameworkElement BuildIncludedPanel()
+        {
+            _includedHeader = new TextBlock
+            {
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+
+            _includedText = new TextBlock { TextWrapping = TextWrapping.Wrap };
+
+            var stack = new StackPanel();
+            stack.Children.Add(_includedHeader);
+
+            stack.Children.Add(new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA)),
+                BorderThickness = new Thickness(1),
+                Background = Brushes.White,
+                Padding = new Thickness(6),
+                Child = new ScrollViewer
+                {
+                    Height = 72,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    Content = _includedText
+                }
+            });
+
+            var clear = new Button
+            {
+                Content = "Clear",
+                Width = 70,
+                Height = 24,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 6, 0, 0),
+                ToolTip = "Empty the PCA dataframe"
+            };
+            clear.Click += (s, e) => { _working.Clear(); UpdateState(); };
+            stack.Children.Add(clear);
+
+            return new Border
+            {
+                BorderBrush = Brushes.LightGray,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(0, 10, 0, 0),
+                Margin = new Thickness(0, 10, 0, 0),
+                Child = stack
+            };
+        }
+
+        private FrameworkElement BuildButtonBar()
+        {
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+
+            _runButton = new Button { Content = "Run PCA", Width = 104, Height = 28, IsDefault = true };
+            _runButton.Click += (s, e) =>
+            {
+                // DialogResult may only be set while running modally; guard it the
+                // same way ScaleWindow does.
+                try
+                {
+                    DialogResult = true;
+                }
+                catch (InvalidOperationException)
+                {
+                    Close();
+                }
+            };
+            buttons.Children.Add(_runButton);
+
+            buttons.Children.Add(new Button
+            {
+                Content = "Cancel",
+                Width = 92,
+                Height = 28,
+                Margin = new Thickness(10, 0, 0, 0),
+                IsCancel = true
+            });
+
+            return new Border
+            {
+                BorderBrush = Brushes.LightGray,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(0, 12, 0, 0),
+                Margin = new Thickness(0, 12, 0, 0),
+                Child = buttons
+            };
+        }
+
+        // ---- State ----
+
+        // A row's + is live only while the entry is out of the dataframe and its
+        // − only while it is in, so the buttons themselves say what is staged.
+        private void UpdateState()
+        {
+            foreach (var row in _rows)
+            {
+                bool included = _working.Contains(row.Entry.Key);
+                row.Add.IsEnabled = !included;
+                row.Remove.IsEnabled = included;
+                row.Label.FontWeight = included ? FontWeights.Bold : FontWeights.Normal;
+            }
+
+            int n = _working.Count;
+
+            _includedHeader.Text = n switch
+            {
+                0 => "In the PCA dataframe: none",
+                1 => "In the PCA dataframe: 1 variable",
+                _ => $"In the PCA dataframe: {n} variables"
+            };
+
+            _includedText.Text = n == 0
+                ? "Use + to add a variable."
+                : string.Join(", ", _working.Keys.Select(LabelFor));
+
+            _includedText.Opacity = n == 0 ? 0.6 : 1.0;
+
+            // The analysis needs two variables to have anything to rotate.
+            _runButton.IsEnabled = n >= 2;
+            _runButton.ToolTip = n >= 2
+                ? "Run the analysis and plot the component scores"
+                : "Add at least two variables first";
+        }
+
+        private string LabelFor(string key) =>
+            _catalog.FirstOrDefault(e => e.Key == key)?.Label ?? key;
+
+        // ---- Commit ----
+
+        internal void CommitTo(PcaDataFrame target) => target.CopyFrom(_working);
     }
 }
