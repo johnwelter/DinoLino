@@ -320,11 +320,33 @@ namespace DinoLino
 
             // The window has a handle only from here on, which is what the hook
             // needs, so this cannot move into the constructor.
-            if (PresentationSource.FromVisual(this) is HwndSource source)
-                source.AddHook(HorizontalWheelHook);
+            AttachHorizontalWheel(this);
         }
 
-        private IntPtr HorizontalWheelHook(
+        /// Gives one window sideways scrolling: two-finger trackpad gestures and
+        /// tilt wheels, plus Shift+wheel for mice that have neither. The messages
+        /// go to the window under the cursor, so every window that wants the
+        /// gesture hooks itself; secondary windows call this on their own.
+        public static void AttachHorizontalWheel(Window window)
+        {
+            if (window == null) return;
+
+            if (PresentationSource.FromVisual(window) is HwndSource source)
+                source.AddHook(HorizontalWheelHook);
+            else
+                window.SourceInitialized += (s, e) =>
+                {
+                    if (PresentationSource.FromVisual(window) is HwndSource late)
+                        late.AddHook(HorizontalWheelHook);
+                };
+
+            // Tunnels from the window, so it is seen before any child's own wheel
+            // handler; a gesture over anything that cannot scroll sideways falls
+            // through to that untouched.
+            window.PreviewMouseWheel += ShiftWheelScroll;
+        }
+
+        private static IntPtr HorizontalWheelHook(
             IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             if (msg != WM_MOUSEHWHEEL) return IntPtr.Zero;
@@ -338,14 +360,9 @@ namespace DinoLino
             return IntPtr.Zero;
         }
 
-        /// Shift+wheel scrolls sideways too, which covers mice with no tilt
-        /// wheel. This tunnels from the window, so it is seen before the
-        /// workspace's own zoom handler; a gesture over anything that cannot
-        /// scroll sideways falls through to that untouched.
-        protected override void OnPreviewMouseWheel(MouseWheelEventArgs e)
+        /// Shift+wheel scrolls sideways too, which covers mice with no tilt wheel.
+        private static void ShiftWheelScroll(object sender, MouseWheelEventArgs e)
         {
-            base.OnPreviewMouseWheel(e);
-
             if (e.Handled) return;
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != ModifierKeys.Shift) return;
 

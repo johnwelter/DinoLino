@@ -962,7 +962,7 @@ namespace DinoLino
                 var catalog = BuildPcaCatalog();
                 _pcaDataFrame.PruneMissing(catalog);
 
-                var pcaDialog = new PcaAdvancedWindow(_pcaDataFrame, catalog)
+                var pcaDialog = new PcaAdvancedWindow(_pcaDataFrame, _plotOptions, catalog)
                 {
                     Owner = this,
                     FontSize = _currentFontSize,
@@ -974,6 +974,7 @@ namespace DinoLino
                 if (pcaDialog.ShowDialog() == true)
                 {
                     pcaDialog.CommitTo(_pcaDataFrame);
+                    pcaDialog.CommitTo(_plotOptions);
                     RunPca();
 
                     // The components the run produced are what the X and Y boxes
@@ -1875,6 +1876,91 @@ namespace DinoLino
         }
 
         // =====================
+        // Confidence ellipses
+        // =====================
+
+        private const int EllipseSegments = 72;
+
+        // Squared Mahalanobis radius of the 95% ellipse of a bivariate normal: the
+        // 0.95 quantile of a chi-squared on two degrees of freedom. A constant
+        // because the level is fixed at 95%.
+        private const double Chi2TwoDf95 = 5.991464547;
+
+        /// The 95% confidence ellipse of a group, in data space, or null when the
+        /// group cannot define one. This is the region expected to hold 95% of the
+        /// group under a bivariate normal, so it encloses the specimens themselves
+        /// rather than bounding the precision of their mean.
+        private static List<Point> ConfidenceEllipse(IReadOnlyList<ScatterPoint> pts)
+        {
+            // Two points define a line, not an area: the covariance is singular and
+            // the ellipse would collapse onto the segment joining them.
+            int n = pts?.Count ?? 0;
+            if (n < 3) return null;
+
+            double mx = pts.Average(p => p.X);
+            double my = pts.Average(p => p.Y);
+
+            double sxx = 0, syy = 0, sxy = 0;
+            foreach (var p in pts)
+            {
+                double dx = p.X - mx, dy = p.Y - my;
+                sxx += dx * dx;
+                syy += dy * dy;
+                sxy += dx * dy;
+            }
+
+            // Sample covariance, so the ellipse describes the population the group
+            // was drawn from rather than only the specimens in hand.
+            sxx /= n - 1;
+            syy /= n - 1;
+            sxy /= n - 1;
+
+            // Eigenvalues and orientation of the 2x2 covariance, in closed form.
+            double mid = (sxx + syy) / 2;
+            double half = (sxx - syy) / 2;
+            double root = Math.Sqrt(half * half + sxy * sxy);
+
+            double major = mid + root;
+            double minor = mid - root;
+
+            // Every specimen at one spot: nothing to draw. A perfectly collinear
+            // group keeps its major axis and draws as a sliver.
+            if (major <= 1e-12) return null;
+            if (minor < 0) minor = 0;
+
+            double angle = 0.5 * Math.Atan2(2 * sxy, sxx - syy);
+            double cos = Math.Cos(angle), sin = Math.Sin(angle);
+
+            double a = Math.Sqrt(Chi2TwoDf95 * major);
+            double b = Math.Sqrt(Chi2TwoDf95 * minor);
+
+            var ring = new List<Point>(EllipseSegments + 1);
+            for (int i = 0; i <= EllipseSegments; i++)
+            {
+                double t = 2 * Math.PI * i / EllipseSegments;
+                double u = a * Math.Cos(t), v = b * Math.Sin(t);
+                ring.Add(new Point(mx + u * cos - v * sin, my + u * sin + v * cos));
+            }
+
+            return ring;
+        }
+
+        // Drawn segment by segment through the same clip the trend lines use, so a
+        // ring never spills over the axis labels.
+        private void DrawEllipseRing(
+            List<Point> ring, Func<double, double> toPx, Func<double, double> toPy,
+            double l, double t, double w, double h, Brush ink)
+        {
+            for (int i = 1; i < ring.Count; i++)
+            {
+                PlotClippedLine(
+                    toPx(ring[i - 1].X), toPy(ring[i - 1].Y),
+                    toPx(ring[i].X), toPy(ring[i].Y),
+                    l, t, w, h, ink, 1.2);
+            }
+        }
+
+        // =====================
         // Renderers
         // =====================
 
@@ -2291,7 +2377,8 @@ namespace DinoLino
         }
 
         /// Scores plot: one point per specimen in the plane of two components,
-        /// taking the same colour and shape mappings every other plot uses.
+        /// taking the same colour and shape mappings every other plot uses, and
+        /// optionally a 95% confidence ellipse around each colour group.
         private void DrawPcaScores(string xPc, string yPc)
         {
             int xi = PcaComponentIndex(xPc);
@@ -2322,10 +2409,34 @@ namespace DinoLino
             PrepareLegend(PointLegendEntries(pointsDrawn: true));
             PrepareAxisTitles(xTitle, yTitle);
 
+            // One ellipse per point-colour group, matching how the scatter plot fits
+            // one trend line per group.
+            var groups = _plotOptions.ConfidenceEllipses
+                ? SplitByPointColor(points, p => p.Specimen)
+                : new List<(string Label, Brush Brush, List<ScatterPoint> Items)>();
+
+            var ellipses = groups
+                .Select(g => new
+                {
+                    Ink = PointColorIsColumn ? g.Brush : PlotOptions.TrendBrush(),
+                    Ring = ConfidenceEllipse(g.Items)
+                })
+                .Where(e => e.Ring != null)
+                .ToList();
+
+            int smallGroups = groups.Count - ellipses.Count;
+
             var (l, t, w, h) = PlotArea();
 
-            var (xMin, xMax) = PadRange(points.Min(p => p.X), points.Max(p => p.X));
-            var (yMin, yMax) = PadRange(points.Min(p => p.Y), points.Max(p => p.Y));
+            // A ring is part of the plot, so the axes reach around it rather than
+            // cutting it off at the outermost specimen.
+            var xs = points.Select(p => p.X)
+                .Concat(ellipses.SelectMany(e => e.Ring.Select(q => q.X)));
+            var ys = points.Select(p => p.Y)
+                .Concat(ellipses.SelectMany(e => e.Ring.Select(q => q.Y)));
+
+            var (xMin, xMax) = PadRange(xs.Min(), xs.Max());
+            var (yMin, yMax) = PadRange(ys.Min(), ys.Max());
 
             double ToPx(double v) => l + (v - xMin) / (xMax - xMin) * w;
             double ToPy(double v) => t + h - (v - yMin) / (yMax - yMin) * h;
@@ -2341,6 +2452,11 @@ namespace DinoLino
             var guide = PlotOptions.TrendBrush();
             PlotClippedLine(ToPx(0), t, ToPx(0), t + h, l, t, w, h, guide, 0.6);
             PlotClippedLine(l, ToPy(0), l + w, ToPy(0), l, t, w, h, guide, 0.6);
+
+            // Rings before the markers, so a specimen sitting on the boundary is
+            // drawn over its own ellipse rather than under it.
+            foreach (var e in ellipses)
+                DrawEllipseRing(e.Ring, ToPx, ToPy, l, t, w, h, e.Ink);
 
             foreach (var p in points)
                 DrawPoint(ToPx(p.X), ToPy(p.Y), 3, p.Specimen, forceVisible: true);
@@ -2361,6 +2477,15 @@ namespace DinoLino
                 caveats.Add(_pcaConstantColumns.Count == 1
                     ? "1 constant column dropped"
                     : $"{_pcaConstantColumns.Count} constant columns dropped");
+            }
+
+            // A group of one or two has no ellipse; without a line saying so, its
+            // absence looks like a bug.
+            if (smallGroups > 0)
+            {
+                caveats.Add(smallGroups == 1
+                    ? "1 group too small for an ellipse"
+                    : $"{smallGroups} groups too small for an ellipse");
             }
 
             if (caveats.Count > 0)

@@ -47,6 +47,10 @@ namespace DinoLino
         /// <summary>"None", "Circle", or a group column name.</summary>
         public string PointShape { get; set; } = AestheticCircle;
 
+        /// Draw a 95% confidence ellipse around each point-color group. Only the
+        /// PCA scores plot reads this; the other plot types ignore it.
+        public bool ConfidenceEllipses { get; set; } = false;
+
         // Blank means "use the generated text", so a user who clears a box gets
         // the default back rather than an empty title.
         public string Title { get; set; } = "";
@@ -587,12 +591,15 @@ namespace DinoLino
 
     /// <summary>
     /// "Advanced +" dialog for the PCA plot type. Lists every variable measured
-    /// this session and lets each be added to or removed from the PCA dataframe.
-    /// Edits a copy, so Cancel leaves the staged dataframe untouched.
+    /// this session and lets each be added to or removed from the PCA dataframe,
+    /// and sets the color and marker the scores plot draws its points with. Edits
+    /// copies of both, so Cancel leaves the staged dataframe and the plot options
+    /// untouched.
     /// </summary>
     internal class PcaAdvancedWindow : Window
     {
         private readonly PcaDataFrame _working;
+        private readonly PlotOptions _workingOptions;
         private readonly List<PcaVariableEntry> _catalog;
 
         // Each row's buttons are enabled or disabled as the dataframe changes, so
@@ -604,16 +611,23 @@ namespace DinoLino
         private TextBlock _includedText;
         private Button _runButton;
 
-        internal PcaAdvancedWindow(PcaDataFrame current, IEnumerable<PcaVariableEntry> catalog)
+        private ComboBox _pointColorBox;
+        private ComboBox _pointShapeBox;
+        private TextBox _titleBox;
+        private CheckBox _ellipseBox;
+
+        internal PcaAdvancedWindow(
+            PcaDataFrame current, PlotOptions options, IEnumerable<PcaVariableEntry> catalog)
         {
             _working = current?.Clone() ?? new PcaDataFrame();
+            _workingOptions = (options ?? new PlotOptions()).Clone();
             _catalog = catalog?.ToList() ?? new List<PcaVariableEntry>();
 
             Title = "Advanced PCA options";
             Width = 460;
-            Height = 560;
+            Height = 700;
             MinWidth = 400;
-            MinHeight = 380;
+            MinHeight = 500;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             ShowInTaskbar = false;
 
@@ -632,11 +646,15 @@ namespace DinoLino
             root.Children.Add(note);
 
             // Docked bottom-first: in a DockPanel the earlier child takes the outer
-            // edge, so the button bar has to be added before the included list for
-            // the buttons to end up beneath it.
+            // edge, so these are added in the order they stack upwards from the
+            // bottom — buttons, then points, then the included list above both.
             var buttonBar = BuildButtonBar();
             DockPanel.SetDock(buttonBar, Dock.Bottom);
             root.Children.Add(buttonBar);
+
+            var display = BuildDisplayPanel();
+            DockPanel.SetDock(display, Dock.Bottom);
+            root.Children.Add(display);
 
             var included = BuildIncludedPanel();
             DockPanel.SetDock(included, Dock.Bottom);
@@ -689,6 +707,9 @@ namespace DinoLino
             return panel;
         }
 
+        // One row per catalog entry, bundles included: the EFA coefficients are
+        // added and removed as a unit here, and only broken out one by one in the
+        // included list below.
         private UIElement BuildRow(PcaVariableEntry entry)
         {
             var grid = new Grid();
@@ -787,7 +808,9 @@ namespace DinoLino
                 Padding = new Thickness(6),
                 Child = new ScrollViewer
                 {
-                    Height = 72,
+                    // Taller than one line's worth: a staged EFA table lists every
+                    // one of its coefficients here.
+                    Height = 90,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                     Content = _includedText
                 }
@@ -814,6 +837,96 @@ namespace DinoLino
                 Child = stack
             };
         }
+
+        // ---- Display ----
+
+        /// Title, point aesthetics, and the group ellipse toggle. The point settings
+        /// are the same session-wide ones the other plot types' Advanced window
+        /// edits, so a group given a color here keeps it on every plot.
+        private FrameworkElement BuildDisplayPanel()
+        {
+            var stack = new StackPanel();
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Display",
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+
+            _titleBox = new TextBox { Text = _workingOptions.Title, MaxLength = 60 };
+            stack.Children.Add(Row("Plot title", _titleBox,
+                "Leave blank to use the generated title"));
+
+            _pointColorBox = new ComboBox { ItemsSource = MainWindow.PlotPointColorChoices() };
+            _pointColorBox.SelectedItem = SelectedOrFallback(
+                _pointColorBox, _workingOptions.PointColor, PlotOptions.AestheticBlack);
+            stack.Children.Add(Row("Point color", _pointColorBox,
+                "Black draws every specimen the same. A group column gives each of "
+                + "its groups its own color."));
+
+            _pointShapeBox = new ComboBox { ItemsSource = MainWindow.PlotPointShapeChoices() };
+            _pointShapeBox.SelectedItem = SelectedOrFallback(
+                _pointShapeBox, _workingOptions.PointShape, PlotOptions.AestheticCircle);
+            stack.Children.Add(Row("Point shape", _pointShapeBox,
+                "Circle draws every specimen the same. A group column gives each of "
+                + "its groups its own marker."));
+
+            _ellipseBox = new CheckBox
+            {
+                Content = "95% confidence intervals",
+                IsChecked = _workingOptions.ConfidenceEllipses,
+                Margin = new Thickness(2, 2, 0, 4),
+                ToolTip = "Draw a 95% confidence ellipse around each group of scores. "
+                        + "Groups are the ones Point color splits by, and a group needs "
+                        + "at least three specimens to define an ellipse."
+            };
+            stack.Children.Add(_ellipseBox);
+
+            return new Border
+            {
+                BorderBrush = Brushes.LightGray,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(0, 10, 0, 0),
+                Margin = new Thickness(0, 10, 0, 0),
+                Child = stack
+            };
+        }
+
+        // A stored choice whose group column has since gone falls back rather than
+        // leaving the box blank.
+        private static object SelectedOrFallback(ComboBox box, string value, string fallback)
+        {
+            var items = (List<string>)box.ItemsSource;
+            return items.Contains(value) ? value : fallback;
+        }
+
+        // Label and control on one line, with the label column wide enough that
+        // both controls start at the same x.
+        private static Grid Row(string label, FrameworkElement control, string tip)
+        {
+            var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var text = new TextBlock
+            {
+                Text = label,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+                TextWrapping = TextWrapping.Wrap
+            };
+            Grid.SetColumn(text, 0);
+            grid.Children.Add(text);
+
+            control.ToolTip = tip;
+            Grid.SetColumn(control, 1);
+            grid.Children.Add(control);
+
+            return grid;
+        }
+
+        // ---- Buttons ----
 
         private FrameworkElement BuildButtonBar()
         {
@@ -872,7 +985,8 @@ namespace DinoLino
                 row.Label.FontWeight = included ? FontWeights.Bold : FontWeights.Normal;
             }
 
-            int n = _working.Count;
+            var staged = StagedColumns();
+            int n = staged.Count;
 
             _includedHeader.Text = n switch
             {
@@ -883,22 +997,57 @@ namespace DinoLino
 
             _includedText.Text = n == 0
                 ? "Use + to add a variable."
-                : string.Join(", ", _working.Keys.Select(LabelFor));
+                : string.Join(", ", staged);
 
             _includedText.Opacity = n == 0 ? 0.6 : 1.0;
 
-            // The analysis needs two variables to have anything to rotate.
+            // Counted in columns rather than entries: the analysis needs two columns
+            // to have anything to rotate, and the EFA table supplies several on its
+            // own, so it is a usable dataframe by itself.
             _runButton.IsEnabled = n >= 2;
             _runButton.ToolTip = n >= 2
                 ? "Run the analysis and plot the component scores"
                 : "Add at least two variables first";
         }
 
-        private string LabelFor(string key) =>
-            _catalog.FirstOrDefault(e => e.Key == key)?.Label ?? key;
+        /// Every measurement column the staged entries stand for, in the order they
+        /// were added. A bundle contributes each of its columns separately, so the
+        /// EFA coefficients are counted and listed one by one even though the list
+        /// above adds and removes them as a unit.
+        private List<string> StagedColumns()
+        {
+            var columns = new List<string>();
+
+            foreach (string key in _working.Keys)
+            {
+                var entry = _catalog.FirstOrDefault(e => e.Key == key);
+
+                // Staged before its variable left the catalog: name it by its key
+                // rather than dropping it silently.
+                if (entry == null || entry.Columns.Count == 0)
+                {
+                    columns.Add(entry?.Label ?? key);
+                    continue;
+                }
+
+                columns.AddRange(entry.Columns);
+            }
+
+            return columns;
+        }
 
         // ---- Commit ----
 
         internal void CommitTo(PcaDataFrame target) => target.CopyFrom(_working);
+
+        /// Writes the title and point settings back. They are shared with the other
+        /// plot types, so a group keeps its color and marker across the whole tab.
+        internal void CommitTo(PlotOptions target)
+        {
+            target.Title = _titleBox.Text?.Trim() ?? "";
+            target.PointColor = _pointColorBox.SelectedItem as string ?? PlotOptions.AestheticBlack;
+            target.PointShape = _pointShapeBox.SelectedItem as string ?? PlotOptions.AestheticCircle;
+            target.ConfidenceEllipses = _ellipseBox.IsChecked == true;
+        }
     }
 }

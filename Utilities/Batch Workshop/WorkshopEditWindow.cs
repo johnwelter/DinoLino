@@ -103,6 +103,10 @@ namespace DinoLino.Utilities
 
             Content = root;
             Rebuild();
+
+            // The wide tables scroll sideways under a two-finger gesture, a tilt
+            // wheel, or Shift+wheel.
+            MainWindow.AttachHorizontalWheel(this);
         }
 
         // The table is rebuilt wholesale after every edit: deletions change how the
