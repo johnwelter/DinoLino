@@ -836,6 +836,9 @@ namespace DinoLino
                     UndoRedoManager.RemoveArchivedSpecimen(specimen.Record);
                 }
 
+                // Its silhouettes go with it; they are snapshots, so nothing else drops them.
+                CommittedOutlineStore.RemoveFor(SpecimenManager.NameOf(specimen));
+
                 SpecimenManager.DeleteSpecimen(specimen);
                 _sampleChecked.Remove(specimen);
             }

@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Media.Imaging;
 
 namespace DinoLino
 {
@@ -577,6 +578,67 @@ namespace DinoLino
             return choices;
         }
 
+        /// The four points a silhouette can attach to, in the order they are listed
+        /// to the user. Empty until a PCA has been run and both components chosen.
+        /// Ties go to the first row reaching the value, which is the specimen order
+        /// the tables list.
+        private List<PcaExtreme> PcaExtremes()
+        {
+            var extremes = new List<PcaExtreme>();
+            if (_pcaResult == null || _pcaRowSpecimens == null) return extremes;
+            if (_pcaResult.ObservationCount == 0) return extremes;
+
+            string xName = UI_PlotXBox?.SelectedItem as string;
+            string yName = UI_PlotYBox?.SelectedItem as string;
+
+            int xi = PcaComponentIndex(xName);
+            int yi = PcaComponentIndex(yName);
+
+            if (xi < 0 || yi < 0 ||
+                xi >= _pcaResult.ComponentCount || yi >= _pcaResult.ComponentCount) return extremes;
+
+            int maxX = 0, minX = 0, maxY = 0, minY = 0;
+
+            for (int r = 1; r < _pcaResult.ObservationCount; r++)
+            {
+                if (_pcaResult.Scores[r, xi] > _pcaResult.Scores[maxX, xi]) maxX = r;
+                if (_pcaResult.Scores[r, xi] < _pcaResult.Scores[minX, xi]) minX = r;
+                if (_pcaResult.Scores[r, yi] > _pcaResult.Scores[maxY, yi]) maxY = r;
+                if (_pcaResult.Scores[r, yi] < _pcaResult.Scores[minY, yi]) minY = r;
+            }
+
+            extremes.Add(new PcaExtreme
+            {
+                Row = maxX,
+                Specimen = _pcaRowSpecimens[maxX],
+                Role = "Highest " + xName,
+                Side = SilhouetteSide.Right
+            });
+            extremes.Add(new PcaExtreme
+            {
+                Row = minX,
+                Specimen = _pcaRowSpecimens[minX],
+                Role = "Lowest " + xName,
+                Side = SilhouetteSide.Left
+            });
+            extremes.Add(new PcaExtreme
+            {
+                Row = maxY,
+                Specimen = _pcaRowSpecimens[maxY],
+                Role = "Highest " + yName,
+                Side = SilhouetteSide.Above
+            });
+            extremes.Add(new PcaExtreme
+            {
+                Row = minY,
+                Specimen = _pcaRowSpecimens[minY],
+                Role = "Lowest " + yName,
+                Side = SilhouetteSide.Below
+            });
+
+            return extremes;
+        }
+
         // "PC3" -> 2. Negative when the text is not a component name.
         private static int PcaComponentIndex(string name)
         {
@@ -806,6 +868,14 @@ namespace DinoLino
             return choices;
         }
 
+        /// <summary>Label choices: none, the specimen's name, or a group column.</summary>
+        internal static List<string> PlotLabelChoices()
+        {
+            var choices = new List<string> { PlotOptions.AestheticNone, CategorySpecimen };
+            choices.AddRange(SpecimenGroups.Columns);
+            return choices;
+        }
+
         /// True when a point aesthetic names a group column rather than one of the
         /// two reserved values.
         internal static bool IsGroupAesthetic(string value) =>
@@ -917,6 +987,35 @@ namespace DinoLino
             return result;
         }
 
+        // ---- Point labels ----
+
+        /// True when the plot on screen draws marks a label can sit beside. Read from
+        /// the capabilities rather than a list here, so the dialog and the renderers
+        /// never disagree about which plots can label.
+        private bool LabelsAllowed => PlotCapabilities.For(SelectedPlotType).SupportsLabels;
+
+        /// The text one datapoint is labelled with, or null when labels are off. A
+        /// setting left over from another plot type is ignored rather than applied.
+        private string LabelFor(string specimenName)
+        {
+            if (!LabelsAllowed) return null;
+
+            string column = _plotOptions.LabelBy;
+            if (string.IsNullOrEmpty(column) || column == PlotOptions.AestheticNone) return null;
+            if (column == CategorySpecimen) return specimenName;
+
+            return CategoryValue(column, specimenName);
+        }
+
+        /// Writes a datapoint's label beside its marker.
+        private void DrawPointLabel(double cx, double cy, double r, string specimenName)
+        {
+            string text = LabelFor(specimenName);
+            if (string.IsNullOrEmpty(text)) return;
+
+            PlotText(text, cx + r + 3, cy, anchorY: 0.5, fontSize: 9);
+        }
+
         // =====================
         // UI events
         // =====================
@@ -924,8 +1023,6 @@ namespace DinoLino
         private string SelectedPlotType =>
             (UI_PlotTypeBox?.SelectedItem as ComboBoxItem)?.Content as string;
 
-        private string SelectedTrend =>
-            (UI_PlotTrendBox?.SelectedItem as ComboBoxItem)?.Content as string;
 
         // Null when the fill is not split or the plot type has no fill, so the
         // renderers can test one thing.
@@ -974,7 +1071,8 @@ namespace DinoLino
                 var catalog = BuildPcaCatalog();
                 _pcaDataFrame.PruneMissing(catalog);
 
-                var pcaDialog = new PcaAdvancedWindow(_pcaDataFrame, _plotOptions, catalog)
+                var pcaDialog = new PcaAdvancedWindow(
+                                    _pcaDataFrame, _plotOptions, catalog, PcaExtremes())
                 {
                     Owner = this,
                     FontSize = _currentFontSize,
@@ -1018,15 +1116,13 @@ namespace DinoLino
         private void UpdatePlotControlVisibility()
         {
             string type = SelectedPlotType;
-            bool scatter = type == "Scatter plot";
             bool boxplot = type == "Boxplot";
             bool pca = type == "PCA";
-            bool twoVariable = scatter || boxplot || pca;
+            bool twoVariable = type == "Scatter plot" || boxplot || pca;
 
             UI_PlotVarPanel.Visibility = type == null ? Visibility.Collapsed : Visibility.Visible;
 
             ShowPlotRow(UI_PlotXLabel, UI_PlotXBox, twoVariable);
-            ShowPlotRow(UI_PlotTrendLabel, UI_PlotTrendBox, scatter);
 
             if (twoVariable)
             {
@@ -1072,6 +1168,8 @@ namespace DinoLino
             _legendLayout = null;
             _plotBottomExtra = 0;
             _plotLeftExtra = 0;
+            _plotTopExtra = 0;
+            _plotRightExtra = 0;
 
             double w = UI_PlotCanvas.ActualWidth, h = UI_PlotCanvas.ActualHeight;
             if (w < 80 || h < 80) return;   // not laid out yet, or too small to draw
@@ -1265,19 +1363,23 @@ namespace DinoLino
             public PlotPointShape? Shape;
         }
 
-        // Extra bottom and left space claimed by the legend and axis titles, so
-        // the plot area shrinks to make room rather than being drawn over.
+        // Extra space claimed outside the frame by the legend, the axis titles, and
+        // the PCA silhouettes, so the plot area shrinks to make room rather than
+        // being drawn over.
         private double _plotBottomExtra;
         private double _plotLeftExtra;
+        private double _plotTopExtra;
+        private double _plotRightExtra;
         private List<(LegendEntry Entry, double X, int Row)> _legendLayout;
 
         private (double L, double T, double W, double H) PlotArea()
         {
             double w = UI_PlotCanvas.ActualWidth, h = UI_PlotCanvas.ActualHeight;
             double left = PlotMarginL + _plotLeftExtra;
-            return (left, PlotMarginT,
-                    Math.Max(10, w - left - PlotMarginR),
-                    Math.Max(10, h - PlotMarginT - PlotMarginB - _plotBottomExtra));
+            double top = PlotMarginT + _plotTopExtra;
+            return (left, top,
+                    Math.Max(10, w - left - PlotMarginR - _plotRightExtra),
+                    Math.Max(10, h - top - PlotMarginB - _plotBottomExtra));
         }
 
         /// Reserves room for whichever axis titles the user supplied. Must run
@@ -1458,6 +1560,27 @@ namespace DinoLino
                 Stroke = stroke ?? PlotAxis,
                 StrokeThickness = thickness
             });
+        }
+
+        private static double MeasureTextHeight(string text, double fontSize)
+        {
+            var tb = new TextBlock { Text = text, FontSize = fontSize };
+            tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return tb.DesiredSize.Height;
+        }
+
+        /// Raises the top of the y range so a caption drawn against the top of the
+        /// frame has `needed` pixels of clear space beneath it. Solved rather than
+        /// nudged: the mapping is linear, so the exact yMax that puts the highest
+        /// datapoint at t + needed can be computed in one step.
+        private static double ExpandTopForCaption(
+            double yMin, double yMax, double dataMax, double h, double needed)
+        {
+            if (needed <= 0 || h - needed <= 1) return yMax;
+            if (dataMax - yMin <= 1e-12) return yMax;
+
+            double required = yMin + (dataMax - yMin) * h / (h - needed);
+            return Math.Max(yMax, required);
         }
 
         // Draws only the part of the segment inside the plot frame, so a steep
@@ -1973,6 +2096,127 @@ namespace DinoLino
         }
 
         // =====================
+        // Scores-plot silhouettes
+        // =====================
+
+        private const double SilhouetteDrawSize = 52;   // side on the canvas
+        private const double SilhouetteGap = 6;         // clearance from its point
+        private const int SilhouettePixels = 128;       // render resolution
+
+        // Rendered once per outline: a resize redraws the plot, and re-rasterizing
+        // four silhouettes on every drag of the splitter is wasted work.
+        private readonly Dictionary<CommittedOutline, BitmapSource> _plotSilhouettes =
+            new Dictionary<CommittedOutline, BitmapSource>();
+
+        private sealed class PlottedSilhouette
+        {
+            public PcaExtreme Extreme;
+            public BitmapSource Image;
+        }
+
+        /// The silhouettes to draw, and the frame margins they need. Roles held by one
+        /// specimen collapse to a single drawing on the side of its first role, so an
+        /// identical shape is never drawn twice. Must run before PlotArea is read.
+        private List<PlottedSilhouette> PrepareSilhouettes(IReadOnlyList<PcaExtreme> extremes)
+        {
+            var drawn = new List<PlottedSilhouette>();
+            if (!_plotOptions.ShowSilhouettes) return drawn;
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var extreme in extremes)
+            {
+                if (!seen.Add(extreme.Specimen)) continue;
+
+                CommittedOutline outline = ChosenSilhouette(extreme.Specimen);
+                if (outline == null) continue;   // its outlines were deleted since
+
+                BitmapSource image = SilhouetteImage(outline);
+                if (image == null) continue;
+
+                drawn.Add(new PlottedSilhouette { Extreme = extreme, Image = image });
+            }
+
+            double band = SilhouetteDrawSize + SilhouetteGap;
+
+            foreach (var silhouette in drawn)
+            {
+                switch (silhouette.Extreme.Side)
+                {
+                    case SilhouetteSide.Left: _plotLeftExtra += band; break;
+                    case SilhouetteSide.Right: _plotRightExtra += band; break;
+                    case SilhouetteSide.Above: _plotTopExtra += band; break;
+                    default: _plotBottomExtra += band; break;
+                }
+            }
+
+            return drawn;
+        }
+
+        /// The outline the user picked for a specimen, or the first one stored when
+        /// that pick has since been renamed or deleted.
+        private CommittedOutline ChosenSilhouette(string specimen)
+        {
+            var stored = CommittedOutlineStore.OutlinesFor(specimen);
+            if (stored.Count == 0) return null;
+
+            if (_plotOptions.SilhouetteChoices.TryGetValue(specimen, out string name))
+            {
+                foreach (var outline in stored)
+                    if (string.Equals(outline.Name, name, StringComparison.Ordinal)) return outline;
+            }
+
+            return stored[0];
+        }
+
+        private BitmapSource SilhouetteImage(CommittedOutline outline)
+        {
+            if (_plotSilhouettes.TryGetValue(outline, out var cached)) return cached;
+
+            BitmapSource rendered = OutlineShapeExporter.RenderThumbnail(outline, SilhouettePixels);
+            _plotSilhouettes[outline] = rendered;
+            return rendered;
+        }
+
+        /// Places one silhouette past its point on the axis that point is extreme in,
+        /// so nothing else can lie between the two, and centred on the other axis.
+        /// Clamped to the canvas so a corner case cannot push it out of sight.
+        private void DrawSilhouette(PlottedSilhouette silhouette, double px, double py)
+        {
+            double size = SilhouetteDrawSize;
+            double left, top;
+
+            switch (silhouette.Extreme.Side)
+            {
+                case SilhouetteSide.Right:
+                    left = px + SilhouetteGap; top = py - size / 2; break;
+                case SilhouetteSide.Left:
+                    left = px - SilhouetteGap - size; top = py - size / 2; break;
+                case SilhouetteSide.Above:
+                    left = px - size / 2; top = py - SilhouetteGap - size; break;
+                default:
+                    left = px - size / 2; top = py + SilhouetteGap; break;
+            }
+
+            double w = UI_PlotCanvas.ActualWidth, h = UI_PlotCanvas.ActualHeight;
+            left = Math.Max(2, Math.Min(w - size - 2, left));
+            top = Math.Max(2, Math.Min(h - size - 2, top));
+
+            var image = new Image
+            {
+                Source = silhouette.Image,
+                Width = size,
+                Height = size,
+                Stretch = Stretch.Uniform,
+                ToolTip = silhouette.Extreme.Specimen + "  \u2014  " + silhouette.Extreme.Role
+            };
+
+            Canvas.SetLeft(image, left);
+            Canvas.SetTop(image, top);
+            UI_PlotCanvas.Children.Add(image);
+        }
+
+        // =====================
         // Renderers
         // =====================
 
@@ -2088,8 +2332,11 @@ namespace DinoLino
                 double spread = half * 0.72;
                 for (int i = 0; i < items.Count; i++)
                 {
-                    DrawPoint(cx + PointJitter(i) * spread, toPy(items[i].Value), 2.6,
-                        items[i].Specimen, forceVisible: false);
+                    double x = cx + PointJitter(i) * spread;
+                    double y = toPy(items[i].Value);
+
+                    DrawPoint(x, y, 2.6, items[i].Specimen, forceVisible: false);
+                    DrawPointLabel(x, y, 2.6, items[i].Specimen);
                 }
             }
             else
@@ -2110,8 +2357,33 @@ namespace DinoLino
 
             var (l, t, w, h) = PlotArea();
 
+            string trend = _plotOptions.Trend;
+            bool fitting = trend == PlotOptions.TrendLinear || trend == PlotOptions.TrendLoess;
+
+            // One fit per point-color group, so a colored split compares trends
+            // rather than pooling them into a single misleading line.
+            var groups = fitting
+                ? SplitByPointColor(pairs, p => p.Specimen)
+                : new List<(string Label, Brush Brush, List<ScatterPoint> Items)>();
+
+            // Built before the axes are scaled: the y range is stretched to make room
+            // for the caption, so it never lands on top of a datapoint.
+            var caption = BuildTrendCaption(groups, trend);
+
+            const double CaptionFontSize = 10;
+            const double CaptionTop = 4;    // gap between the frame and the first line
+            const double CaptionGap = 6;    // gap between the last line and the data
+
+            double lineHeight = caption.Count == 0 ? 0 : MeasureTextHeight("Xy", CaptionFontSize);
+
             var (xMin, xMax) = PadRange(pairs.Min(p => p.X), pairs.Max(p => p.X));
             var (yMin, yMax) = PadRange(pairs.Min(p => p.Y), pairs.Max(p => p.Y));
+
+            if (caption.Count > 0)
+            {
+                yMax = ExpandTopForCaption(yMin, yMax, pairs.Max(p => p.Y), h,
+                    CaptionTop + caption.Count * lineHeight + CaptionGap);
+            }
 
             double ToPx(double v) => l + (v - xMin) / (xMax - xMin) * w;
             double ToPy(double v) => t + h - (v - yMin) / (yMax - yMin) * h;
@@ -2123,31 +2395,21 @@ namespace DinoLino
             foreach (var p in pairs)
                 DrawPoint(ToPx(p.X), ToPy(p.Y), 3, p.Specimen, forceVisible: true);
 
-            string trend = SelectedTrend;
-            if (trend == "lm" || trend == "loess")
+            foreach (var group in groups)
             {
-                // One fit per point-color group, so a colored split compares
-                // trends rather than pooling them into a single misleading line.
-                var groups = SplitByPointColor(pairs, p => p.Specimen);
-
-                foreach (var group in groups)
-                {
-                    Brush ink = PointColorIsColumn ? group.Brush : PlotOptions.TrendBrush();
-                    DrawTrend(group.Items, trend, xMin, xMax, ToPx, ToPy, ink, l, t, w, h);
-                }
-
-                // The caption would be ambiguous with several fits on screen.
-                if (trend == "lm" && groups.Count == 1 &&
-                    FitLinear(pairs, out double a, out double b, out double r2))
-                {
-                    string sign = a < 0 ? "\u2212" : "+";
-                    PlotText(
-                        $"y = {Math.Round(b, 4).ToString(CultureInfo.InvariantCulture)}x " +
-                        $"{sign} {Math.Round(Math.Abs(a), 4).ToString(CultureInfo.InvariantCulture)}   " +
-                        $"R\u00B2 = {r2:F3}",
-                        l + w, t + h - 2, anchorX: 1, anchorY: 1, fontSize: 10);
-                }
+                Brush ink = PointColorIsColumn ? group.Brush : PlotOptions.TrendBrush();
+                DrawTrend(group.Items, trend, xMin, xMax, ToPx, ToPy, ink, l, t, w, h);
             }
+
+            // Top left, inside the frame and above every point.
+            for (int i = 0; i < caption.Count; i++)
+            {
+                PlotText(caption[i].Text, l + 6, t + CaptionTop + i * lineHeight,
+                    fontSize: CaptionFontSize, foreground: caption[i].Ink);
+            }
+
+            foreach (var p in pairs)
+                DrawPointLabel(ToPx(p.X), ToPy(p.Y), 3, p.Specimen);
 
             DrawAxisTitles();
             DrawLegend();
@@ -2176,6 +2438,49 @@ namespace DinoLino
                     toPx(curve[i].X), toPy(curve[i].Y),
                     l, t, w, h, ink, 1.6);
             }
+        }
+
+        /// The equation and R² lines to write on a scatter plot, one per fitted
+        /// group. Empty unless a least-squares fit is on and at least one of the two
+        /// readings was asked for.
+        private List<(string Text, Brush Ink)> BuildTrendCaption(
+            List<(string Label, Brush Brush, List<ScatterPoint> Items)> groups, string trend)
+        {
+            var lines = new List<(string, Brush)>();
+
+            // Both readings come off the least-squares fit; a loess curve has no
+            // single equation and no R² to report.
+            if (trend != PlotOptions.TrendLinear) return lines;
+            if (!_plotOptions.ShowEquation && !_plotOptions.ShowRSquared) return lines;
+
+            foreach (var group in groups)
+            {
+                if (!FitLinear(group.Items, out double a, out double b, out double r2)) continue;
+
+                var parts = new List<string>();
+
+                if (_plotOptions.ShowEquation)
+                {
+                    string sign = a < 0 ? "\u2212" : "+";
+                    parts.Add(
+                        $"y = {Math.Round(b, 4).ToString(CultureInfo.InvariantCulture)}x " +
+                        $"{sign} {Math.Round(Math.Abs(a), 4).ToString(CultureInfo.InvariantCulture)}");
+                }
+
+                if (_plotOptions.ShowRSquared)
+                    parts.Add($"R\u00B2 = {r2:F3}");
+
+                string text = string.Join("   ", parts);
+
+                // One fit stands on its own; a colour split needs each line to say
+                // which group it belongs to.
+                if (PointColorIsColumn && !string.IsNullOrEmpty(group.Label))
+                    text = group.Label + ":  " + text;
+
+                lines.Add((text, PointColorIsColumn ? group.Brush : PlotOptions.TrendBrush()));
+            }
+
+            return lines;
         }
 
         /// Histogram. Colour splitting is deliberately absent: overlapping or
@@ -2379,8 +2684,9 @@ namespace DinoLino
 
                 for (int k = 0; k < binned[i].Count; k++)
                 {
-                    DrawPoint(cx, baseY - r - k * spacing, r,
-                        binned[i][k].Specimen, forceVisible: true);
+                    double cy = baseY - r - k * spacing;
+                    DrawPoint(cx, cy, r, binned[i][k].Specimen, forceVisible: true);
+                    DrawPointLabel(cx, cy, r, binned[i][k].Specimen);
                 }
             }
 
@@ -2420,6 +2726,10 @@ namespace DinoLino
             PreparePointAesthetics(points.Select(p => p.Specimen));
             PrepareLegend(PointLegendEntries(pointsDrawn: true));
             PrepareAxisTitles(xTitle, yTitle);
+
+            // Claims a band outside the frame on each side one is drawn against, so a
+            // silhouette never covers the axis labels.
+            var silhouettes = PrepareSilhouettes(PcaExtremes());
 
             // One ellipse per point-colour group, matching how the scatter plot fits
             // one trend line per group.
@@ -2472,6 +2782,16 @@ namespace DinoLino
 
             foreach (var p in points)
                 DrawPoint(ToPx(p.X), ToPy(p.Y), 3, p.Specimen, forceVisible: true);
+
+            foreach (var p in points)
+                DrawPointLabel(ToPx(p.X), ToPy(p.Y), 3, p.Specimen);
+
+            foreach (var silhouette in silhouettes)
+            {
+                DrawSilhouette(silhouette,
+                    ToPx(_pcaResult.Scores[silhouette.Extreme.Row, xi]),
+                    ToPy(_pcaResult.Scores[silhouette.Extreme.Row, yi]));
+            }
 
             // A dropped specimen or column changes what the plot is of, so say so
             // rather than leaving an unexplained n.

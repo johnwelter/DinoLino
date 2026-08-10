@@ -189,64 +189,7 @@ namespace DinoLino
             GeomOpHistoryWindow.ExportAllGeometricData(
                 UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
         }
-
-        /// Exports every committed outline as a standardized black-on-white silhouette.
-        /// Unlike the CSV rows this writes many files, so it asks for a folder and a
-        /// file type first.
-        private void Workshop_Export2DOutlines(object sender, RoutedEventArgs e)
-        {
-            if (UndoRedoManager == null) return;
-
-            var availability = OutlineShapeExporter.Survey(
-                UndoRedoManager, SpecimenManager.DisplayName);
-
-            // Nothing to export until at least one outline has usable geometry.
-            if (availability.TracedCount == 0)
-            {
-                MessageBox.Show(
-                    this,
-                    "There are no outlines to export yet.\n\n" +
-                    "Trace or hand-draw an outline first.",
-                    "Export 2D Outlines",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-                return;
-            }
-
-            var dialog = new OutlineExportWindow(availability)
-            {
-                Owner = this,
-                FontSize = _currentFontSize,
-                FontFamily = _currentFont
-            };
-
-            if (dialog.ShowDialog() != true) return;
-
-            try
-            {
-                int written = OutlineShapeExporter.ExportAll(
-                    UndoRedoManager, SpecimenManager.DisplayName, dialog.Options);
-
-                MessageBox.Show(
-                    this,
-                    written == 1
-                        ? $"1 outline exported to:\n{dialog.Options.Folder}"
-                        : $"{written} outlines exported to:\n{dialog.Options.Folder}",
-                    "Export 2D Outlines",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    this,
-                    $"Could not finish the export:\n{ex.Message}",
-                    "Export failed",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-            }
-        }
-
+        
         // =====================
         // Editing
         // =====================
@@ -266,8 +209,19 @@ namespace DinoLino
         private void Workshop_EditEfa(object sender, RoutedEventArgs e)
             => OpenWorkshopEditor(WorkshopCategory.Efa);
 
+        /// Opens the folder of stored silhouettes, where they can be renamed,
+        /// duplicated, and deleted. Only what survives there is exported.
         private void Workshop_Edit2DOutlines(object sender, RoutedEventArgs e)
-            => OpenWorkshopEditor(WorkshopCategory.Outlines2D);
+        {
+            var window = new OutlineGalleryWindow
+            {
+                Owner = this,
+                FontSize = _currentFontSize,
+                FontFamily = _currentFont
+            };
+
+            window.ShowDialog();
+        }
 
         /// Opens the History window, where each tab can be staged for the workbook
         /// that the All Geometric Data export writes.
@@ -302,5 +256,55 @@ namespace DinoLino
             UpdateAttemptCounter();
         }
 
+        private void Workshop_Export2DOutlines(object sender, RoutedEventArgs e)
+        {
+            var availability = OutlineShapeExporter.Survey();
+
+            // Nothing to export until the user has stored at least one silhouette.
+            if (availability.TracedCount == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "There are no stored outlines to export yet.\n\n" +
+                    "Trace or hand-draw an outline, generate its metadata, then use " +
+                    "\"Commit Outline to History\" in the Outline panel to keep it.",
+                    "Export 2D Outlines",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var dialog = new OutlineExportWindow(availability)
+            {
+                Owner = this,
+                FontSize = _currentFontSize,
+                FontFamily = _currentFont
+            };
+
+            if (dialog.ShowDialog() != true) return;
+
+            try
+            {
+                int written = OutlineShapeExporter.ExportAll(dialog.Options);
+
+                MessageBox.Show(
+                    this,
+                    written == 1
+                        ? $"1 outline exported to:\n{dialog.Options.Folder}"
+                        : $"{written} outlines exported to:\n{dialog.Options.Folder}",
+                    "Export 2D Outlines",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex) 
+            {
+                MessageBox.Show(
+                        this,
+                        $"Could not finish the export:\n{ex.Message}",
+                        "Export failed",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+            }
+        }
     }
 }

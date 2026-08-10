@@ -131,12 +131,14 @@
             </Grid.ColumnDefinitions>
 
             <!-- Controls Panel: toolbars and outputs for different controls and modes-->
-            <ScrollViewer x:Name="UI_ControlPanelScroller" Grid.Column="0"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Auto">
-                <StackPanel x:Name="UI_ControlPanel" TextElement.FontSize="14"
-                        MinWidth="300"
-                        MaxWidth="{Binding ViewportWidth, ElementName=UI_ControlPanelScroller}">
+            <ScrollViewer x:Name="UI_ControlPanelScroller"
+              Grid.Column="0"
+              VerticalScrollBarVisibility="Visible"
+              HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="UI_ControlPanel"
+                TextElement.FontSize="14"
+                MinWidth="0"
+                Width="{Binding ViewportWidth, ElementName=UI_ControlPanelScroller}">
                     <!-- Controls that aren't dependent on mode type  -->
                     <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
                     <StackPanel x:Name="UI_GlobalControls" Orientation="Horizontal" Margin="10,10,10,5">
@@ -170,7 +172,34 @@
                         <TextBlock x:Name="UI_ScaleStatus"
                                Text="{Binding StatusText}"/>
                     </StackPanel>
-                    <Button x:Name="UI_AAClearButton" Content="Clear All" Margin="10,10,10,10" MinHeight="32" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
+                    <Button x:Name="UI_ClearSpecimenButton"
+                    Margin="10,10,10,10"
+                    MinHeight="32"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    VerticalAlignment="Top"
+                    Padding="8,4"
+                    Click="GlobalTools_ClearSpecimen"
+                    ToolTip="Clear measurements and operations for the current specimen only">
+                        <TextBlock Text="Clear Specimen Data"
+                        TextWrapping="Wrap"
+                        TextAlignment="Center"/>
+                    </Button>
+
+                    <Button x:Name="UI_ScaleButton"
+                        Margin="10,10,10,10"
+                        MinHeight="32"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        VerticalAlignment="Top"
+                        Padding="8,4"
+                        Click="Menu_SetScale">
+                        <TextBlock Text="Scale Image"
+                        TextWrapping="Wrap"
+                        TextAlignment="Center"/>
+                    </Button>
+
+
                     <!-- Creature art: the 1:2:1 columns make the middle column exactly half
                      the control panel's width, so the artwork is half size and centred
                      without any hard-coded margins. Toggled from View ▸ See Rex. -->
@@ -211,8 +240,8 @@
                         <Canvas x:Name="UI_WorkBackground" Background="Gray" />
                         <Image x:Name="UI_WorkImage"/>
                         <Grid x:Name="UI_ModelPoseOverlay" Visibility="Collapsed"
-      MouseDown="ModelPose_MouseDown" MouseMove="ModelPose_MouseMove"
-      MouseUp="ModelPose_MouseUp" MouseWheel="ModelPose_MouseWheel">
+                                MouseDown="ModelPose_MouseDown" MouseMove="ModelPose_MouseMove"
+                                MouseUp="ModelPose_MouseUp" MouseWheel="ModelPose_MouseWheel">
 
                             <!-- Opaque host: this is what gets rendered on capture, so the bitmap has a
          solid background (keeps JPEG-style consumers and outline contrast happy) -->
@@ -239,13 +268,13 @@
                  why it sits beside that button rather than in the fine-tune
                  panel. Both are driven from the 3D pose code-behind. -->
                             <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,12"
-            Background="#CC202020" CornerRadius="6" Padding="10,6">
+                                Background="#CC202020" CornerRadius="6" Padding="10,6">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock x:Name="UI_ModelPoseHint" Foreground="White" VerticalAlignment="Center"
-                       Text="Press scroll-wheel or arrow keys to rotate  •  Wheel to zoom"/>
+                                    Text="Press scroll-wheel or arrow keys to rotate  •  Wheel to zoom"/>
                                     <CheckBox x:Name="UI_ApplyPoseToAll" Content="Apply to all 3D objects"
-                       Foreground="White" VerticalAlignment="Center" Margin="16,0,0,0"
-                       ToolTip="Give every other 3D object in this session this same orientation"/>
+                                    Foreground="White" VerticalAlignment="Center" Margin="16,0,0,0"
+                                    ToolTip="Give every other 3D object in this session this same orientation"/>
                                     <Button Content="Capture View" Margin="14,0,0,0" Padding="10,3" Click="ModelPose_Capture"/>
                                     <Button Content="Cancel" Margin="8,0,0,0" Padding="10,3" Click="ModelPose_Cancel"/>
                                 </StackPanel>
@@ -444,10 +473,17 @@
                                FontWeight="Bold" FontSize="16"
                                HorizontalAlignment="Left" VerticalAlignment="Center"/>
                     </DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Export measurements for all specimens."
+                    <TextBlock DockPanel.Dock="Top" Text="Edit and export data for all specimens."
                            Foreground="#777" TextWrapping="Wrap"
                            HorizontalAlignment="Left" Margin="2,0,0,8"/>
 
+                    <Button x:Name="UI_AAClearButton" 
+                            DockPanel.Dock="Bottom" 
+                            Content="Clear All" MinHeight="32"
+                            Margin="2,10,2,0"
+                            Click="GlobalTools_Clear"
+                            ToolTip="Clear all operations from the current specimen"/>
+                    
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                               VerticalAlignment="Top" MaxHeight="340">
                         <StackPanel>
@@ -703,7 +739,6 @@
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
                                     <!-- X: categorical for boxplots, continuous for scatter plots,
@@ -726,27 +761,13 @@
                       SelectionChanged="Plot_OptionChanged"
                       ToolTip="A variable measured this session"/>
 
-                                    <!-- Scatter only. -->
-                                    <TextBlock x:Name="UI_PlotTrendLabel" Grid.Row="1" Grid.Column="0"
-                       Text="Trend line" VerticalAlignment="Center" Margin="0,0,6,4"
-                       Visibility="Collapsed"/>
-                                    <ComboBox x:Name="UI_PlotTrendBox" Grid.Row="1" Grid.Column="1"
-                      Grid.ColumnSpan="3" Margin="0,0,0,4"
-                      SelectedIndex="0" SelectionChanged="Plot_OptionChanged"
-                      Visibility="Collapsed"
-                      ToolTip="lm fits a straight least-squares line; loess fits a local regression curve">
-                                        <ComboBoxItem Content="None"/>
-                                        <ComboBoxItem Content="lm"/>
-                                        <ComboBoxItem Content="loess"/>
-                                    </ComboBox>
-
-                                    <!-- Advanced opens the dialog holding colour, fill, titles, and
-                                         point shape; Refresh re-reads the session's measurements. -->
-                                    <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4"
+                                    <!-- Advanced opens the dialog holding colour, points, the trend
+                                         line, and titles; Refresh re-reads the session's measurements. -->
+                                    <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="4"
                                                 Orientation="Horizontal" HorizontalAlignment="Left">
                                         <TextBlock Margin="4,0,0,0">
                                             <Hyperlink x:Name="UI_PlotAdvancedLink" Click="Plot_OpenAdvanced"
-                                                       ToolTip="Customize colors, titles, and point shape">Advanced +</Hyperlink>
+                                                       ToolTip="Customize colors, points, trend line, and titles">Advanced +</Hyperlink>
                                         </TextBlock>
                                         <TextBlock Margin="22,-2,0,0">
                                             <Hyperlink x:Name="UI_PlotRefreshLink" Click="Plot_Refresh"

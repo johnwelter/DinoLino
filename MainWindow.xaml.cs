@@ -46,7 +46,37 @@ namespace DinoLino
             SetWorkspaceImage(arriving.Image, arriving.FileName, registerAsNewSpecimen: false);
 
             // Load the arriving specimen's operation context after the new image is in place.
-            UndoRedoManager.SwitchActiveSpecimen(departing, SpecimenManager.NameOf(departing), arriving);
+            UndoRedoManager.SwitchActiveSpecimen(
+                departing,
+                SpecimenManager.NameOf(departing),
+                arriving);
+
+            // Metadata preview/results belong to the specimen that was just left.
+            // After the arriving specimen is fully active, return Outline mode to
+            // Automated Outline if Generate Metadata had been selected.
+            ResetOutlineToolForNewSpecimen();
+        }
+
+        /// <summary>
+        /// Generate Metadata applies to the outline shown for the prior specimen.
+        /// When the active specimen changes, switch an active Outline panel back to
+        /// Automated Outline rather than carrying metadata-preview mode forward.
+        /// </summary>
+        private void ResetOutlineToolForNewSpecimen()
+        {
+            // The user must actually be viewing the Outline tab. Do not change an
+            // Outline-mode setting merely because the OutlineMode object exists.
+            if (!ReferenceEquals(CurrentWorkMode, OutlineMode))
+                return;
+
+            if (!OutlineMode.OutlineMetadataMode)
+                return;
+
+            // Explicitly update both bound properties. This ensures that the backing
+            // mode state and the OutlineTool radio-button group agree even before WPF
+            // has completed its binding/UI update cycle.
+            OutlineMode.OutlineMetadataMode = false;
+            OutlineMode.DrawOutlineMode = true;
         }
 
         // Selected workspace font settings.
@@ -176,6 +206,9 @@ namespace DinoLino
 
             // Refresh the attempt counter whenever outline metadata is generated.
             OutlineMode.MetadataGenerated += UpdateAttemptCounter;
+
+            // "Commit Outline to History" in the Outline panel.
+            OutlineMode.CommitOutlineRequested += OutlineCommit_Requested;
 
             UndoRedoManager = new UndoRedoManager();
             CurvatureMode.UndoRedoManager = UndoRedoManager;

@@ -320,6 +320,13 @@ namespace DinoLino.Utilities.Modes
             _efaContourBox?.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
         }
 
+        /// The mode owns the outline; the window that names and stores it is opened
+        /// by MainWindow, which knows the specimen and the working directory.
+        private void CommitOutline_Click(object sender, RoutedEventArgs e)
+        {
+            _mode?.RequestCommitOutline();
+        }
+
         private void ShowEFDDetails_Click(object sender, RoutedEventArgs e)
         {
             // Single instance: a second click focuses the existing window.

@@ -1,6 +1,4 @@
-﻿using DinoLino.Utilities.Modes;
-using DinoLino.Utilities.Operations;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -9,10 +7,9 @@ using System.Text;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 
-// System.IO and System.Windows.Shapes both define Path, and this file needs Polyline
-// from Shapes, so the file-handling one is aliased.
+// System.IO.Path is aliased so the file-handling calls read unambiguously beside
+// the geometry types this file works with.
 using IOPath = System.IO.Path;
 
 namespace DinoLino.Utilities
@@ -59,10 +56,10 @@ namespace DinoLino.Utilities
         public bool AlignRotation { get; set; } = true;
     }
 
-    /// <summary>What the current history can produce, used to set up the export dialog.</summary>
+    /// <summary>What the store can currently produce, used to set up the export dialog.</summary>
     public class OutlineExportAvailability
     {
-        /// <summary>Outlines with usable traced geometry.</summary>
+        /// <summary>Committed silhouettes with usable geometry.</summary>
         public int TracedCount { get; set; }
 
         /// Outlines too close to circular for a principal axis to be meaningful, whose
@@ -73,14 +70,19 @@ namespace DinoLino.Utilities
     /// <summary>
     /// Exports committed outlines as silhouettes: a black filled shape centred on a
     /// white square canvas, standardized to a common area only when asked for.
+    ///
+    /// The source is CommittedOutlineStore rather than the operation history: only
+    /// outlines the user deliberately kept are written, and because the store holds
+    /// point snapshots, undo, redo, and Batch Workshop edits cannot change what
+    /// comes out of here.
     /// </summary>
     public static class OutlineShapeExporter
     {
-        /// <summary>One outline pulled out of the operation history.</summary>
+        /// <summary>One committed silhouette, ready to normalize.</summary>
         private sealed class OutlineShape
         {
-            public string SpecimenName;
-            public int Attempt;             // 1-based index within that specimen
+            public string SpecimenName;     // specimen as named when it was committed
+            public string Name;             // file stem the user chose
             public List<Point> Points;      // canvas space, closure point stripped
         }
 
@@ -95,57 +97,26 @@ namespace DinoLino.Utilities
             public double HalfExtent;       // furthest reach from the origin on either axis
         }
 
-        /// <summary>One specimen's operations, paired with the name to label it by.</summary>
-        private sealed class SpecimenBlock
-        {
-            public string Name;
-            public IReadOnlyList<WorkOperation> Operations;
-        }
-
-        /// Every specimen's operations in order: the archived records followed by the
-        /// live history, which holds the active specimen. Walked locally rather than
-        /// borrowed from GeomOpHistoryWindow so this exporter stands on its own.
-        private static IEnumerable<SpecimenBlock> SpecimenBlocks(
-            UndoRedoManager undoRedo, string currentSpecimenName)
-        {
-            if (undoRedo == null) yield break;
-
-            foreach (var record in undoRedo.Archive)
-            {
-                yield return new SpecimenBlock
-                {
-                    Name = record.SpecimenName,
-                    Operations = record.Operations
-                };
-            }
-
-            yield return new SpecimenBlock
-            {
-                Name = currentSpecimenName,
-                Operations = undoRedo.History
-            };
-        }
-
         // =====================
-        // Entry point
+        // Entry points
         // =====================
 
         /// <summary>
-        /// Writes one image per committed outline into the chosen folder.
+        /// Writes one image per COMMITTED outline into the chosen folder. Outlines the
+        /// user never stored are not exported.
         /// Returns the number of files written.
         /// </summary>
-        public static int ExportAll(
-            UndoRedoManager undoRedo, string currentSpecimenName, OutlineExportOptions options)
+        public static int ExportAll(OutlineExportOptions options)
         {
-            if (undoRedo == null || options == null) return 0;
+            if (options == null) return 0;
 
-            var shapes = CollectShapes(undoRedo, currentSpecimenName, options);
+            var shapes = CollectShapes();
             if (shapes.Count == 0) return 0;
 
             // Centre and orient everything first: an unscaled export has to see the
             // whole batch before it can decide how large the canvas lets it draw.
             var prepared = new List<PreparedShape>(shapes.Count);
-            foreach (var shape in shapes)
+            foreach (OutlineShape shape in shapes)
             {
                 PreparedShape p = Prepare(shape, options);
                 if (p != null) prepared.Add(p);   // degenerate outlines drop out here
@@ -177,73 +148,112 @@ namespace DinoLino.Utilities
             return written;
         }
 
-        /// Reports what the current history can export, so the dialog can size its
-        /// preview text and warn about shapes whose orientation cannot be pinned down.
-        public static OutlineExportAvailability Survey(
-            UndoRedoManager undoRedo, string currentSpecimenName)
+        /// Reports what the store can export, so the dialog can size its preview text
+        /// and warn about shapes whose orientation cannot be pinned down.
+        public static OutlineExportAvailability Survey()
         {
             var result = new OutlineExportAvailability();
-            if (undoRedo == null) return result;
 
-            foreach (SpecimenBlock block in SpecimenBlocks(undoRedo, currentSpecimenName))
+            foreach (OutlineShape shape in CollectShapes())
             {
-                foreach (var op in block.Operations.OfType<OutlineOperation>())
-                {
-                    var pts = BuildFromTracedPoints(op);
-                    if (pts == null) continue;
+                result.TracedCount++;
 
-                    result.TracedCount++;
-
-                    if (!HasStableOrientation(pts))
-                        result.UnstableRotationCount++;
-                }
+                if (!HasStableOrientation(shape.Points))
+                    result.UnstableRotationCount++;
             }
 
             return result;
+        }
+
+        /// Writes ONE committed silhouette into options.Folder, choosing a name that
+        /// does not overwrite a file already sitting there. Returns the path written,
+        /// or null when the folder is missing or the outline is degenerate.
+        public static string ExportOne(CommittedOutline outline, OutlineExportOptions options)
+        {
+            if (outline == null || options == null) return null;
+            if (string.IsNullOrEmpty(options.Folder) || !Directory.Exists(options.Folder)) return null;
+
+            string stem = Sanitize(outline.Name);
+            if (string.IsNullOrWhiteSpace(stem)) stem = Sanitize(outline.SpecimenName);
+            if (string.IsNullOrWhiteSpace(stem)) stem = "outline";
+
+            // Aligned exports are tagged so they can sit beside unrotated ones, the
+            // same way the batch names them.
+            if (options.AlignRotation) stem += "_aligned";
+
+            string ext = Extension(options.Format);
+            string path = IOPath.Combine(options.Folder, stem + ext);
+
+            for (int suffix = 2; File.Exists(path); suffix++)
+                path = IOPath.Combine(options.Folder, $"{stem}_{suffix}{ext}");
+
+            return ExportToPath(outline, options, path) ? path : null;
+        }
+
+        /// Writes one committed silhouette to an exact path. Scaling follows the same
+        /// rules as the batch: the standardized area when asked for, otherwise the
+        /// traced size, clamped only if the shape would run off the canvas.
+        public static bool ExportToPath(
+            CommittedOutline outline, OutlineExportOptions options, string path)
+        {
+            if (outline == null || options == null || string.IsNullOrEmpty(path)) return false;
+
+            OutlineShape shape = ToShape(outline);
+            if (shape == null) return false;
+
+            PreparedShape prepared = Prepare(shape, options);
+            if (prepared == null) return false;
+
+            // A batch of one: the shared factor collapses to this shape's own clamp.
+            double scale = options.ScaleToCommonArea
+                ? AreaScale(prepared, options)
+                : CommonScale(new List<PreparedShape> { prepared }, options);
+
+            List<Point> placed = PlaceOnCanvas(prepared, scale, options.CanvasSize);
+
+            if (options.Format == OutlineImageFormat.Svg)
+                WriteSvg(path, placed, options.CanvasSize);
+            else
+                WriteRaster(path, placed, options.CanvasSize, options.Format);
+
+            return true;
         }
 
         // =====================
         // Collection
         // =====================
 
-        /// <summary>Pulls one shape per committed outline from its traced polyline.</summary>
-        private static List<OutlineShape> CollectShapes(
-            UndoRedoManager undoRedo, string currentSpecimenName, OutlineExportOptions options)
+        /// <summary>Every silhouette the user has committed this session, in order.</summary>
+        private static List<OutlineShape> CollectShapes()
         {
             var shapes = new List<OutlineShape>();
 
-            foreach (SpecimenBlock block in SpecimenBlocks(undoRedo, currentSpecimenName))
+            foreach (CommittedOutline committed in CommittedOutlineStore.Outlines)
             {
-                int attempt = 0;
-                foreach (var op in block.Operations.OfType<OutlineOperation>())
-                {
-                    List<Point> pts = BuildFromTracedPoints(op);
-
-                    if (pts == null) continue;
-
-                    attempt++;
-                    shapes.Add(new OutlineShape
-                    {
-                        SpecimenName = block.Name,
-                        Attempt = attempt,
-                        Points = pts
-                    });
-                }
+                OutlineShape shape = ToShape(committed);
+                if (shape != null) shapes.Add(shape);
             }
 
             return shapes;
         }
 
-        /// The polyline stored with each operation is the live shape, so erase and
-        /// smooth edits are already reflected here.
-        private static List<Point> BuildFromTracedPoints(OutlineOperation op)
+        /// The stored points are already a snapshot taken at commit time, so they are
+        /// copied here only to keep the normalization passes from writing back into
+        /// the store.
+        private static OutlineShape ToShape(CommittedOutline committed)
         {
-            var polyline = op.Elements?.OfType<Polyline>().FirstOrDefault();
-            if (polyline == null || polyline.Points.Count < 3) return null;
+            if (committed?.Points == null) return null;
 
-            var pts = new List<Point>(polyline.Points);
+            var pts = new List<Point>(committed.Points);
             PolylineGeometry.StripClosureDuplicate(pts);
-            return pts.Count >= 3 ? pts : null;
+            if (pts.Count < 3) return null;
+
+            return new OutlineShape
+            {
+                SpecimenName = committed.SpecimenName,
+                Name = committed.Name,
+                Points = pts
+            };
         }
 
         /// True when the outline is elongated enough for its principal axis to be a
@@ -519,16 +529,7 @@ namespace DinoLino.Utilities
 
         private static void WriteRaster(string path, List<Point> pts, int size, OutlineImageFormat format)
         {
-            var visual = new DrawingVisual();
-            using (DrawingContext dc = visual.RenderOpen())
-            {
-                // White background fills the whole canvas, including under the shape.
-                dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, size, size));
-                dc.DrawGeometry(Brushes.Black, null, BuildGeometry(pts));
-            }
-
-            var bitmap = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(visual);
+            RenderTargetBitmap bitmap = RenderBitmap(pts, size);
 
             BitmapEncoder encoder = format switch
             {
@@ -542,6 +543,52 @@ namespace DinoLino.Utilities
 
             using var stream = new FileStream(path, FileMode.Create, FileAccess.Write);
             encoder.Save(stream);
+        }
+
+        /// <summary>Draws one placed silhouette: black shape on a white square.</summary>
+        private static RenderTargetBitmap RenderBitmap(List<Point> pts, int size)
+        {
+            var visual = new DrawingVisual();
+            using (DrawingContext dc = visual.RenderOpen())
+            {
+                // White background fills the whole canvas, including under the shape.
+                dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, size, size));
+                dc.DrawGeometry(Brushes.Black, null, BuildGeometry(pts));
+            }
+
+            var bitmap = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(visual);
+            return bitmap;
+        }
+
+        /// Renders one stored silhouette for the gallery. The shape is scaled to fill
+        /// the tile and left at the orientation it was traced at: the batch export
+        /// asks about alignment separately, so a rotated preview here would show
+        /// something the export has not been told to do.
+        public static BitmapSource RenderThumbnail(CommittedOutline outline, int size)
+        {
+            if (outline == null || size < 8) return null;
+
+            OutlineShape shape = ToShape(outline);
+            if (shape == null) return null;
+
+            var options = new OutlineExportOptions
+            {
+                CanvasSize = size,
+                AlignRotation = false,
+                ScaleToCommonArea = true,
+                TargetAreaFraction = 0.45,           // fuller than an export: a tile is small
+                Margin = Math.Max(2, size * 0.06)
+            };
+
+            PreparedShape prepared = Prepare(shape, options);
+            if (prepared == null) return null;
+
+            var bitmap = RenderBitmap(
+                PlaceOnCanvas(prepared, AreaScale(prepared, options), size), size);
+
+            bitmap.Freeze();   // cached and reused across the gallery's rebuilds
+            return bitmap;
         }
 
         /// <summary>Builds a filled closed geometry from the normalized points.</summary>
@@ -601,19 +648,18 @@ namespace DinoLino.Utilities
             _ => ".png"
         };
 
-        /// Builds a filesystem-safe name, suffixing the attempt number when a specimen
-        /// holds more than one outline and disambiguating any remaining collisions.
-        /// EFA-aligned exports are tagged so they can sit beside traced ones.
+        /// Builds a filesystem-safe name from the name the user gave the silhouette
+        /// when committing it, falling back to the specimen. Aligned exports are
+        /// tagged so they can sit beside unrotated ones, and any collision left within
+        /// the batch is numbered off.
         private static string UniqueFileName(
             OutlineShape shape, OutlineExportOptions options, HashSet<string> used)
         {
-            string baseName = Sanitize(shape.SpecimenName);
-            if (string.IsNullOrWhiteSpace(baseName)) baseName = "specimen";
+            string stem = Sanitize(shape.Name);
+            if (string.IsNullOrWhiteSpace(stem)) stem = Sanitize(shape.SpecimenName);
+            if (string.IsNullOrWhiteSpace(stem)) stem = "specimen";
 
-            string kind = options.AlignRotation ? "_aligned" : "";
-            string stem = shape.Attempt > 1
-                ? $"{baseName}_outline{shape.Attempt}{kind}"
-                : $"{baseName}_outline{kind}";
+            if (options.AlignRotation) stem += "_aligned";
 
             string ext = Extension(options.Format);
 

@@ -35,6 +35,14 @@ namespace DinoLino
 
         public const string DefaultPaletteName = "Colorblind friendly";
 
+        // Trend fits offered on a scatter plot. "lm" and "loess" are the strings
+        // DrawTrend dispatches on, so they are named here rather than typed twice.
+        public const string TrendNone = "None";
+        public const string TrendLinear = "lm";
+        public const string TrendLoess = "loess";
+
+        public static readonly string[] TrendChoices = { TrendNone, TrendLinear, TrendLoess };
+
         /// <summary>Group column the fill is split by, or "None".</summary>
         public string ColourBy { get; set; } = MainWindow.ColourNone;
 
@@ -47,9 +55,31 @@ namespace DinoLino
         /// <summary>"None", "Circle", or a group column name.</summary>
         public string PointShape { get; set; } = AestheticCircle;
 
+        /// "None", "Specimen", or a group column name. Labels sit beside the points,
+        /// so a plot that is not drawing points does not draw them either.
+        public string LabelBy { get; set; } = AestheticNone;
+
+        /// <summary>"None", "lm", or "loess". Scatter plots only.</summary>
+        public string Trend { get; set; } = TrendNone;
+
+        /// Write the fitted line's equation and its R² on the plot. Both read the
+        /// least-squares fit, so neither applies to a loess curve.
+        public bool ShowEquation { get; set; } = false;
+        public bool ShowRSquared { get; set; } = false;
+
         /// Draw a 95% confidence ellipse around each point-color group. Only the
         /// PCA scores plot reads this; the other plot types ignore it.
         public bool ConfidenceEllipses { get; set; } = false;
+
+        /// Draw each extreme specimen's stored silhouette beside its point. Only the
+        /// PCA scores plot reads this.
+        public bool ShowSilhouettes { get; set; } = false;
+
+        /// specimen -> the stored outline name chosen for it. A specimen missing from
+        /// the map, or naming an outline that has since gone, falls back to whichever
+        /// the store lists first.
+        public Dictionary<string, string> SilhouetteChoices =
+            new Dictionary<string, string>(StringComparer.Ordinal);
 
         // Blank means "use the generated text", so a user who clears a box gets
         // the default back rather than an empty title.
@@ -149,6 +179,9 @@ namespace DinoLino
 
             PointShape = KeepIfPresent(PointShape, AestheticCircle,
                 AestheticNone, AestheticCircle);
+
+            LabelBy = KeepIfPresent(LabelBy, AestheticNone,
+                AestheticNone, MainWindow.CategorySpecimen);
         }
 
         private static string KeepIfPresent(string value, string fallback, params string[] reserved)
@@ -161,7 +194,15 @@ namespace DinoLino
                 : fallback;
         }
 
-        public PlotOptions Clone() => (PlotOptions)MemberwiseClone();
+        /// The dictionary is copied rather than shared: the dialog edits a clone, so
+        /// Cancel must leave the live options untouched.
+        public PlotOptions Clone()
+        {
+            var copy = (PlotOptions)MemberwiseClone();
+            copy.SilhouetteChoices =
+                new Dictionary<string, string>(SilhouetteChoices, StringComparer.Ordinal);
+            return copy;
+        }
     }
 
     /// <summary>
@@ -175,6 +216,19 @@ namespace DinoLino
         public bool SupportsFill;
 
         public bool SupportsPoints;
+        /// True when the plot draws one mark per datapoint for a label to sit beside.
+        public bool SupportsLabels;
+
+        /// True when the plot can carry a fitted trend line.
+        public bool SupportsTrend;
+
+        public string TrendNote = "";
+
+        /// True when those marks are optional, so labels follow the point settings
+        /// rather than being available outright. Only the boxplot works this way.
+        public bool LabelsRequirePoints;
+
+        public string LabelNote = "";
         public bool SupportsXAxisTitle;
         public bool SupportsYAxisTitle;
 
@@ -194,6 +248,8 @@ namespace DinoLino
                     {
                         SupportsFill = true,
                         SupportsPoints = true,
+                        SupportsLabels = true,
+                        LabelsRequirePoints = true,
                         SupportsXAxisTitle = true,
                         SupportsYAxisTitle = true
                     };
@@ -203,6 +259,8 @@ namespace DinoLino
                     {
                         SupportsFill = false,
                         SupportsPoints = true,
+                        SupportsLabels = true,
+                        SupportsTrend = true,
                         SupportsXAxisTitle = true,
                         SupportsYAxisTitle = true,
                         FillNote = "Scatter plots have no filled areas."
@@ -218,7 +276,8 @@ namespace DinoLino
                         SupportsXAxisTitle = true,
                         SupportsYAxisTitle = true,
                         FillNote = "Histograms use a single fill.",
-                        PointNote = "Histograms draw bars, not points."
+                        PointNote = "Histograms draw bars, not points.",
+                        LabelNote = "Datapoints are not drawn and thus cannot be labeled."
                     };
 
                 case "QQ plot":
@@ -228,7 +287,7 @@ namespace DinoLino
                         SupportsPoints = true,
                         SupportsXAxisTitle = true,
                         SupportsYAxisTitle = true,
-                        FillNote = "QQ plots have no filled areas."
+                        FillNote = "QQ plots have no filled areas.",
                     };
 
                 case "Dot plot":
@@ -236,11 +295,23 @@ namespace DinoLino
                     {
                         SupportsFill = false,
                         SupportsPoints = true,
+                        SupportsLabels = true,
                         SupportsXAxisTitle = true,
 
                         // The vertical axis is a stack count with no scale drawn.
                         SupportsYAxisTitle = false,
                         FillNote = "Dot plots have no filled areas."
+                    };
+
+                case "PCA":
+                    return new PlotCapabilities
+                    {
+                        SupportsFill = false,
+                        SupportsPoints = true,
+                        SupportsLabels = true,
+                        SupportsXAxisTitle = true,
+                        SupportsYAxisTitle = true,
+                        FillNote = "Scores plots have no filled areas."
                     };
 
                 default:
@@ -263,9 +334,15 @@ namespace DinoLino
         private ComboBox _paletteBox;
         private ComboBox _pointColorBox;
         private ComboBox _shapeBox;
+        private ComboBox _labelBox;
+        private ComboBox _trendBox;
+        private CheckBox _equationBox;
+        private CheckBox _rSquaredBox;
         private TextBox _titleBox;
         private TextBox _xTitleBox;
         private TextBox _yTitleBox;
+        private const string LabelTip =
+            "Write each point's specimen name, or its group under a column, beside it";
 
         internal PlotAdvancedWindow(PlotOptions current, PlotCapabilities capabilities)
         {
@@ -341,12 +418,43 @@ namespace DinoLino
                 "Black draws every point the same. A group column gives each of "
                 + "its groups its own color; None hides the points."));
 
+            // Also drives the dependent rows: on a boxplot the labels are only
+            // available once both point settings are drawing something.
             _shapeBox = new ComboBox { ItemsSource = MainWindow.PlotPointShapeChoices() };
             _shapeBox.SelectedItem =
                 Select(_shapeBox, _working.PointShape, PlotOptions.AestheticCircle);
+            _shapeBox.SelectionChanged += (s, e) => UpdateDependentRows();
             panel.Children.Add(Row("Point shape", _shapeBox,
                 "Circle draws every point the same. A group column gives each of "
                 + "its groups its own marker; None hides the points."));
+
+            _labelBox = new ComboBox { ItemsSource = MainWindow.PlotLabelChoices() };
+            _labelBox.SelectedItem = Select(_labelBox, _working.LabelBy, PlotOptions.AestheticNone);
+            panel.Children.Add(Row("Add Labels", _labelBox, LabelTip));
+
+            panel.Children.Add(SectionHeader("Trend line"));
+
+            _trendBox = new ComboBox { ItemsSource = PlotOptions.TrendChoices.ToList() };
+            _trendBox.SelectedItem = Select(_trendBox, _working.Trend, PlotOptions.TrendNone);
+            _trendBox.SelectionChanged += (s, e) => UpdateDependentRows();
+            panel.Children.Add(Row("Fit", _trendBox,
+                "lm fits a straight least-squares line; loess fits a local regression curve"));
+
+            _equationBox = new CheckBox
+            {
+                Content = "Show regression equation",
+                IsChecked = _working.ShowEquation,
+                Margin = new Thickness(2, 2, 0, 4)
+            };
+            panel.Children.Add(_equationBox);
+
+            _rSquaredBox = new CheckBox
+            {
+                Content = "Show R\u00B2",
+                IsChecked = _working.ShowRSquared,
+                Margin = new Thickness(2, 0, 0, 8)
+            };
+            panel.Children.Add(_rSquaredBox);
 
             panel.Children.Add(SectionHeader("Titles"));
 
@@ -459,6 +567,10 @@ namespace DinoLino
             _shapeBox.IsEnabled = _capabilities.SupportsPoints;
             _xTitleBox.IsEnabled = _capabilities.SupportsXAxisTitle;
             _yTitleBox.IsEnabled = _capabilities.SupportsYAxisTitle;
+            _trendBox.IsEnabled = _capabilities.SupportsTrend;
+
+            if (!_capabilities.SupportsTrend && !string.IsNullOrEmpty(_capabilities.TrendNote))
+                _trendBox.ToolTip = _capabilities.TrendNote;
 
             if (!_capabilities.SupportsFill && !string.IsNullOrEmpty(_capabilities.FillNote))
                 _colourByBox.ToolTip = _capabilities.FillNote;
@@ -486,6 +598,44 @@ namespace DinoLino
             _paletteBox.ToolTip = _paletteBox.IsEnabled
                 ? "Colors the levels cycle through"
                 : "Set \"Color by\" or \"Point color\" to a group to use a palette";
+
+            // Labels sit beside the markers, so on a boxplot — the one plot whose
+            // points are optional — they follow whether those points are drawn.
+            bool pointsShown =
+                (_pointColorBox.SelectedItem as string) != PlotOptions.AestheticNone &&
+                (_shapeBox.SelectedItem as string) != PlotOptions.AestheticNone;
+
+            bool labelsUsable = _capabilities.SupportsLabels &&
+                                (!_capabilities.LabelsRequirePoints || pointsShown);
+
+            _labelBox.IsEnabled = labelsUsable;
+            _labelBox.ToolTip =
+                labelsUsable ? LabelTip
+                : !_capabilities.SupportsLabels
+                    ? (string.IsNullOrEmpty(_capabilities.LabelNote)
+                        ? "Labels are not available on this plot type."
+                        : _capabilities.LabelNote)
+                    : "Add points to the boxplot first: set Point color and Point shape "
+                      + "to something other than None.";
+
+            // Both readings come off the least-squares fit, so a loess curve — which
+            // has no single equation to write down — leaves them unavailable.
+            bool linear = _capabilities.SupportsTrend &&
+                          (_trendBox.SelectedItem as string) == PlotOptions.TrendLinear;
+
+            _equationBox.IsEnabled = linear;
+            _rSquaredBox.IsEnabled = linear;
+
+            string fitNote = !_capabilities.SupportsTrend
+                ? (string.IsNullOrEmpty(_capabilities.TrendNote)
+                    ? "Trend lines are not available on this plot type."
+                    : _capabilities.TrendNote)
+                : "Set Fit to lm to write the equation and R\u00B2 on the plot";
+
+            _equationBox.ToolTip = linear
+                ? "Write the fitted line's equation at the top of the plot" : fitNote;
+            _rSquaredBox.ToolTip = linear
+                ? "Write the fit's R\u00B2 at the top of the plot" : fitNote;
         }
 
         // ---- Commit ----
@@ -506,6 +656,15 @@ namespace DinoLino
 
             if (_shapeBox.IsEnabled)
                 target.PointShape = _shapeBox.SelectedItem as string ?? PlotOptions.AestheticCircle;
+
+            if (_labelBox.IsEnabled)
+                target.LabelBy = _labelBox.SelectedItem as string ?? PlotOptions.AestheticNone;
+
+            if (_trendBox.IsEnabled)
+                target.Trend = _trendBox.SelectedItem as string ?? PlotOptions.TrendNone;
+
+            if (_equationBox.IsEnabled) target.ShowEquation = _equationBox.IsChecked == true;
+            if (_rSquaredBox.IsEnabled) target.ShowRSquared = _rSquaredBox.IsChecked == true;
 
             target.Title = _titleBox.Text?.Trim() ?? "";
             if (_xTitleBox.IsEnabled) target.XAxisTitle = _xTitleBox.Text?.Trim() ?? "";
@@ -537,6 +696,28 @@ namespace DinoLino
 
         /// <summary>Optional grey line shown under the row, explaining the entry.</summary>
         public string Note;
+    }
+
+    /// <summary>Which side of its point a silhouette is drawn on.</summary>
+    public enum SilhouetteSide { Left, Right, Above, Below }
+
+    /// <summary>
+    /// One extreme datapoint on the scores plot: the specimen holding the highest
+    /// or lowest score on a plotted component. Silhouettes attach to these.
+    /// </summary>
+    public sealed class PcaExtreme
+    {
+        /// <summary>Row of the PCA result, so the plot can read its coordinates.</summary>
+        public int Row;
+
+        public string Specimen;
+
+        /// <summary>Shown to the user, e.g. "Highest PC1".</summary>
+        public string Role;
+
+        /// Outboard of the extreme it holds, so no other datapoint can lie between
+        /// the silhouette and its own point.
+        public SilhouetteSide Side;
     }
 
     /// <summary>
@@ -613,15 +794,20 @@ namespace DinoLino
 
         private ComboBox _pointColorBox;
         private ComboBox _pointShapeBox;
+        private ComboBox _labelBox;
         private TextBox _titleBox;
         private CheckBox _ellipseBox;
+        private CheckBox _silhouetteBox;
+        private readonly List<PcaExtreme> _extremes;
 
         internal PcaAdvancedWindow(
-            PcaDataFrame current, PlotOptions options, IEnumerable<PcaVariableEntry> catalog)
+            PcaDataFrame current, PlotOptions options,
+            IEnumerable<PcaVariableEntry> catalog, IEnumerable<PcaExtreme> extremes)
         {
             _working = current?.Clone() ?? new PcaDataFrame();
             _workingOptions = (options ?? new PlotOptions()).Clone();
             _catalog = catalog?.ToList() ?? new List<PcaVariableEntry>();
+            _extremes = extremes?.ToList() ?? new List<PcaExtreme>();
 
             Title = "Advanced PCA options";
             Width = 460;
@@ -872,6 +1058,12 @@ namespace DinoLino
                 "Circle draws every specimen the same. A group column gives each of "
                 + "its groups its own marker."));
 
+            _labelBox = new ComboBox { ItemsSource = MainWindow.PlotLabelChoices() };
+            _labelBox.SelectedItem = SelectedOrFallback(
+                _labelBox, _workingOptions.LabelBy, PlotOptions.AestheticNone);
+            stack.Children.Add(Row("Add Labels", _labelBox,
+                "Write each specimen's name, or its group under a column, beside its score"));
+
             _ellipseBox = new CheckBox
             {
                 Content = "95% confidence ellipses",
@@ -882,6 +1074,26 @@ namespace DinoLino
                         + "at least three specimens to define an ellipse."
             };
             stack.Children.Add(_ellipseBox);
+
+            _silhouetteBox = new CheckBox
+            {
+                Content = "Add Silhouettes",
+                IsChecked = _workingOptions.ShowSilhouettes,
+                Margin = new Thickness(2, 8, 0, 2)
+            };
+            _silhouetteBox.Checked += (s, e) => OnSilhouettesTicked();
+            stack.Children.Add(_silhouetteBox);
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = "2D outlines are added for the data points that exhibit maximum "
+                     + "and minimum X and Y values.",
+                Foreground = Brushes.Gray,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(20, 0, 0, 4)
+            });
+
+            ApplySilhouetteAvailability();
 
             return new Border
             {
@@ -975,6 +1187,72 @@ namespace DinoLino
 
         // A row's + is live only while the entry is out of the dataframe and its
         // − only while it is in, so the buttons themselves say what is staged.
+
+        /// The option needs a run to have produced extremes, and every one of those
+        /// specimens to have a stored silhouette; a disabled box says which is missing.
+        private void ApplySilhouetteAvailability()
+        {
+            ToolTipService.SetShowOnDisabled(_silhouetteBox, true);
+
+            if (_extremes.Count == 0)
+            {
+                _silhouetteBox.IsEnabled = false;
+                _silhouetteBox.IsChecked = false;
+                _silhouetteBox.ToolTip =
+                    "Run the PCA and choose both components first.";
+                return;
+            }
+
+            var missing = _extremes
+                .Select(x => x.Specimen)
+                .Distinct(StringComparer.Ordinal)
+                .Where(s => CommittedOutlineStore.CountFor(s) == 0)
+                .ToList();
+
+            if (missing.Count > 0)
+            {
+                _silhouetteBox.IsEnabled = false;
+                _silhouetteBox.IsChecked = false;
+                _silhouetteBox.ToolTip =
+                    "No outline has been stored for " + string.Join(", ", missing) + ". "
+                    + "Commit an outline for each of those specimens first.";
+                return;
+            }
+
+            _silhouetteBox.IsEnabled = true;
+            _silhouetteBox.ToolTip =
+                "Draw each extreme specimen's stored silhouette beside its point";
+        }
+
+        /// Asks which outline to use as soon as the box is ticked, but only when some
+        /// extreme specimen holds more than one: with a single outline apiece there is
+        /// nothing to decide.
+        private void OnSilhouettesTicked()
+        {
+            bool anyChoice = _extremes
+                .Select(x => x.Specimen)
+                .Distinct(StringComparer.Ordinal)
+                .Any(s => CommittedOutlineStore.CountFor(s) > 1);
+
+            if (!anyChoice) return;
+
+            var picker = new SilhouettePickerWindow(_extremes, _workingOptions.SilhouetteChoices)
+            {
+                Owner = this,
+                FontSize = FontSize,
+                FontFamily = FontFamily
+            };
+
+            if (picker.ShowDialog() == true)
+            {
+                _workingOptions.SilhouetteChoices = picker.Choices;
+                return;
+            }
+
+            // Cancelled: nothing was chosen, so the option does not take effect.
+            _silhouetteBox.IsChecked = false;
+        }
+
         private void UpdateState()
         {
             foreach (var row in _rows)
@@ -1036,6 +1314,7 @@ namespace DinoLino
             return columns;
         }
 
+       
         // ---- Commit ----
 
         internal void CommitTo(PcaDataFrame target) => target.CopyFrom(_working);
@@ -1048,6 +1327,215 @@ namespace DinoLino
             target.PointColor = _pointColorBox.SelectedItem as string ?? PlotOptions.AestheticBlack;
             target.PointShape = _pointShapeBox.SelectedItem as string ?? PlotOptions.AestheticCircle;
             target.ConfidenceEllipses = _ellipseBox.IsChecked == true;
+            target.LabelBy = _labelBox.SelectedItem as string ?? PlotOptions.AestheticNone;
+            target.ShowSilhouettes = _silhouetteBox.IsEnabled && _silhouetteBox.IsChecked == true;
+            target.SilhouetteChoices = new Dictionary<string, string>(
+                _workingOptions.SilhouetteChoices, StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        /// Asks which stored silhouette to draw for each extreme specimen. Opened from
+        /// the PCA Advanced window the moment "Add Silhouettes" is ticked, so the plot
+        /// never has to guess between a specimen's outlines.
+        /// </summary>
+        internal class SilhouettePickerWindow : Window
+        {
+            private const int PreviewPixels = 128;
+            private const double PreviewSize = 72;
+
+            /// <summary>specimen -> chosen outline name; valid once ShowDialog returns true.</summary>
+            internal Dictionary<string, string> Choices { get; } =
+                new Dictionary<string, string>(StringComparer.Ordinal);
+
+            private readonly List<(string Specimen, ComboBox Box)> _rows =
+                new List<(string, ComboBox)>();
+
+            internal SilhouettePickerWindow(
+                IReadOnlyList<PcaExtreme> extremes, IDictionary<string, string> current)
+            {
+                Title = "Choose silhouettes";
+                Width = 470;
+                SizeToContent = SizeToContent.Height;
+                MaxHeight = 640;
+                WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                ResizeMode = ResizeMode.NoResize;
+                ShowInTaskbar = false;
+
+                var root = new DockPanel { Margin = new Thickness(16) };
+
+                var note = new TextBlock
+                {
+                    Text = "These specimens hold the extreme scores on the plotted components. "
+                         + "Choose which stored outline the plot draws for each.",
+                    Foreground = Brushes.Gray,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 12)
+                };
+                DockPanel.SetDock(note, Dock.Top);
+                root.Children.Add(note);
+
+                var buttons = BuildButtonBar();
+                DockPanel.SetDock(buttons, Dock.Bottom);
+                root.Children.Add(buttons);
+
+                root.Children.Add(new ScrollViewer
+                {
+                    Content = BuildRows(extremes, current),
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+                });
+
+                Content = root;
+            }
+
+            // One row per specimen rather than per extreme: a specimen holding two of
+            // them is drawn once, so it is chosen once.
+            private UIElement BuildRows(
+                IReadOnlyList<PcaExtreme> extremes, IDictionary<string, string> current)
+            {
+                var panel = new StackPanel();
+
+                var roles = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+                var order = new List<string>();
+
+                foreach (var extreme in extremes)
+                {
+                    if (!roles.TryGetValue(extreme.Specimen, out var list))
+                    {
+                        list = new List<string>();
+                        roles[extreme.Specimen] = list;
+                        order.Add(extreme.Specimen);
+                    }
+
+                    list.Add(extreme.Role);
+                }
+
+                foreach (string specimen in order)
+                    panel.Children.Add(BuildRow(specimen, roles[specimen], current));
+
+                return panel;
+            }
+
+            private UIElement BuildRow(
+                string specimen, List<string> roles, IDictionary<string, string> current)
+            {
+                var stored = CommittedOutlineStore.OutlinesFor(specimen);
+
+                var names = new List<string>();
+                foreach (var outline in stored) names.Add(outline.Name);
+
+                var box = new ComboBox { ItemsSource = names, MinWidth = 210 };
+
+                // A choice made on a previous visit is kept, unless that outline has
+                // since been renamed or deleted.
+                string chosen = null;
+                if (current != null &&
+                    current.TryGetValue(specimen, out string stashed) &&
+                    names.Contains(stashed))
+                {
+                    chosen = stashed;
+                }
+
+                box.SelectedItem = chosen ?? (names.Count > 0 ? names[0] : null);
+
+                // Nothing to choose between with one outline; the row still shows which
+                // one will be drawn.
+                box.IsEnabled = names.Count > 1;
+
+                var preview = new Image
+                {
+                    Width = PreviewSize,
+                    Height = PreviewSize,
+                    Stretch = Stretch.Uniform,
+                    Margin = new Thickness(14, 0, 0, 0)
+                };
+
+                void RefreshPreview()
+                {
+                    CommittedOutline outline = FindByName(stored, box.SelectedItem as string);
+                    preview.Source = outline == null
+                        ? null
+                        : OutlineShapeExporter.RenderThumbnail(outline, PreviewPixels);
+                }
+
+                box.SelectionChanged += (s, e) => RefreshPreview();
+                RefreshPreview();
+
+                var heading = new TextBlock
+                {
+                    Text = specimen + "  \u2014  " + string.Join(", ", roles),
+                    FontWeight = FontWeights.Bold,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 4)
+                };
+
+                var line = new StackPanel { Orientation = Orientation.Horizontal };
+                line.Children.Add(box);
+                line.Children.Add(preview);
+
+                var stack = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
+                stack.Children.Add(heading);
+                stack.Children.Add(line);
+
+                _rows.Add((specimen, box));
+                return stack;
+            }
+
+            private static CommittedOutline FindByName(List<CommittedOutline> stored, string name)
+            {
+                if (name == null) return null;
+
+                foreach (var outline in stored)
+                    if (string.Equals(outline.Name, name, StringComparison.Ordinal)) return outline;
+
+                return null;
+            }
+
+            private FrameworkElement BuildButtonBar()
+            {
+                var buttons = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right
+                };
+
+                var ok = new Button { Content = "OK", Width = 92, Height = 28, IsDefault = true };
+                ok.Click += (s, e) =>
+                {
+                    foreach (var row in _rows)
+                        if (row.Box.SelectedItem is string name) Choices[row.Specimen] = name;
+
+                    // DialogResult may only be set while running modally; guard it the
+                    // same way ScaleWindow does.
+                    try
+                    {
+                        DialogResult = true;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        Close();
+                    }
+                };
+                buttons.Children.Add(ok);
+
+                buttons.Children.Add(new Button
+                {
+                    Content = "Cancel",
+                    Width = 92,
+                    Height = 28,
+                    Margin = new Thickness(10, 0, 0, 0),
+                    IsCancel = true
+                });
+
+                return new Border
+                {
+                    BorderBrush = Brushes.LightGray,
+                    BorderThickness = new Thickness(0, 1, 0, 0),
+                    Padding = new Thickness(0, 12, 0, 0),
+                    Margin = new Thickness(0, 12, 0, 0),
+                    Child = buttons
+                };
+            }
         }
     }
 }

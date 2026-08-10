@@ -885,6 +885,17 @@ namespace DinoLino.Utilities.Modes
 
         #region Measurements, elliptic Fourier analysis, and tips
 
+        /// Raised when the user asks to keep the current outline as a silhouette.
+        /// MainWindow owns the window, because the specimen name and working
+        /// directory live there rather than in the mode.
+        public event Action CommitOutlineRequested;
+
+        /// <summary>True when there is an outline worth storing.</summary>
+        public bool CanCommitOutline => _activePolyline != null && _activePolyline.Points.Count >= 3;
+
+        /// <summary>Asks the host to open the commit window for this outline.</summary>
+        public void RequestCommitOutline() => CommitOutlineRequested?.Invoke();
+
         private double _aspectRatioResult;
         public double AspectRatioResult
         {

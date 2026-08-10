@@ -101,6 +101,7 @@
     </Compile>
     <Compile Include="Utilities\3DDataProcessing\MeshLoader.cs" />
     <Compile Include="Utilities\3DDataProcessing\MeshSimplifier.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\CommittedOutlines.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\EraseTool.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\HandDrawTool.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\MLSegmenter.cs" />
@@ -110,7 +111,9 @@
       <DependentUpon>PictureAdjustmentWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\3DDataProcessing\PlyLoader.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineCommit.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineExportWindow.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineGalleryWindow.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineShapeExporter.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\PushTool.cs" />
     <Compile Include="Utilities\PCA.Math.cs" />

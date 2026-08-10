@@ -73,96 +73,142 @@
              IsChecked="{Binding HandDrawMode, Mode=TwoWay}"
              MinHeight="26"
              Margin="0,8,0,0"
-             ToolTip="Hold and drag to draw an outline freehand. It closes when the stroke crosses itself."/>
+             ToolTip="Hold and drag to draw an outline freehand. It closes when the stroke crosses itself. Leftover tails are removed."/>
 
         <StackPanel Visibility="{Binding HandDrawMode, Converter={StaticResource BoolToVis}}">
             <TextBlock TextWrapping="Wrap" Foreground="Gray"
-               Text="Hold the left button and drag to draw. The outline closes automatically when your stroke crosses itself; leftover tails are removed."
+               Text="Hold the left button and drag to draw. The outline closes automatically when your stroke crosses itself."
                Margin="0,6,0,4"/>
         </StackPanel>
 
-        <!-- Erase Outline tool.
-             Tool PARAMETERS now live on the tool object: the mode is still the
-             DataContext, so paths go through the Erase property. -->
-        <RadioButton Content="Erase Outline"
-                     GroupName="OutlineTool"
-                     IsChecked="{Binding EraseOutlineMode, Mode=TwoWay}"
-                     MinHeight="26"
-                     Margin="0,8,0,0"
-                     ToolTip="Click and drag over the outline"/>
+        <!-- Edit Outline is a top-level tool choice. Its edit subtools are shown only
+     while it is selected. -->
+        <RadioButton x:Name="EditOutlineRadio"
+             Content="Edit Outline"
+             GroupName="OutlineTool"
+             MinHeight="26"
+             Margin="0,8,0,0"
+             ToolTip="Choose an outline-editing tool: Erase, Push, or Smooth."/>
 
-        <StackPanel Visibility="{Binding EraseOutlineMode, Converter={StaticResource BoolToVis}}">
-            <TextBlock Text="Erase Brush Size:" FontWeight="Bold" Margin="0,8,0,0"/>
-            <Slider Minimum="5" Maximum="100"
-                    Value="{Binding Erase.BrushRadius, Mode=TwoWay}"
+        <!-- The selected Edit Outline radio button reveals the nested tool choices.
+     A separate GroupName keeps a selected subtool from unchecking Edit Outline. -->
+        <StackPanel Margin="18,0,0,0"
+            Visibility="{Binding IsChecked,
+                                 ElementName=EditOutlineRadio,
+                                 Converter={StaticResource BoolToVis}}">
+
+            <!-- Erase Outline -->
+            <RadioButton Content="Erase"
+                 GroupName="OutlineEditTool"
+                 IsChecked="{Binding EraseOutlineMode, Mode=TwoWay}"
+                 MinHeight="26"
+                 Margin="0,6,0,0"
+                 ToolTip="Click and drag over the outline to erase it."/>
+
+            <StackPanel Visibility="{Binding EraseOutlineMode,
+                                     Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Erase Brush Size:"
+                   FontWeight="Bold"
+                   Margin="0,8,0,0"/>
+
+                <Slider Minimum="5"
+                Maximum="100"
+                Value="{Binding Erase.BrushRadius, Mode=TwoWay}"
+                TickFrequency="5"
+                IsSnapToTickEnabled="True"
+                Margin="0,2,0,2"/>
+
+                <TextBlock Text="{Binding Erase.BrushRadius, StringFormat={}{0:F0} px}"
+                   Foreground="Gray"
+                   Margin="0,0,0,4"/>
+            </StackPanel>
+
+            <!-- Push Outline -->
+            <RadioButton Content="Push"
+                 GroupName="OutlineEditTool"
+                 IsChecked="{Binding PushOutlineMode, Mode=TwoWay}"
+                 MinHeight="26"
+                 Margin="0,8,0,0"
+                 ToolTip="Click and drag from inside the outline outward to expand it — or hold Ctrl and move the cursor."/>
+
+            <StackPanel Visibility="{Binding PushOutlineMode,
+                                     Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Push Brush Size:"
+                   FontWeight="Bold"
+                   Margin="0,8,0,0"/>
+
+                <Slider Minimum="5"
+                Maximum="100"
+                Value="{Binding Push.BrushRadius, Mode=TwoWay}"
+                TickFrequency="5"
+                IsSnapToTickEnabled="True"
+                Margin="0,2,0,2"/>
+
+                <TextBlock Text="{Binding Push.BrushRadius, StringFormat={}{0:F0} px}"
+                   Foreground="Gray"
+                   Margin="0,0,0,4"/>
+            </StackPanel>
+
+            <!-- Smooth Outline -->
+            <RadioButton Content="Smooth"
+                 GroupName="OutlineEditTool"
+                 IsChecked="{Binding SmoothOutlineMode, Mode=TwoWay}"
+                 MinHeight="26"
+                 Margin="0,8,0,0"
+                 ToolTip="Smooth the entire outline or locally smooth one section."/>
+
+            <StackPanel Visibility="{Binding SmoothOutlineMode,
+                                     Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Scope:"
+                   FontWeight="Bold"
+                   Margin="0,8,0,0"/>
+
+                <StackPanel Orientation="Horizontal"
+                    Margin="0,2,0,0">
+                    <RadioButton Content="Global"
+                         GroupName="SmoothScope"
+                         IsChecked="{Binding Smooth.IsGlobalScope, Mode=TwoWay}"
+                         Margin="0,0,10,0"
+                         ToolTip="The slider smooths the entire outline live."/>
+
+                    <RadioButton Content="Local"
+                         GroupName="SmoothScope"
+                         IsChecked="{Binding Smooth.IsLocalScope, Mode=TwoWay}"
+                         ToolTip="The cursor becomes a sanding brush. Click and drag along the outline to smooth one section."/>
+                </StackPanel>
+
+                <TextBlock Text="Smooth Strength:"
+                   FontWeight="Bold"
+                   Margin="0,8,0,0"/>
+
+                <Slider Minimum="0"
+                Maximum="20"
+                Value="{Binding Smooth.Strength, Mode=TwoWay}"
+                TickFrequency="1"
+                IsSnapToTickEnabled="True"
+                Margin="0,2,0,2"/>
+
+                <TextBlock Text="{Binding Smooth.Strength, StringFormat={}{0:F0} passes}"
+                   Foreground="Gray"
+                   Margin="0,0,0,4"/>
+
+                <StackPanel Visibility="{Binding Smooth.IsLocalScope,
+                                         Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="Brush Size:"
+                       FontWeight="Bold"
+                       Margin="0,4,0,0"/>
+
+                    <Slider Minimum="5"
+                    Maximum="100"
+                    Value="{Binding Smooth.BrushRadius, Mode=TwoWay}"
                     TickFrequency="5"
                     IsSnapToTickEnabled="True"
                     Margin="0,2,0,2"/>
-            <TextBlock Text="{Binding Erase.BrushRadius, StringFormat={}{0:F0} px}"
-                       Foreground="Gray" Margin="0,0,0,4"/>
-        </StackPanel>
 
-        <!-- Push Outline tool: inverse of Erase — expands the outline outward. -->
-        <RadioButton Content="Push Outline"
-             GroupName="OutlineTool"
-             IsChecked="{Binding PushOutlineMode, Mode=TwoWay}"
-             MinHeight="26"
-             Margin="0,8,0,0"
-             ToolTip="Click and drag from inside the outline outward to expand it — or hold Ctrl and move the cursor."/>
-
-        <StackPanel Visibility="{Binding PushOutlineMode, Converter={StaticResource BoolToVis}}">
-            <TextBlock Text="Push Brush Size:" FontWeight="Bold" Margin="0,8,0,0"/>
-            <Slider Minimum="5" Maximum="100"
-            Value="{Binding Push.BrushRadius, Mode=TwoWay}"
-            TickFrequency="5"
-            IsSnapToTickEnabled="True"
-            Margin="0,2,0,2"/>
-            <TextBlock Text="{Binding Push.BrushRadius, StringFormat={}{0:F0} px}"
-               Foreground="Gray" Margin="0,0,0,4"/>
-        </StackPanel>
-
-        <!-- Smooth Outline tool -->
-        <RadioButton Content="Smooth Outline"
-                     GroupName="OutlineTool"
-                     IsChecked="{Binding SmoothOutlineMode, Mode=TwoWay}"
-                     MinHeight="26"
-                     Margin="0,8,0,0"/>
-
-        <StackPanel Visibility="{Binding SmoothOutlineMode, Converter={StaticResource BoolToVis}}">
-            <!-- NEW UI: the SmoothTool has supported Global vs Local scope in
-                 code for a while, but the panel never exposed the choice, so
-                 Local smoothing (the sanding brush) was unreachable from here. -->
-            <TextBlock Text="Scope:" FontWeight="Bold" Margin="0,8,0,0"/>
-            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                <RadioButton Content="Global"
-                             GroupName="SmoothScope"
-                             IsChecked="{Binding Smooth.IsGlobalScope, Mode=TwoWay}"
-                             Margin="0,0,10,0"
-                             ToolTip="The slider smooths the whole perimeter live."/>
-                <RadioButton Content="Local"
-                             GroupName="SmoothScope"
-                             IsChecked="{Binding Smooth.IsLocalScope, Mode=TwoWay}"
-                             ToolTip="The cursor becomes a sanding brush — click and drag along the outline to smooth just that section."/>
-            </StackPanel>
-
-            <TextBlock Text="Smooth Strength:" FontWeight="Bold" Margin="0,8,0,0"/>
-            <Slider Minimum="0" Maximum="20"
-                    Value="{Binding Smooth.Strength, Mode=TwoWay}"
-                    TickFrequency="1"
-                    IsSnapToTickEnabled="True"
-                    Margin="0,2,0,2"/>
-            <TextBlock Text="{Binding Smooth.Strength, StringFormat={}{0:F0} passes}"
-                       Foreground="Gray" Margin="0,0,0,4"/>
-
-            <StackPanel Visibility="{Binding Smooth.IsLocalScope, Converter={StaticResource BoolToVis}}">
-                <TextBlock Text="Brush Size:" FontWeight="Bold" Margin="0,4,0,0"/>
-                <Slider Minimum="5" Maximum="100"
-                        Value="{Binding Smooth.BrushRadius, Mode=TwoWay}"
-                        TickFrequency="5"
-                        IsSnapToTickEnabled="True"
-                        Margin="0,2,0,2"/>
-                <TextBlock Text="{Binding Smooth.BrushRadius, StringFormat={}{0:F0} px}"
-                           Foreground="Gray" Margin="0,0,0,4"/>
+                    <TextBlock Text="{Binding Smooth.BrushRadius, StringFormat={}{0:F0} px}"
+                       Foreground="Gray"
+                       Margin="0,0,0,4"/>
+                </StackPanel>
             </StackPanel>
         </StackPanel>
 
@@ -298,6 +344,15 @@
             Cursor="Hand"
             Padding="0"
             Click="ShowEFDDetails_Click"/>
+
+            <!-- Keeps this outline as a silhouette. Only stored outlines are written
+                 by Batch Workshop ▸ Export 2D Outlines. -->
+            <TextBlock Margin="0,6,0,0">
+                <Hyperlink Click="CommitOutline_Click"
+                           ToolTip="Store this outline as a silhouette so it can be exported later">
+                    Commit Outline to History
+                </Hyperlink>
+            </TextBlock>
         </StackPanel>
     </StackPanel>
 </UserControl>

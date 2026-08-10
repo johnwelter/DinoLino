@@ -3,6 +3,7 @@ using DinoLino.Utilities;
 using DinoLino.Utilities.Modes;
 using Microsoft.Win32;
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -444,6 +445,9 @@ namespace DinoLino
         // Remembers "Don't show this message again" for the rest of the session.
         private bool _suppressClearAllPrompt;
 
+        // Remembers the per-specimen clear confirmation preference for this session.
+        private bool _suppressClearSpecimenPrompt;
+
         /// Clear All: returns the program to how it opened — every specimen, every
         /// measurement, and every cached image gone.
         private void GlobalTools_Clear(object sender, RoutedEventArgs e)
@@ -465,6 +469,24 @@ namespace DinoLino
             }
 
             ResetSession();
+        }
+
+        /// <summary>
+        /// Clears recorded operations and derived workspace data for the currently
+        /// active specimen only. Other loaded specimens remain unchanged.
+        /// </summary>
+        private void GlobalTools_ClearSpecimen(object sender, RoutedEventArgs e)
+        {
+            if (WorkingImage == null || SpecimenManager.CurrentSpecimen == null)
+                return;
+
+            // Clears the active specimen's UndoRedoManager.History and workspace
+            // elements. ClearWorkspace also clears the EFD/metadata preview.
+            ClearAllOperations();
+
+            // Keep derived UI current after removing the active specimen's data.
+            UpdateAttemptCounter();
+            RefreshPlotTab();
         }
 
         /// Empties every piece of session state: the specimens, their measurements,
