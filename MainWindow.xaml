@@ -131,53 +131,59 @@
             </Grid.ColumnDefinitions>
 
             <!-- Controls Panel: toolbars and outputs for different controls and modes-->
-            <StackPanel x:Name="UI_ControlPanel" Grid.Column="0" TextElement.FontSize="14">
-                <!-- Controls that aren't dependent on mode type  -->
-                <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
-                <StackPanel x:Name="UI_GlobalControls" Orientation="Horizontal" Margin="10,10,10,5">
-                    <TextBox x:Name="UI_SpecimenNameBox" MaxLength="20"
+            <ScrollViewer x:Name="UI_ControlPanelScroller" Grid.Column="0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto">
+                <StackPanel x:Name="UI_ControlPanel" TextElement.FontSize="14"
+                        MinWidth="300"
+                        MaxWidth="{Binding ViewportWidth, ElementName=UI_ControlPanelScroller}">
+                    <!-- Controls that aren't dependent on mode type  -->
+                    <!-- Clears all added/Drawn UI from work space - might move this as a file or edit command with a keyboard shortcut -->
+                    <StackPanel x:Name="UI_GlobalControls" Orientation="Horizontal" Margin="10,10,10,5">
+                        <TextBox x:Name="UI_SpecimenNameBox" MaxLength="20"
                              VerticalAlignment="Center"
                              MinWidth="100"/>
-                    <StackPanel Orientation="Vertical" Margin="8,1,0,1">
-                        <Button x:Name="UI_SpecimenUp" Content="▲" Width="22" Height="18"
+                        <StackPanel Orientation="Vertical" Margin="8,1,0,1">
+                            <Button x:Name="UI_SpecimenUp" Content="▲" Width="22" Height="18"
                                 Padding="0,-4,0,1" Click="SpecimenCount_Up"/>
-                        <Button x:Name="UI_SpecimenDown" Content="▼" Width="22" Height="18"
+                            <Button x:Name="UI_SpecimenDown" Content="▼" Width="22" Height="18"
                                 Padding="-4" Click="SpecimenCount_Down"/>
+                        </StackPanel>
                     </StackPanel>
-                </StackPanel>
 
-                <TextBlock x:Name="UI_LoadedFileText"
+                    <TextBlock x:Name="UI_LoadedFileText"
                            Margin="10,0,10,5"
                            Foreground="#777"
                            TextTrimming="CharacterEllipsis"
                            Text="{Binding LoadedFileLabel}"/>
 
-                <!-- Mode tabs -->
-                <TabControl x:Name="UI_ControlTabs" Margin="0,10,0,10"
+                    <!-- Mode tabs -->
+                    <TabControl x:Name="UI_ControlTabs" Margin="0,10,0,10"
                             SelectionChanged="ControlTabs_SelectionChanged">
-                    <TabItem Header="Curvature"/>
-                    <TabItem Header="Triangle"/>
-                    <TabItem Header="Draw"/>
-                    <TabItem Header="Outline"/>
-                </TabControl>
-                <ContentControl x:Name="UI_ModePanel" Margin="0,0,0,10"/>
-                <StackPanel Margin="10,0,10,-5">
-                    <TextBlock x:Name="UI_ScaleStatus"
+                        <TabItem Header="Curvature"/>
+                        <TabItem Header="Triangle"/>
+                        <TabItem Header="Draw"/>
+                        <TabItem Header="Outline"/>
+                    </TabControl>
+                    <ContentControl x:Name="UI_ModePanel" Margin="0,0,0,10"/>
+                    <StackPanel Margin="10,0,10,-5">
+                        <TextBlock x:Name="UI_ScaleStatus"
                                Text="{Binding StatusText}"/>
-                </StackPanel>
-                <Button x:Name="UI_AAClearButton" Content="Clear All" Margin="10,10,10,10" MinHeight="32" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
-                <!-- Creature art: the 1:2:1 columns make the middle column exactly half
+                    </StackPanel>
+                    <Button x:Name="UI_AAClearButton" Content="Clear All" Margin="10,10,10,10" MinHeight="32" VerticalAlignment="Top" Click="GlobalTools_Clear"/>
+                    <!-- Creature art: the 1:2:1 columns make the middle column exactly half
                      the control panel's width, so the artwork is half size and centred
                      without any hard-coded margins. Toggled from View ▸ See Rex. -->
-                <Grid x:Name="UI_CreatureArtContainer">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="2*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <svgc:SvgViewbox Grid.Column="1" Source="Icons/FullCreature.svg" Margin="0,10,0,10"/>
-                </Grid>
-            </StackPanel>
+                    <Grid x:Name="UI_CreatureArtContainer">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <svgc:SvgViewbox Grid.Column="1" Source="Icons/FullCreature.svg" Height="110" Margin="0,10,0,10"/>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
             <GridSplitter Grid.Column="1"
                   Width="4"
                   HorizontalAlignment="Stretch"
