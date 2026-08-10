@@ -265,6 +265,38 @@ namespace DinoLino.Utilities
             OnPropertyChanged(nameof(CanRedo));
         }
 
+        /// Drops every specimen's operations, live and archived, and blanks whatever
+        /// the mode panels were showing. Clear All uses this; the per-specimen
+        /// removals above are for editing one table.
+        public void ResetSession()
+        {
+            var affectedModes = _history.Concat(_redoStack)
+                .Concat(_archive.SelectMany(r => r.Operations))
+                .Select(o => o.SourceMode)
+                .Where(m => m != null)
+                .Distinct()
+                .ToList();
+
+            _history.Clear();
+            _redoStack.Clear();
+
+            // A record is also parked on its own Specimen, and those specimens are
+            // discarded alongside this; emptying each one keeps a stray reference
+            // from holding on to the operations it listed.
+            foreach (var record in _archive)
+                record.Operations.Clear();
+            _archive.Clear();
+
+            foreach (var mode in affectedModes)
+            {
+                mode.ClearMetadata();
+                mode.OnHistoryChanged();
+            }
+
+            OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanRedo));
+        }
+
         private void OnPropertyChanged(string name)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

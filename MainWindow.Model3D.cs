@@ -171,9 +171,17 @@ namespace DinoLino
         }
 
         private async void Menu_Reposition3DModel(object sender, RoutedEventArgs e)
+            => await Reposition3DModel(SpecimenManager.CurrentSpecimen);
+
+        /// Opens the pose overlay on one specimen's model, resuming from the view it
+        /// was last captured at. A capture lands on whichever specimen is loaded, so
+        /// the specimen given here must be that one — the Sample list loads it first.
+        internal async Task Reposition3DModel(Specimen specimen)
         {
-            var current = SpecimenManager.CurrentSpecimen;
-            string path = current?.ModelPath;
+            // A second overlay would replace the model the first one is posing.
+            if (UI_ModelPoseOverlay.Visibility == Visibility.Visible) return;
+
+            string path = specimen?.ModelPath;
 
             if (string.IsNullOrEmpty(path))
             {
@@ -213,7 +221,7 @@ namespace DinoLino
 
             // Resume from THIS specimen's captured orientation, so repositioning picks
             // up exactly where its own last capture left off.
-            ShowModelPoseOverlay(_activeMesh, _activeModelName, current.ModelOrientation, isReposition: true);
+            ShowModelPoseOverlay(_activeMesh, _activeModelName, specimen.ModelOrientation, isReposition: true);
         }
 
         // =====================
@@ -395,7 +403,7 @@ namespace DinoLino
             _workingImageIsModelCapture = true;
             UI_MenuReposition3D.IsEnabled = true;
 
-            // Optional scale calibration can be derived from pxPerModelUnit if needed by the app.
+            RebuildSampleList();
         }
 
         /// The world-space rotation that takes one orientation to another.

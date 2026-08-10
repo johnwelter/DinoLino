@@ -325,6 +325,146 @@ namespace DinoLino.Utilities
             RaiseCurrentChanged();
         }
 
+        //----- Duplication -----//
+
+        /// Adds a copy of one specimen directly after it in the list: the same image
+        /// and file under a new name, carrying none of the original's measurements,
+        /// which is what opening the file a second time would give. Returns the copy,
+        /// or null when the specimen is not one the list holds.
+        public Specimen DuplicateSpecimen(Specimen original)
+        {
+            if (original == null || original.Deleted) return null;
+
+            int at = _specimens.IndexOf(original);
+            if (at < 0) return null;
+
+            // Read before anything moves: the name comes from what the list shows now.
+            string name = DuplicateNameFor(original);
+
+            // Everything below the insertion point moves down one place, and two
+            // things are read from that place. An auto "Specimen N" label is one, so
+            // it is written down first: the numbering of a specimen the user did not
+            // touch never shifts, exactly as deleting one promises. Ordinal is the
+            // other, and it orders the archive the data tables are built from, so it
+            // shifts along — a record holds its own copy of the number.
+            for (int i = at + 1; i < _specimens.Count; i++)
+            {
+                var below = _specimens[i];
+
+                if (below.Name == null) below.Name = NameOf(below);
+
+                below.Ordinal++;
+                if (below.Record != null) below.Record.Ordinal++;
+            }
+
+            var copy = new Specimen
+            {
+                // The bitmap is shared rather than decoded again: it never changes
+                // once loaded, so a duplicate costs a reference and nothing more.
+                Image = original.Image,
+                FileName = original.FileName,
+                Name = name,
+                Ordinal = at + 1,
+
+                // A 3D duplicate reopens from the same mesh at the same pose, and one
+                // that was never positioned still needs positioning of its own.
+                ModelPath = original.ModelPath,
+                ModelOrientation = original.ModelOrientation,
+                PendingModelPath = original.PendingModelPath
+
+                // Record stays null: the copy starts with no measurements.
+            };
+
+            _specimens.Insert(at + 1, copy);
+
+            // The loaded specimen keeps its place in the list, which is one further
+            // down when the insertion happened above it.
+            if (_current > at) _current++;
+
+            RaiseCurrentChanged();
+            return copy;
+        }
+
+        /// The name a duplicate takes: its original's with " B" appended, or the next
+        /// free letter after that. A name already ending in one of those letters
+        /// continues its original's run rather than starting a nested one, so
+        /// duplicating "Specimen 1 B" gives "Specimen 1 C".
+        private string DuplicateNameFor(Specimen original)
+        {
+            string full = NameOf(original);
+            string root = StripDuplicateSuffix(full);
+
+            // The run this name belongs to, then — once its letters are used up — a
+            // fresh run off the whole name, so "Specimen 1 Z" is followed by
+            // "Specimen 1 Z B" and the alphabet starts again from there.
+            string name = FirstFreeLetter(root)
+                       ?? (root == full ? null : FirstFreeLetter(full));
+
+            if (name != null) return name;
+
+            // Past the alphabet twice over, which takes fifty-odd copies of one
+            // specimen. From here the names only have to stay distinct: a repeat
+            // would make two specimens indistinguishable in every data table.
+            for (int n = 2; ; n++)
+            {
+                string candidate = full + " B" + n;
+                if (!NameInUse(candidate)) return candidate;
+            }
+        }
+
+        // First of "<root> B" … "<root> Z" that no specimen is using, or null when
+        // every one of them is taken.
+        private string FirstFreeLetter(string root)
+        {
+            for (char suffix = 'B'; suffix <= 'Z'; suffix++)
+            {
+                string candidate = root + " " + suffix;
+                if (!NameInUse(candidate)) return candidate;
+            }
+
+            return null;
+        }
+
+        // Drops a trailing " B" … " Z", the suffix duplication itself adds. " A" is
+        // left alone: nothing here produces one, so it belongs to whoever typed it.
+        private static string StripDuplicateSuffix(string name)
+        {
+            if (name == null || name.Length < 3) return name;
+
+            char last = name[name.Length - 1];
+            if (name[name.Length - 2] != ' ' || last < 'B' || last > 'Z') return name;
+
+            return name.Substring(0, name.Length - 2);
+        }
+
+        // Checked against what each specimen displays rather than its stored name, so
+        // a collision with an auto "Specimen N" is caught too.
+        private bool NameInUse(string name)
+        {
+            foreach (var specimen in _specimens)
+            {
+                if (specimen.Deleted) continue;
+                if (NameOf(specimen) == name) return true;
+            }
+
+            return false;
+        }
+
+        //----- Session reset -----//
+
+        /// Empties the roster back to how the session began: one placeholder record,
+        /// nothing loaded, no cached images. Measurements live in UndoRedoManager and
+        /// group assignments in SpecimenGroups, so the caller clears those too.
+        public void ResetSession()
+        {
+            _specimens.Clear();
+            _specimens.Add(new Specimen());
+            _current = 0;
+            _hasOpenedImage = false;
+
+            RaiseCurrentChanged();
+        }
+
         private void RaiseCurrentChanged()
         {
             OnPropertyChanged(nameof(DisplayName));

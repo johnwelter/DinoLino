@@ -641,6 +641,9 @@ namespace DinoLino
                 }
             };
 
+            // Right-click on the name carries the per-specimen actions.
+            hit.ContextMenu = MakeSampleContextMenu(captured);
+
             Grid.SetColumn(hit, 1);
             grid.Children.Add(hit);
 
@@ -658,6 +661,57 @@ namespace DinoLino
             }
 
             return grid;
+        }
+
+        /// Right-click menu on a specimen's name in the Sample list.
+        private ContextMenu MakeSampleContextMenu(Specimen specimen)
+        {
+            var menu = new ContextMenu();
+
+            var duplicate = new MenuItem { Header = "Duplicate specimen" };
+            duplicate.Click += (s, e) => DuplicateSampleSpecimen(specimen);
+
+            // A released image leaves the copy nothing to show, so there is nothing
+            // to duplicate until the file is opened again.
+            bool duplicable = specimen.Image != null || specimen.NeedsPositioning;
+
+            duplicate.IsEnabled = duplicable;
+            duplicate.ToolTip = duplicable
+                ? "Add another copy of this specimen. The copy starts with no measurements of its own."
+                : "This specimen's image was released from the cache, so it cannot be duplicated";
+
+            // A disabled item shows no tooltip unless asked, and the disabled one is
+            // the tooltip worth reading.
+            ToolTipService.SetShowOnDisabled(duplicate, true);
+
+            menu.Items.Add(duplicate);
+
+            var reposition = new MenuItem { Header = "Reposition (3D)" };
+            reposition.Click += (s, e) => RepositionSpecimenFromSample(specimen);
+
+            // A specimen counts as 3D once it has a mesh path, which it keeps for the
+            // whole session — including an imported model that has never been posed.
+            bool is3D = !string.IsNullOrEmpty(specimen.ModelPath)
+                     || !string.IsNullOrEmpty(specimen.PendingModelPath);
+
+            reposition.IsEnabled = is3D;
+            reposition.ToolTip = is3D
+                ? "Re-open this 3D object to rotate it and capture a new view"
+                : "This specimen is a 2D image, so it has no 3D object to reposition";
+
+            ToolTipService.SetShowOnDisabled(reposition, true);
+
+            menu.Items.Add(reposition);
+            return menu;
+        }
+
+        /// Duplicates a specimen picked from the Sample list and redraws the roster so
+        /// the copy appears directly beneath its original.
+        private void DuplicateSampleSpecimen(Specimen specimen)
+        {
+            if (SpecimenManager.DuplicateSpecimen(specimen) == null) return;
+
+            RebuildSampleList();
         }
 
         /// Assigns the ticked specimens to a group, which adds the column to every
@@ -688,6 +742,43 @@ namespace DinoLino
             SpecimenGroups.Assign(dialog.ColumnName, dialog.GroupName, chosen);
             RebuildSampleList();
             RefreshPlotTab();   
+        }
+
+        /// Repositions a 3D specimen picked from the Sample list. The pose overlay
+        /// captures onto whichever specimen is loaded, so one that is not on screen is
+        /// brought there first — the same swap double-clicking it performs.
+        private async void RepositionSpecimenFromSample(Specimen specimen)
+        {
+            if (specimen == null) return;
+
+            // Never positioned: this is first-time positioning rather than a
+            // reposition, and it attaches its capture to this specimen itself.
+            if (specimen.NeedsPositioning)
+            {
+                await OpenImportedModel(specimen);
+                return;
+            }
+
+            if (!SpecimenManager.IsCurrent(specimen))
+            {
+                // A released image cannot be shown, and the workspace would keep
+                // displaying whatever it held while the capture landed elsewhere.
+                if (specimen.Image == null)
+                {
+                    MessageBox.Show(this,
+                        "This specimen's image was released from the cache, so it cannot be " +
+                        "loaded for repositioning.\n\n" +
+                        "Open its file again first.",
+                        "Reposition 3D Object", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                var departing = SpecimenManager.CurrentSpecimen;
+                ReloadSpecimen(departing, SpecimenManager.MoveTo(specimen));
+                RebuildSampleList();
+            }
+
+            await Reposition3DModel(specimen);
         }
 
         /// Removes every ticked specimen from the sample: the cached image, and every
@@ -981,9 +1072,10 @@ namespace DinoLino
 
         /// Shows the prompt. Returns true when the user confirms; dontShowAgain
         /// reports the checkbox either way, so the choice sticks even on Cancel.
-        internal static bool Show(Window owner, string title, string message, out bool dontShowAgain)
+        internal static bool Show(Window owner, string title, string message,
+            out bool dontShowAgain, string confirmText = "Yes")
         {
-            var dialog = new ConfirmPromptWindow(title, message)
+            var dialog = new ConfirmPromptWindow(title, message, confirmText)
             {
                 Owner = owner,
                 FontSize = owner?.FontSize ?? 14,
@@ -995,7 +1087,7 @@ namespace DinoLino
             return confirmed;
         }
 
-        private ConfirmPromptWindow(string title, string message)
+        private ConfirmPromptWindow(string title, string message, string confirmText)
         {
             Title = title;
             Width = 430;
@@ -1021,7 +1113,7 @@ namespace DinoLino
                 Margin = new Thickness(0, 16, 0, 0)
             };
 
-            var yes = new Button { Content = "Yes", Width = 84 };
+            var yes = new Button { Content = confirmText, Width = 84 };
             yes.Click += (s, e) =>
             {
                 // DialogResult may only be set while running modally; guard it the same

@@ -481,6 +481,10 @@ namespace DinoLino.Utilities
 
         #region Workbook entry points
 
+        /// <summary>Unstages every sheet. The selection outlives any one window, so
+        /// a session reset has to say so explicitly.</summary>
+        public static void ClearStagedSheets() => _selectedSheets.Clear();
+
         public static void ExportAllOperationHistory(
             UndoRedoManager ur, string currentName, ScaleCalibration scale)
         {

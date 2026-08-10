@@ -441,9 +441,67 @@ namespace DinoLino
         // Global actions
         // =====================
 
+        // Remembers "Don't show this message again" for the rest of the session.
+        private bool _suppressClearAllPrompt;
+
+        /// Clear All: returns the program to how it opened — every specimen, every
+        /// measurement, and every cached image gone.
         private void GlobalTools_Clear(object sender, RoutedEventArgs e)
         {
-            ClearAllOperations();
+            if (!_suppressClearAllPrompt)
+            {
+                bool dontAskAgain;
+                bool confirmed = ConfirmPromptWindow.Show(
+                    this,
+                    "Clear All",
+                    "Are you sure? This will clear all data for all specimens",
+                    out dontAskAgain,
+                    confirmText: "OK");
+
+                // The preference is remembered even when the user cancels, matching
+                // how "don't ask again" behaves elsewhere.
+                if (dontAskAgain) _suppressClearAllPrompt = true;
+                if (!confirmed) return;
+            }
+
+            ResetSession();
+        }
+
+        /// Empties every piece of session state: the specimens, their measurements,
+        /// their images, and everything derived from them.
+        private void ResetSession()
+        {
+            // Ticks first: they name specimens that are about to be discarded, and
+            // the Sample list redraws as soon as the roster changes.
+            _sampleChecked.Clear();
+
+            // Measurements before the specimens that owned them, so the modes are
+            // still told to blank the panels showing those numbers.
+            UndoRedoManager.ResetSession();
+            SpecimenManager.ResetSession();
+
+            // Session-scoped table state: group columns belong to specimens that are
+            // gone, hidden columns to tables that are now empty, and the staged
+            // workbook sheets to a history that no longer exists.
+            SpecimenGroups.Clear();
+            WorkshopColumnFilter.RestoreAll();
+            GeomOpHistoryWindow.ClearStagedSheets();
+
+            // The workspace, its calibration, and the mesh kept in memory for a
+            // reposition. ClearWorkspaceImage covers the rest of the 3D state.
+            ClearWorkspaceImage();
+            _activeModelPath = null;
+
+            // Picture corrections are per-image, so they start from zero again.
+            _currentContrast = 0;
+            _currentBrightness = 0;
+            _currentSaturation = 0;
+
+            ClearPcaAnalysis();
+
+            RebuildSampleList();
+            UpdateAttemptCounter();
+            RefreshPlotTab();
         }
 
         private void RefreshAllScalePlaceholders()

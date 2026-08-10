@@ -874,11 +874,11 @@ namespace DinoLino
 
             _ellipseBox = new CheckBox
             {
-                Content = "95% confidence intervals",
+                Content = "95% confidence ellipses",
                 IsChecked = _workingOptions.ConfidenceEllipses,
                 Margin = new Thickness(2, 2, 0, 4),
                 ToolTip = "Draw a 95% confidence ellipse around each group of scores. "
-                        + "Groups are the ones Point color splits by, and a group needs "
+                        + "A group needs "
                         + "at least three specimens to define an ellipse."
             };
             stack.Children.Add(_ellipseBox);

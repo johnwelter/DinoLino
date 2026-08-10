@@ -375,6 +375,18 @@ namespace DinoLino
             }
         }
 
+        /// Drops the staged PCA variables and any result fitted from them. Used by
+        /// Clear All, since both describe data that no longer exists.
+        internal void ClearPcaAnalysis()
+        {
+            _pcaDataFrame.Clear();
+            _pcaResult = null;
+            _pcaRowSpecimens = null;
+            _pcaFailure = null;
+            _pcaConstantColumns = new List<string>();
+            _pcaIncompleteSpecimens = 0;
+        }
+
         /// One row per specimen, each variable averaged over that specimen's
         /// attempts. A specimen missing any staged variable is left out rather
         /// than filled in, since PCA cannot take a gap.

@@ -82,6 +82,13 @@ namespace DinoLino.Utilities
             }
         }
 
+        /// <summary>Removes every group column and assignment.</summary>
+        public static void Clear()
+        {
+            _columns.Clear();
+            _values.Clear();
+        }
+
         /// <summary>The specimen's group under one column, or "" when unassigned.</summary>
         public static string ValueFor(string column, Specimen specimen)
         {
@@ -147,6 +154,10 @@ namespace DinoLino.Utilities
         }
 
         public static void Restore(string table) => _hidden.Remove(table);
+
+        /// <summary>Un-hides every column of every table.</summary>
+        public static void RestoreAll() => _hidden.Clear();
+
 
         public static int HiddenCount(string table)
         {
