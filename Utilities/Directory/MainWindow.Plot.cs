@@ -352,7 +352,7 @@ namespace DinoLino
             _pcaConstantColumns = new List<string>();
             _pcaIncompleteSpecimens = 0;
 
-            var matrix = BuildPcaMatrix(out string failure);
+            var matrix = BuildPcaMatrix(_pcaDataFrame, out string failure);
             if (matrix == null)
             {
                 _pcaFailure = failure;
@@ -369,10 +369,56 @@ namespace DinoLino
                 // over an EFD coefficient near zero.
                 _pcaResult = PcaAnalysis.Fit(matrix.Rows, matrix.Columns, standardize: true);
                 _pcaRowSpecimens = matrix.Specimens;
+                ClampPcaComponents();
             }
             catch (Exception ex)
             {
                 _pcaFailure = "The PCA could not run:\n" + ex.Message;
+            }
+        }
+
+        /// Fits a PCA against a dataframe without disturbing the live one. The
+        /// Advanced window uses this to populate its component list and to find the
+        /// extreme specimens, so neither waits on a committed run.
+        internal PcaPreview PreviewPca(PcaDataFrame frame)
+        {
+            var preview = new PcaPreview();
+
+            var matrix = BuildPcaMatrix(frame, out string failure);
+            if (matrix == null)
+            {
+                preview.Failure = failure;
+                return preview;
+            }
+
+            try
+            {
+                preview.Result = PcaAnalysis.Fit(matrix.Rows, matrix.Columns, standardize: true);
+                preview.RowSpecimens = matrix.Specimens;
+            }
+            catch (Exception ex)
+            {
+                preview.Failure = "The PCA could not run:\n" + ex.Message;
+            }
+
+            return preview;
+        }
+
+        // A run with fewer variables than the last one can leave a chosen component
+        // past the end of the result, which would draw nothing but a message.
+        private void ClampPcaComponents()
+        {
+            int n = _pcaResult?.ComponentCount ?? 0;
+            if (n == 0) return;
+
+            if (!InRange(_plotOptions.PcaXComponent, n)) _plotOptions.PcaXComponent = "PC1";
+            if (!InRange(_plotOptions.PcaYComponent, n))
+                _plotOptions.PcaYComponent = n > 1 ? "PC2" : "PC1";
+
+            static bool InRange(string name, int count)
+            {
+                int i = PcaExtreme.ComponentIndex(name);
+                return i >= 0 && i < count;
             }
         }
 
@@ -391,7 +437,7 @@ namespace DinoLino
         /// One row per specimen, each variable averaged over that specimen's
         /// attempts. A specimen missing any staged variable is left out rather
         /// than filled in, since PCA cannot take a gap.
-        private PcaMatrix BuildPcaMatrix(out string failure)
+        private PcaMatrix BuildPcaMatrix(PcaDataFrame frame, out string failure)
         {
             failure = null;
 
@@ -399,7 +445,7 @@ namespace DinoLino
 
             // Staged keys in the order they were added, dropping any the catalog
             // no longer offers.
-            var staged = _pcaDataFrame.Keys
+            var staged = (frame?.Keys ?? new List<string>())
                 .Select(k => catalog.FirstOrDefault(e => e.Key == k))
                 .Where(e => e != null)
                 .ToList();
@@ -565,86 +611,18 @@ namespace DinoLino
             }
         }
 
-        /// Component names the X and Y boxes offer. Empty until a PCA has been
-        /// run, which is what keeps those boxes unusable beforehand.
-        private List<string> PcaComponentChoices()
-        {
-            var choices = new List<string>();
-            if (_pcaResult == null) return choices;
-
-            for (int i = 0; i < _pcaResult.ComponentCount; i++)
-                choices.Add($"PC{i + 1}");
-
-            return choices;
-        }
-
         /// The four points a silhouette can attach to, in the order they are listed
         /// to the user. Empty until a PCA has been run and both components chosen.
         /// Ties go to the first row reaching the value, which is the specimen order
         /// the tables list.
-        private List<PcaExtreme> PcaExtremes()
-        {
-            var extremes = new List<PcaExtreme>();
-            if (_pcaResult == null || _pcaRowSpecimens == null) return extremes;
-            if (_pcaResult.ObservationCount == 0) return extremes;
-
-            string xName = UI_PlotXBox?.SelectedItem as string;
-            string yName = UI_PlotYBox?.SelectedItem as string;
-
-            int xi = PcaComponentIndex(xName);
-            int yi = PcaComponentIndex(yName);
-
-            if (xi < 0 || yi < 0 ||
-                xi >= _pcaResult.ComponentCount || yi >= _pcaResult.ComponentCount) return extremes;
-
-            int maxX = 0, minX = 0, maxY = 0, minY = 0;
-
-            for (int r = 1; r < _pcaResult.ObservationCount; r++)
-            {
-                if (_pcaResult.Scores[r, xi] > _pcaResult.Scores[maxX, xi]) maxX = r;
-                if (_pcaResult.Scores[r, xi] < _pcaResult.Scores[minX, xi]) minX = r;
-                if (_pcaResult.Scores[r, yi] > _pcaResult.Scores[maxY, yi]) maxY = r;
-                if (_pcaResult.Scores[r, yi] < _pcaResult.Scores[minY, yi]) minY = r;
-            }
-
-            extremes.Add(new PcaExtreme
-            {
-                Row = maxX,
-                Specimen = _pcaRowSpecimens[maxX],
-                Role = "Highest " + xName,
-                Side = SilhouetteSide.Right
-            });
-            extremes.Add(new PcaExtreme
-            {
-                Row = minX,
-                Specimen = _pcaRowSpecimens[minX],
-                Role = "Lowest " + xName,
-                Side = SilhouetteSide.Left
-            });
-            extremes.Add(new PcaExtreme
-            {
-                Row = maxY,
-                Specimen = _pcaRowSpecimens[maxY],
-                Role = "Highest " + yName,
-                Side = SilhouetteSide.Above
-            });
-            extremes.Add(new PcaExtreme
-            {
-                Row = minY,
-                Specimen = _pcaRowSpecimens[minY],
-                Role = "Lowest " + yName,
-                Side = SilhouetteSide.Below
-            });
-
-            return extremes;
-        }
+        /// The four points a silhouette can attach to on the committed result.
+        /// Empty until a PCA has been run.
+        private List<PcaExtreme> PcaExtremes() =>
+            PcaExtreme.Find(_pcaResult, _pcaRowSpecimens,
+                _plotOptions.PcaXComponent, _plotOptions.PcaYComponent);
 
         // "PC3" -> 2. Negative when the text is not a component name.
-        private static int PcaComponentIndex(string name)
-        {
-            if (name == null || !name.StartsWith("PC", StringComparison.Ordinal)) return -1;
-            return int.TryParse(name.Substring(2), out int n) && n > 0 ? n - 1 : -1;
-        }
+        private static int PcaComponentIndex(string name) => PcaExtreme.ComponentIndex(name);
 
         private void RebuildPlotData()
         {
@@ -800,32 +778,28 @@ namespace DinoLino
                 bool boxplot = type == "Boxplot";
                 bool pca = type == "PCA";
 
-                // PCA plots components against components, and has none to offer
-                // until an analysis has been run. A boxplot's X lists categories;
-                // everything else lists the measured variables.
-                var components = pca ? PcaComponentChoices() : null;
-
-                var xItems = pca ? components
+                // PCA picks its components in the Advanced window, so the tab's two
+                // boxes are hidden for it and left holding nothing.
+                var xItems = pca ? new List<string>()
                           : boxplot ? PlotCategoryChoices()
                           : variables.ToList();
 
-                var yItems = pca ? components.ToList() : variables;
+                var yItems = pca ? new List<string>() : variables;
 
                 UI_PlotXBox.ItemsSource = xItems;
                 UI_PlotYBox.ItemsSource = yItems;
 
                 // Selections survive a refresh as long as they still exist.
-                if (keepX != null && xItems.Contains(keepX))
+                if (pca)
+                {
+                    // nothing to restore
+                }
+                else if (keepX != null && xItems.Contains(keepX))
                     UI_PlotXBox.SelectedItem = keepX;
                 else if (boxplot)
                     UI_PlotXBox.SelectedItem = CategorySpecimen;   // always available
-                else if (pca && xItems.Count > 0)
-                    UI_PlotXBox.SelectedItem = xItems[0];          // PC1
-
-                if (keepY != null && yItems.Contains(keepY))
+                if (!pca && keepY != null && yItems.Contains(keepY))
                     UI_PlotYBox.SelectedItem = keepY;
-                else if (pca && yItems.Count > 1)
-                    UI_PlotYBox.SelectedItem = yItems[1];          // PC2
 
                 _plotOptions.PruneMissingColumns();
             }
@@ -964,8 +938,10 @@ namespace DinoLino
         /// trend line, a QQ reference line) matches what the eye groups. One
         /// series when the color is not mapped to a column.
         private List<(string Label, Brush Brush, List<T> Items)> SplitByPointColor<T>(
-            IEnumerable<T> items, Func<T, string> specimenOf)
+            IEnumerable<T> items, Func<T, string> specimenOf, string setting = null)
         {
+            string column = setting ?? _plotOptions.PointColor;
+
             var result = new List<(string, Brush, List<T>)>();
 
             if (!PointColorIsColumn)
@@ -977,7 +953,7 @@ namespace DinoLino
             var palette = _plotOptions.PaletteBrushes();
 
             foreach (var group in items
-                .GroupBy(i => CategoryValue(_plotOptions.PointColor, specimenOf(i)) ?? UnassignedLabel)
+                .GroupBy(i => CategoryValue(column, specimenOf(i)) ?? UnassignedLabel)
                 .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
             {
                 int index = _pointColorLevels.TryGetValue(group.Key, out int i) ? i : 0;
@@ -985,6 +961,18 @@ namespace DinoLino
             }
 
             return result;
+        }
+
+        /// Sizes of the groups a scores plot would draw, under a point colour that
+        /// may not be the committed one. The Advanced window asks so it knows
+        /// whether any group can carry a confidence ellipse.
+        internal List<int> PointColorGroupSizes(IReadOnlyList<string> specimens, string pointColor)
+        {
+            if (specimens == null || specimens.Count == 0) return new List<int>();
+
+            return SplitByPointColor(specimens, s => s, pointColor)
+                .Select(g => g.Items.Count)
+                .ToList();
         }
 
         // ---- Point labels ----
@@ -1072,7 +1060,8 @@ namespace DinoLino
                 _pcaDataFrame.PruneMissing(catalog);
 
                 var pcaDialog = new PcaAdvancedWindow(
-                                    _pcaDataFrame, _plotOptions, catalog, PcaExtremes())
+                                    _pcaDataFrame, _plotOptions, catalog,
+                                    PreviewPca, PointColorGroupSizes)
                 {
                     Owner = this,
                     FontSize = _currentFontSize,
@@ -1122,9 +1111,14 @@ namespace DinoLino
 
             UI_PlotVarPanel.Visibility = type == null ? Visibility.Collapsed : Visibility.Visible;
 
-            ShowPlotRow(UI_PlotXLabel, UI_PlotXBox, twoVariable);
+            ShowPlotRow(UI_PlotXLabel, UI_PlotXBox, twoVariable && !pca);
+            ShowPlotRow(UI_PlotYLabel, UI_PlotYBox, !pca);
 
-            if (twoVariable)
+            if (pca)
+            {
+            }
+
+            else if (twoVariable)
             {
                 UI_PlotXLabel.Text = "X";
                 UI_PlotYLabel.Text = "Y";
@@ -1183,9 +1177,12 @@ namespace DinoLino
 
             if (type == "PCA")
             {
-                if (_pcaDataFrame.Count == 0)
+                string xPc = _plotOptions.PcaXComponent;
+                string yPc = _plotOptions.PcaYComponent;
+
+                if (PcaComponentIndex(xPc) < 0 || PcaComponentIndex(yPc) < 0)
                 {
-                    PlotMessage("Please specify dataframe in the Advanced plot editing window.");
+                    PlotMessage("Perform PCA in the Advanced plot editing window.");
                     return;
                 }
 
@@ -1193,15 +1190,6 @@ namespace DinoLino
                 {
                     PlotMessage(_pcaFailure
                         ?? "Run the PCA from the Advanced plot editing window.");
-                    return;
-                }
-
-                string xPc = UI_PlotXBox.SelectedItem as string;
-                string yPc = UI_PlotYBox.SelectedItem as string;
-
-                if (xPc == null || yPc == null)
-                {
-                    PlotMessage("Choose the components for X and Y.");
                     return;
                 }
 
@@ -1569,19 +1557,37 @@ namespace DinoLino
             return tb.DesiredSize.Height;
         }
 
-        /// Raises the top of the y range so a caption drawn against the top of the
-        /// frame has `needed` pixels of clear space beneath it. Solved rather than
-        /// nudged: the mapping is linear, so the exact yMax that puts the highest
-        /// datapoint at t + needed can be computed in one step.
-        private static double ExpandTopForCaption(
-            double yMin, double yMax, double dataMax, double h, double needed)
+        /// The value range that puts `vLo` at least `nLo` pixels from the low edge
+        /// and `vHi` at least `nHi` from the high edge, across a `span`-pixel axis.
+        /// Both ends are solved at once, since widening one squeezes the other.
+        /// Never returns a range narrower than the one passed in.
+        private static (double Min, double Max) FitMargins(
+            double min, double max, double vLo, double vHi,
+            double nLo, double nHi, double span)
         {
-            if (needed <= 0 || h - needed <= 1) return yMax;
-            if (dataMax - yMin <= 1e-12) return yMax;
+            if (span <= 1 || vHi - vLo <= 1e-12) return (min, max);
 
-            double required = yMin + (dataMax - yMin) * h / (h - needed);
-            return Math.Max(yMax, required);
+            double alpha = nLo / span;
+            double beta = (span - nHi) / span;
+
+            // The two margins together want more room than the axis has.
+            if (beta - alpha <= 0.05) return (min, max);
+
+            double range = (vHi - vLo) / (beta - alpha);
+            double lo = vLo - alpha * range;
+
+            return (Math.Min(min, lo), Math.Max(max, lo + range));
         }
+
+        private static double ExpandMaxForMargin(
+            double min, double max, double dataMax, double span, double needed) =>
+            FitMargins(min, max, min, dataMax, 0, needed, span).Max;
+
+        /// Raises the top of the y range so a caption drawn against the top of the
+        /// frame has `needed` pixels of clear space beneath it.
+        private static double ExpandTopForCaption(
+            double yMin, double yMax, double dataMax, double h, double needed) =>
+            ExpandMaxForMargin(yMin, yMax, dataMax, h, needed);
 
         // Draws only the part of the segment inside the plot frame, so a steep
         // trend line stops at the axis instead of crossing the labels.
@@ -2030,7 +2036,7 @@ namespace DinoLino
             // Two points define a line, not an area: the covariance is singular and
             // the ellipse would collapse onto the segment joining them.
             int n = pts?.Count ?? 0;
-            if (n < 3) return null;
+            if (n < PlotOptions.MinEllipseGroupSize) return null;
 
             double mx = pts.Average(p => p.X);
             double my = pts.Average(p => p.Y);
@@ -2099,8 +2105,14 @@ namespace DinoLino
         // Scores-plot silhouettes
         // =====================
 
-        private const double SilhouetteDrawSize = 52;   // side on the canvas
-        private const double SilhouetteGap = 6;         // clearance from its point
+        // Drawn inside the frame beside their own point, so nothing outside it — the
+        // axes, their labels, the titles, the legend — moves or shrinks. The size is
+        // a fraction of the frame, clamped so it stays legible in a narrow sidebar
+        // and never swallows a large one.
+        private const double SilhouetteFrameFraction = 0.18;
+        private const double SilhouetteMinSize = 20;
+        private const double SilhouetteMaxSize = 56;
+        private const double SilhouetteGap = 4;         // clearance from its point
         private const int SilhouettePixels = 128;       // render resolution
 
         // Rendered once per outline: a resize redraws the plot, and re-rasterizing
@@ -2114,10 +2126,15 @@ namespace DinoLino
             public BitmapSource Image;
         }
 
-        /// The silhouettes to draw, and the frame margins they need. Roles held by one
-        /// specimen collapse to a single drawing on the side of its first role, so an
-        /// identical shape is never drawn twice. Must run before PlotArea is read.
-        private List<PlottedSilhouette> PrepareSilhouettes(IReadOnlyList<PcaExtreme> extremes)
+        private static double SilhouetteSizeFor(double w, double h) =>
+            Math.Max(SilhouetteMinSize,
+                Math.Min(SilhouetteMaxSize, Math.Min(w, h) * SilhouetteFrameFraction));
+
+        /// The silhouettes to draw. Roles held by one specimen collapse to a single
+        /// drawing on the side of its first role, so an identical shape is never
+        /// drawn twice. Reserves nothing: unlike the legend and the axis titles,
+        /// these live inside the frame.
+        private List<PlottedSilhouette> GatherSilhouettes(IReadOnlyList<PcaExtreme> extremes)
         {
             var drawn = new List<PlottedSilhouette>();
             if (!_plotOptions.ShowSilhouettes) return drawn;
@@ -2135,19 +2152,6 @@ namespace DinoLino
                 if (image == null) continue;
 
                 drawn.Add(new PlottedSilhouette { Extreme = extreme, Image = image });
-            }
-
-            double band = SilhouetteDrawSize + SilhouetteGap;
-
-            foreach (var silhouette in drawn)
-            {
-                switch (silhouette.Extreme.Side)
-                {
-                    case SilhouetteSide.Left: _plotLeftExtra += band; break;
-                    case SilhouetteSide.Right: _plotRightExtra += band; break;
-                    case SilhouetteSide.Above: _plotTopExtra += band; break;
-                    default: _plotBottomExtra += band; break;
-                }
             }
 
             return drawn;
@@ -2178,12 +2182,49 @@ namespace DinoLino
             return rendered;
         }
 
+        /// Widens the value ranges so every silhouette fits between its own point and
+        /// the frame edge it sits against. The frame itself is untouched — only the
+        /// scale changes, which is the one adjustment the axes absorb silently.
+        private (double XMin, double XMax, double YMin, double YMax) RoomForSilhouettes(
+            List<PlottedSilhouette> silhouettes, int xi, int yi,
+            double xMin, double xMax, double yMin, double yMax,
+            double w, double h, double size)
+        {
+            if (silhouettes.Count == 0) return (xMin, xMax, yMin, yMax);
+
+            double need = SilhouetteGap + size;
+
+            // Each axis is solved once with both of its margins, since making room on
+            // one side pushes the far side's point closer to its own edge.
+            double xLoV = xMin, xHiV = xMax, yLoV = yMin, yHiV = yMax;
+            double xLoN = 0, xHiN = 0, yLoN = 0, yHiN = 0;
+
+            foreach (var s in silhouettes)
+            {
+                double px = _pcaResult.Scores[s.Extreme.Row, xi];
+                double py = _pcaResult.Scores[s.Extreme.Row, yi];
+
+                switch (s.Extreme.Side)
+                {
+                    case SilhouetteSide.Right: xHiV = px; xHiN = need; break;
+                    case SilhouetteSide.Left: xLoV = px; xLoN = need; break;
+                    case SilhouetteSide.Above: yHiV = py; yHiN = need; break;
+                    default: yLoV = py; yLoN = need; break;
+                }
+            }
+
+            var x = FitMargins(xMin, xMax, xLoV, xHiV, xLoN, xHiN, w);
+            var y = FitMargins(yMin, yMax, yLoV, yHiV, yLoN, yHiN, h);
+
+            return (x.Min, x.Max, y.Min, y.Max);
+        }
+
         /// Places one silhouette past its point on the axis that point is extreme in,
         /// so nothing else can lie between the two, and centred on the other axis.
-        /// Clamped to the canvas so a corner case cannot push it out of sight.
-        private void DrawSilhouette(PlottedSilhouette silhouette, double px, double py)
+        /// Clamped to the frame, so it can never reach the axis labels.
+        private void DrawSilhouette(PlottedSilhouette silhouette, double px, double py,
+            double size, double l, double t, double w, double h)
         {
-            double size = SilhouetteDrawSize;
             double left, top;
 
             switch (silhouette.Extreme.Side)
@@ -2198,9 +2239,8 @@ namespace DinoLino
                     left = px - size / 2; top = py + SilhouetteGap; break;
             }
 
-            double w = UI_PlotCanvas.ActualWidth, h = UI_PlotCanvas.ActualHeight;
-            left = Math.Max(2, Math.Min(w - size - 2, left));
-            top = Math.Max(2, Math.Min(h - size - 2, top));
+            left = Math.Max(l, Math.Min(l + w - size, left));
+            top = Math.Max(t, Math.Min(t + h - size, top));
 
             var image = new Image
             {
@@ -2727,9 +2767,9 @@ namespace DinoLino
             PrepareLegend(PointLegendEntries(pointsDrawn: true));
             PrepareAxisTitles(xTitle, yTitle);
 
-            // Claims a band outside the frame on each side one is drawn against, so a
-            // silhouette never covers the axis labels.
-            var silhouettes = PrepareSilhouettes(PcaExtremes());
+            // Gathered before the ranges are set, so the room they need can be folded
+            // into the scale. Nothing outside the frame is reserved.
+            var silhouettes = GatherSilhouettes(PcaExtremes());
 
             // One ellipse per point-colour group, matching how the scatter plot fits
             // one trend line per group.
@@ -2760,6 +2800,10 @@ namespace DinoLino
             var (xMin, xMax) = PadRange(xs.Min(), xs.Max());
             var (yMin, yMax) = PadRange(ys.Min(), ys.Max());
 
+            double silSize = SilhouetteSizeFor(w, h);
+            (xMin, xMax, yMin, yMax) = RoomForSilhouettes(
+                silhouettes, xi, yi, xMin, xMax, yMin, yMax, w, h, silSize);
+
             double ToPx(double v) => l + (v - xMin) / (xMax - xMin) * w;
             double ToPy(double v) => t + h - (v - yMin) / (yMax - yMin) * h;
 
@@ -2780,45 +2824,24 @@ namespace DinoLino
             foreach (var e in ellipses)
                 DrawEllipseRing(e.Ring, ToPx, ToPy, l, t, w, h, e.Ink);
 
+            foreach (var silhouette in silhouettes)
+            {
+                DrawSilhouette(silhouette,
+                    ToPx(_pcaResult.Scores[silhouette.Extreme.Row, xi]),
+                    ToPy(_pcaResult.Scores[silhouette.Extreme.Row, yi]),
+                    silSize, l, t, w, h);
+            }
+
             foreach (var p in points)
                 DrawPoint(ToPx(p.X), ToPy(p.Y), 3, p.Specimen, forceVisible: true);
 
             foreach (var p in points)
                 DrawPointLabel(ToPx(p.X), ToPy(p.Y), 3, p.Specimen);
 
-            foreach (var silhouette in silhouettes)
-            {
-                DrawSilhouette(silhouette,
-                    ToPx(_pcaResult.Scores[silhouette.Extreme.Row, xi]),
-                    ToPy(_pcaResult.Scores[silhouette.Extreme.Row, yi]));
-            }
 
             // A dropped specimen or column changes what the plot is of, so say so
             // rather than leaving an unexplained n.
-            var caveats = new List<string>();
-
-            if (_pcaIncompleteSpecimens > 0)
-            {
-                caveats.Add(_pcaIncompleteSpecimens == 1
-                    ? "1 specimen omitted (missing a variable)"
-                    : $"{_pcaIncompleteSpecimens} specimens omitted (missing a variable)");
-            }
-
-            if (_pcaConstantColumns.Count > 0)
-            {
-                caveats.Add(_pcaConstantColumns.Count == 1
-                    ? "1 constant column dropped"
-                    : $"{_pcaConstantColumns.Count} constant columns dropped");
-            }
-
-            // A group of one or two has no ellipse; without a line saying so, its
-            // absence looks like a bug.
-            if (smallGroups > 0)
-            {
-                caveats.Add(smallGroups == 1
-                    ? "1 group too small for an ellipse"
-                    : $"{smallGroups} groups too small for an ellipse");
-            }
+            var caveats = new List<string>();            
 
             if (caveats.Count > 0)
             {

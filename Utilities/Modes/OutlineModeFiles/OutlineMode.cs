@@ -76,6 +76,7 @@ namespace DinoLino.Utilities.Modes
             BeginOperation();
             ClearMetadata();
             ClearEFDPreview();
+            InvalidateDenseContour();
         }
 
         void IOutlineToolContext.CommitOutline(Polyline outline) => CommitFinalOutline(outline);
@@ -531,6 +532,7 @@ namespace DinoLino.Utilities.Modes
             base.Reset();
             _opCts?.Cancel();
             _activePolyline = null;
+            InvalidateDenseContour();
             ClearPendingState();
             HandDraw.Reset();       // discards any open stroke AND the committed flag
             Smooth.ClearSnapshot(); // the outline is gone; never smooth from a ghost
@@ -647,14 +649,15 @@ namespace DinoLino.Utilities.Modes
                 full, snap, gradient, edgeGradThreshold, _simplifyEpsilon);
             if (simplified == null) return null;
 
-            _activeDenseContourImage = dense;
-
             var poly = OutlineVisuals.CreateOutlinePolyline(LineColor, dashed);
             var t = Transform;
 
             foreach (var p in simplified)
                 poly.Points.Add(t.ImageToCanvas(p));
             poly.Points.Add(t.ImageToCanvas(simplified[0]));
+
+            // Ownership stamp: a later commit of a DIFFERENT polyline can't reuse this.
+            SetDenseContour(dense, poly);
 
             if (PolylineGeometry.HasSelfIntersection(poly.Points))
             {
@@ -924,13 +927,35 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _efdCoefficientsResult, value);
         }
 
-        // Dense traced boundary in full-image space (no closure dup), before Douglas-
-        // Peucker.
+        // Dense traced boundary in full-image space (no closure dup), before Douglas-Peucker.
         private List<Point> _activeDenseContourImage;
+
+        // The polyline the cached dense contour was traced FROM. The cache is valid only
+        // while it still describes the ACTIVE outline: hand-draw commits a polyline it
+        // traced itself, so _activePolyline changes without BuildPolylineFromFullMask ever
+        // running, and EFA would otherwise keep analyzing the previous auto outline.
+        private Polyline _denseContourOwner;
+
+        // True only when the cached dense contour belongs to the outline being measured.
+        private bool HasDenseContourForActiveOutline =>
+            _activePolyline != null
+            && ReferenceEquals(_denseContourOwner, _activePolyline)
+            && _activeDenseContourImage != null
+            && _activeDenseContourImage.Count >= 3;
+
+        private void SetDenseContour(List<Point> dense, Polyline owner)
+        {
+            _activeDenseContourImage = dense;
+            _denseContourOwner = owner;
+        }
 
         // Clears the cached dense EFA contour (via tools' OutlineEdited) so the
         // next GenerateMetadata analyzes the edited polyline. Cheap, idempotent.
-        private void InvalidateDenseContour() => _activeDenseContourImage = null;
+        private void InvalidateDenseContour()
+        {
+            _activeDenseContourImage = null;
+            _denseContourOwner = null;
+        }
 
         // How many equally-spaced points the dense contour is resampled to before computing 
         // coefficients. Higher = more faithful, slower.
@@ -1098,7 +1123,7 @@ namespace DinoLino.Utilities.Modes
             // Run EFA on the dense contour (resampled to ContourSampleCount), not the
             // Douglas-Peucker polyline which drops detail the higher harmonics capture.
             List<Point> efaSource;
-            if (_activeDenseContourImage != null && _activeDenseContourImage.Count >= 3)
+            if (HasDenseContourForActiveOutline)
             {
                 var canvasDense = new List<Point>(_activeDenseContourImage.Count);
                 foreach (var ip in _activeDenseContourImage)

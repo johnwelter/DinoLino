@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace DinoLino
@@ -71,9 +72,20 @@ namespace DinoLino
         /// PCA scores plot reads this; the other plot types ignore it.
         public bool ConfidenceEllipses { get; set; } = false;
 
+        /// Fewest specimens a group needs before a confidence ellipse means
+        /// anything: two points define a line, not an area. Shared so the checkbox
+        /// and the renderer never disagree about which groups qualify.
+        public const int MinEllipseGroupSize = 3;
+
         /// Draw each extreme specimen's stored silhouette beside its point. Only the
         /// PCA scores plot reads this.
         public bool ShowSilhouettes { get; set; } = false;
+
+        /// Components the scores plot draws. Chosen in the PCA Advanced window
+        /// rather than the Plot tab, so the dialog can fit a preview against the
+        /// staged dataframe and know which specimens are extreme.
+        public string PcaXComponent { get; set; } = "PC1";
+        public string PcaYComponent { get; set; } = "PC2";
 
         /// specimen -> the stored outline name chosen for it. A specimen missing from
         /// the map, or naming an outline that has since gone, falls back to whichever
@@ -718,6 +730,94 @@ namespace DinoLino
         /// Outboard of the extreme it holds, so no other datapoint can lie between
         /// the silhouette and its own point.
         public SilhouetteSide Side;
+
+        /// "PC3" -> 2. Negative when the text is not a component name.
+        public static int ComponentIndex(string name)
+        {
+            if (name == null || !name.StartsWith("PC", StringComparison.Ordinal)) return -1;
+            return int.TryParse(name.Substring(2), out int n) && n > 0 ? n - 1 : -1;
+        }
+
+        public static List<string> ComponentNames(int count)
+        {
+            var names = new List<string>();
+            for (int i = 0; i < count; i++) names.Add($"PC{i + 1}");
+            return names;
+        }
+
+        /// The four points a silhouette can attach to. Ties go to the first row
+        /// reaching the value, which is the specimen order the tables list. Static
+        /// so the Advanced window can read them off its own preview fit, without a
+        /// run having been committed.
+        public static List<PcaExtreme> Find(
+            PcaAnalysis.Result result, IReadOnlyList<string> rowSpecimens,
+            string xName, string yName)
+        {
+            var extremes = new List<PcaExtreme>();
+
+            if (result == null || rowSpecimens == null) return extremes;
+            if (result.ObservationCount == 0) return extremes;
+            if (rowSpecimens.Count < result.ObservationCount) return extremes;
+
+            int xi = ComponentIndex(xName), yi = ComponentIndex(yName);
+            if (xi < 0 || yi < 0) return extremes;
+            if (xi >= result.ComponentCount || yi >= result.ComponentCount) return extremes;
+
+            int maxX = 0, minX = 0, maxY = 0, minY = 0;
+
+            for (int r = 1; r < result.ObservationCount; r++)
+            {
+                if (result.Scores[r, xi] > result.Scores[maxX, xi]) maxX = r;
+                if (result.Scores[r, xi] < result.Scores[minX, xi]) minX = r;
+                if (result.Scores[r, yi] > result.Scores[maxY, yi]) maxY = r;
+                if (result.Scores[r, yi] < result.Scores[minY, yi]) minY = r;
+            }
+
+            extremes.Add(new PcaExtreme
+            {
+                Row = maxX,
+                Specimen = rowSpecimens[maxX],
+                Role = "Highest " + xName,
+                Side = SilhouetteSide.Right
+            });
+            extremes.Add(new PcaExtreme
+            {
+                Row = minX,
+                Specimen = rowSpecimens[minX],
+                Role = "Lowest " + xName,
+                Side = SilhouetteSide.Left
+            });
+            extremes.Add(new PcaExtreme
+            {
+                Row = maxY,
+                Specimen = rowSpecimens[maxY],
+                Role = "Highest " + yName,
+                Side = SilhouetteSide.Above
+            });
+            extremes.Add(new PcaExtreme
+            {
+                Row = minY,
+                Specimen = rowSpecimens[minY],
+                Role = "Lowest " + yName,
+                Side = SilhouetteSide.Below
+            });
+
+            return extremes;
+        }
+    }
+
+    /// <summary>
+    /// A PCA fitted against a dataframe the user has staged but not yet run. The
+    /// Advanced window asks for one so its component list and its silhouette
+    /// option are live from the moment it opens.
+    /// </summary>
+    public sealed class PcaPreview
+    {
+        public PcaAnalysis.Result Result;
+        public List<string> RowSpecimens;
+
+        /// <summary>Why there is no result, ready to show the user.</summary>
+        public string Failure;
     }
 
     /// <summary>
@@ -798,70 +898,176 @@ namespace DinoLino
         private TextBox _titleBox;
         private CheckBox _ellipseBox;
         private CheckBox _silhouetteBox;
-        private readonly List<PcaExtreme> _extremes;
+        private ComboBox _xBox;
+        private ComboBox _yBox;
+
+        // Refitted whenever the staged dataframe changes, so the component list and
+        // the silhouette option are live without a committed run.
+        private readonly Func<PcaDataFrame, PcaPreview> _previewFor;
+        private PcaPreview _preview = new PcaPreview();
+        private List<PcaExtreme> _extremes = new List<PcaExtreme>();
+        private readonly Func<IReadOnlyList<string>, string, List<int>> _groupSizesFor;
+
+        // The available-variable list, held so its height can be set from the rows
+        // themselves once they have been laid out.
+        private ScrollViewer _listScroller;
+
+        // Every element of that list in order, headers included, so the height of
+        // the first six variables can be summed.
+        private readonly List<(FrameworkElement Element, bool IsVariable)> _listItems =
+            new List<(FrameworkElement, bool)>();
 
         internal PcaAdvancedWindow(
             PcaDataFrame current, PlotOptions options,
-            IEnumerable<PcaVariableEntry> catalog, IEnumerable<PcaExtreme> extremes)
+            IEnumerable<PcaVariableEntry> catalog,
+            Func<PcaDataFrame, PcaPreview> previewFor,
+            Func<IReadOnlyList<string>, string, List<int>> groupSizesFor)
         {
             _working = current?.Clone() ?? new PcaDataFrame();
             _workingOptions = (options ?? new PlotOptions()).Clone();
             _catalog = catalog?.ToList() ?? new List<PcaVariableEntry>();
-            _extremes = extremes?.ToList() ?? new List<PcaExtreme>();
+            _previewFor = previewFor;
+            _groupSizesFor = groupSizesFor;
 
             Title = "Advanced PCA options";
-            Width = 460;
-            Height = 700;
+            Width = 470;
+            Height = 780;
             MinWidth = 400;
-            MinHeight = 500;
+            MinHeight = 320;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             ShowInTaskbar = false;
 
             var root = new DockPanel { Margin = new Thickness(16) };
 
-            var note = new TextBlock
-            {
-                Text = "Choose the variables the PCA runs on. This dataframe is the "
-                     + "Plot tab's own: it does not affect the Batch Workshop tables "
-                     + "or their exports.",
-                Foreground = Brushes.Gray,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 12)
-            };
-            DockPanel.SetDock(note, Dock.Top);
-            root.Children.Add(note);
-
-            // Docked bottom-first: in a DockPanel the earlier child takes the outer
-            // edge, so these are added in the order they stack upwards from the
-            // bottom — buttons, then points, then the included list above both.
+            // Run and Cancel sit outside the scroller, so they stay reachable no
+            // matter how short the window is.
             var buttonBar = BuildButtonBar();
             DockPanel.SetDock(buttonBar, Dock.Bottom);
             root.Children.Add(buttonBar);
 
-            var display = BuildDisplayPanel();
-            DockPanel.SetDock(display, Dock.Bottom);
-            root.Children.Add(display);
-
-            var included = BuildIncludedPanel();
-            DockPanel.SetDock(included, Dock.Bottom);
-            root.Children.Add(included);
+            // Everything else stacks in reading order and scrolls as one.
+            var body = new StackPanel { Margin = new Thickness(0, 0, 6, 0) };
+            body.Children.Add(BuildNote());
+            body.Children.Add(BuildListPanel());
+            body.Children.Add(BuildIncludedPanel());
+            body.Children.Add(BuildDisplayPanel());
 
             root.Children.Add(new ScrollViewer
             {
-                Content = BuildList(),
+                Content = body,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+
+                // Disabled rather than hidden: it holds the content to the viewport
+                // width, so the note and the tips wrap to what is visible.
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Focusable = false
             });
 
             Content = root;
             UpdateState();
+
+            // Row heights are only known once the list has been laid out.
+            Loaded += (s, e) => SizeListToSixEntries();
         }
+
+        private static TextBlock BuildNote() => new TextBlock
+        {
+            Text = "Choose the variables the PCA runs on. This dataframe is the "
+                 + "Plot tab's own: it does not affect the Batch Workshop tables "
+                 + "or their exports.",
+            Foreground = Brushes.Gray,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
 
         // ---- Available list ----
 
+        /// The available-variable list: a fixed-height pane with its own bar, deep
+        /// enough to show six variables at once.
+        private FrameworkElement BuildListPanel()
+        {
+            _listScroller = new ScrollViewer
+            {
+                Content = BuildList(),
+                Height = 200,                    // replaced once the rows are measured
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            };
+
+            _listScroller.PreviewMouseWheel += InnerListWheel;
+
+            return new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA)),
+                BorderThickness = new Thickness(1),
+                Background = Brushes.White,
+                Padding = new Thickness(6, 2, 4, 4),
+                Child = _listScroller
+            };
+        }
+
+        /// Sets the list's height from the rows themselves, so at least six
+        /// variables are visible. Measured rather than assumed: a row carrying a
+        /// note is nearly twice the height of a bare one, and the mode headers sit
+        /// between them.
+        private void SizeListToSixEntries()
+        {
+            const int Target = 6;
+            const double Floor = 90;
+            const double Ceiling = 360;
+
+            if (_listItems.Count == 0) return;
+
+            // Loaded can precede the first arrange, which would leave every
+            // ActualHeight at zero.
+            _listScroller.UpdateLayout();
+
+            double total = 0;
+            int seen = 0;
+
+            foreach (var item in _listItems)
+            {
+                total += item.Element.ActualHeight
+                       + item.Element.Margin.Top + item.Element.Margin.Bottom;
+
+                if (item.IsVariable && ++seen == Target) break;
+            }
+
+            if (seen == 0 || total <= 0) return;
+
+            // A sliver of the seventh row shows there is more below.
+            if (seen == Target) total += 10;
+
+            _listScroller.Height = Math.Max(Floor, Math.Min(Ceiling, total));
+        }
+
+        // A nested ScrollViewer swallows the wheel even with nothing left to
+        // scroll, which would strand the window's own bar whenever the pointer sat
+        // over a list. Hand the gesture up once the inner one has reached its end.
+        private static void InnerListWheel(object sender, MouseWheelEventArgs e)
+        {
+            var viewer = (ScrollViewer)sender;
+
+            bool atTop = viewer.VerticalOffset <= 0;
+            bool atBottom = viewer.VerticalOffset >= viewer.ScrollableHeight;
+
+            if ((e.Delta > 0 && !atTop) || (e.Delta < 0 && !atBottom)) return;
+
+            e.Handled = true;
+
+            if (VisualTreeHelper.GetParent(viewer) is UIElement parent)
+            {
+                parent.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+                {
+                    RoutedEvent = UIElement.MouseWheelEvent,
+                    Source = viewer
+                });
+            }
+        }
         private UIElement BuildList()
         {
             var panel = new StackPanel();
+            _listItems.Clear();
 
             if (_catalog.Count == 0)
             {
@@ -883,11 +1089,15 @@ namespace DinoLino
             {
                 if (!string.Equals(entry.Group, lastGroup, StringComparison.Ordinal))
                 {
-                    panel.Children.Add(SectionHeader(entry.Group));
+                    var header = SectionHeader(entry.Group);
+                    panel.Children.Add(header);
+                    _listItems.Add((header, false));
                     lastGroup = entry.Group;
                 }
 
-                panel.Children.Add(BuildRow(entry));
+                var row = BuildRow(entry);
+                panel.Children.Add(row);
+                _listItems.Add((row, true));
             }
 
             return panel;
@@ -896,7 +1106,7 @@ namespace DinoLino
         // One row per catalog entry, bundles included: the EFA coefficients are
         // added and removed as a unit here, and only broken out one by one in the
         // included list below.
-        private UIElement BuildRow(PcaVariableEntry entry)
+        private FrameworkElement BuildRow(PcaVariableEntry entry)
         {
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -992,14 +1202,7 @@ namespace DinoLino
                 BorderThickness = new Thickness(1),
                 Background = Brushes.White,
                 Padding = new Thickness(6),
-                Child = new ScrollViewer
-                {
-                    // Taller than one line's worth: a staged EFA table lists every
-                    // one of its coefficients here.
-                    Height = 90,
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    Content = _includedText
-                }
+                Child = BuildIncludedScroller(),
             });
 
             var clear = new Button
@@ -1024,6 +1227,21 @@ namespace DinoLino
             };
         }
 
+        private ScrollViewer BuildIncludedScroller()
+        {
+            // Taller than one line's worth: a staged EFA table lists every one of
+            // its coefficients here.
+            var viewer = new ScrollViewer
+            {
+                Height = 90,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = _includedText
+            };
+
+            viewer.PreviewMouseWheel += InnerListWheel;
+            return viewer;
+        }
+
         // ---- Display ----
 
         /// Title, point aesthetics, and the group ellipse toggle. The point settings
@@ -1039,6 +1257,14 @@ namespace DinoLino
                 FontWeight = FontWeights.Bold,
                 Margin = new Thickness(0, 0, 0, 6)
             });
+
+            _xBox = new ComboBox();
+            _xBox.SelectionChanged += (s, e) => OnComponentChanged();
+            stack.Children.Add(Row("X", _xBox, "Component drawn on the horizontal axis"));
+
+            _yBox = new ComboBox();
+            _yBox.SelectionChanged += (s, e) => OnComponentChanged();
+            stack.Children.Add(Row("Y", _yBox, "Component drawn on the vertical axis"));
 
             _titleBox = new TextBox { Text = _workingOptions.Title, MaxLength = 60 };
             stack.Children.Add(Row("Plot title", _titleBox,
@@ -1075,6 +1301,11 @@ namespace DinoLino
             };
             stack.Children.Add(_ellipseBox);
 
+            // Grouping follows the point colour, so changing it changes which
+            // groups exist and how big they are. Subscribed here rather than where
+            // the box is built, so the checkbox above already exists.
+            _pointColorBox.SelectionChanged += (s, e) => ApplyEllipseAvailability();
+
             _silhouetteBox = new CheckBox
             {
                 Content = "Add Silhouettes",
@@ -1092,8 +1323,6 @@ namespace DinoLino
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(20, 0, 0, 4)
             });
-
-            ApplySilhouetteAvailability();
 
             return new Border
             {
@@ -1224,6 +1453,101 @@ namespace DinoLino
                 "Draw each extreme specimen's stored silhouette beside its point";
         }
 
+        /// A 95% ellipse needs a group with enough specimens to define one, so the
+        /// option is offered only when at least one group has them. Groups that
+        /// fall short are simply not drawn, which the plot reports underneath.
+        private void ApplyEllipseAvailability()
+        {
+            if (_ellipseBox == null) return;
+
+            var specimens = _preview.RowSpecimens;
+            string color = _pointColorBox?.SelectedItem as string ?? _workingOptions.PointColor;
+
+            var sizes = specimens == null || specimens.Count == 0
+                ? new List<int>()
+                : (_groupSizesFor?.Invoke(specimens, color) ?? new List<int>());
+
+            int usable = sizes.Count(n => n >= PlotOptions.MinEllipseGroupSize);
+
+            _ellipseBox.IsEnabled = usable > 0;
+            if (usable == 0) _ellipseBox.IsChecked = false;
+
+            if (usable > 0)
+            {
+                _ellipseBox.ToolTip = sizes.Count > usable
+                    ? $"Drawn for the {usable} of {sizes.Count} groups holding at least "
+                      + $"{PlotOptions.MinEllipseGroupSize} specimens. The rest are left bare."
+                    : "Draw a 95% confidence ellipse around each group of scores.";
+            }
+            else if (sizes.Count == 0)
+            {
+                _ellipseBox.ToolTip = string.IsNullOrEmpty(_preview.Failure)
+                    ? "Add at least two variables to the dataframe first."
+                    : _preview.Failure;
+            }
+            else
+            {
+                _ellipseBox.ToolTip =
+                    $"No group holds the {PlotOptions.MinEllipseGroupSize} specimens an "
+                    + "ellipse needs. Choose a coarser group column under Point color, "
+                    + "or measure more specimens.";
+            }
+
+            ToolTipService.SetShowOnDisabled(_ellipseBox, true);
+        }
+
+        /// Refits against the staged dataframe and refills the component boxes. The
+        /// user's choices survive as long as the run still produces them.
+        private void RefreshPreview()
+        {
+            _preview = _previewFor?.Invoke(_working) ?? new PcaPreview();
+
+            int count = _preview.Result?.ComponentCount ?? 0;
+            var names = PcaExtreme.ComponentNames(count);
+
+            string keepX = _xBox.SelectedItem as string ?? _workingOptions.PcaXComponent;
+            string keepY = _yBox.SelectedItem as string ?? _workingOptions.PcaYComponent;
+
+            _xBox.ItemsSource = names;
+            _yBox.ItemsSource = names;
+
+            _xBox.IsEnabled = count > 0;
+            _yBox.IsEnabled = count > 0;
+
+            if (_extremes.Count == 0)
+            {
+                _silhouetteBox.IsEnabled = false;
+                _silhouetteBox.IsChecked = false;
+                _silhouetteBox.ToolTip = string.IsNullOrEmpty(_preview.Failure)
+                    ? "Choose both components first."
+                    : _preview.Failure;
+                return;
+            }
+
+            string tip = count > 0
+                ? "Component drawn on this axis"
+                : "Add at least two variables to the dataframe first.";
+            _xBox.ToolTip = tip;
+            _yBox.ToolTip = tip;
+            ToolTipService.SetShowOnDisabled(_xBox, true);
+            ToolTipService.SetShowOnDisabled(_yBox, true);
+
+            RecomputeExtremes();
+        }
+
+        private void RecomputeExtremes()
+        {
+            _extremes = PcaExtreme.Find(
+                _preview.Result, _preview.RowSpecimens,
+                _xBox.SelectedItem as string, _yBox.SelectedItem as string);
+
+            ApplySilhouetteAvailability();
+            ApplyEllipseAvailability();
+        }
+
+        // Changing an axis moves which specimens are extreme, but not the fit.
+        private void OnComponentChanged() => RecomputeExtremes();
+
         /// Asks which outline to use as soon as the box is ticked, but only when some
         /// extreme specimen holds more than one: with a single outline apiece there is
         /// nothing to decide.
@@ -1286,6 +1610,10 @@ namespace DinoLino
             _runButton.ToolTip = n >= 2
                 ? "Run the analysis and plot the component scores"
                 : "Add at least two variables first";
+
+            // The staged dataframe decides the fit, so anything reading it refreshes
+            // whenever a variable is added or removed.
+            RefreshPreview();
         }
 
         /// Every measurement column the staged entries stand for, in the order they
@@ -1331,6 +1659,8 @@ namespace DinoLino
             target.ShowSilhouettes = _silhouetteBox.IsEnabled && _silhouetteBox.IsChecked == true;
             target.SilhouetteChoices = new Dictionary<string, string>(
                 _workingOptions.SilhouetteChoices, StringComparer.Ordinal);
+            target.PcaXComponent = _xBox.SelectedItem as string ?? target.PcaXComponent;
+            target.PcaYComponent = _yBox.SelectedItem as string ?? target.PcaYComponent;
         }
 
         /// <summary>
