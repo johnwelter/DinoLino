@@ -71,11 +71,6 @@ namespace DinoLino.Utilities.Modes
             AppendPoint(new Point(canvasPos.X, canvasPos.Y));
         }
 
-        /// <summary>Leaves the stroke open so drawing can resume on the next press.</summary>
-        public void EndStroke()
-        {
-        }
-
         /// <summary>Discards the current in-progress stroke.</summary>
         public void Cancel()
         {

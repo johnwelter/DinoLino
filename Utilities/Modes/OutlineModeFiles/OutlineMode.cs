@@ -420,17 +420,6 @@ namespace DinoLino.Utilities.Modes
         // (newPending, oldPending) — MainWindow swaps them on the canvas
         public event Action<Polyline, Polyline> PendingOutlineReady;
 
-        private bool _useActiveContour = false;
-        public bool UseActiveContour
-        {
-            get => _useActiveContour;
-            set
-            {
-                if (!SetField(ref _useActiveContour, value)) return;
-                OnTipChanged?.Invoke();
-            }
-        }
-
         // 0=Off, 1=Low, 2=High. Only honored when UseWatershed==true; auto mode
         // tries blur levels itself.
         private int _watershedBlurLevel = 0;
@@ -846,8 +835,6 @@ namespace DinoLino.Utilities.Modes
         #region Tool forwarders for MainWindow input routing
 
         // Mode-level access to the tool objects for callers that hold the mode.
-        public void CancelHandDraw() => HandDraw.Cancel();
-        public bool HasFinishedHandOutline => HandDraw.HasCommittedOutline;
 
         public event Action<Polyline> HandPreviewReady
         {
@@ -860,30 +847,6 @@ namespace DinoLino.Utilities.Modes
             remove => HandDraw.PreviewClear -= value;
         }
 
-        public void TakePreSmoothSnapshot() => Smooth.TakeSnapshot();
-
-        // Tool-parameter forwarders. These do NOT raise mode-level PropertyChanged,
-        // so bindings use the tool paths (Smooth.Strength, Erase.BrushRadius) instead.
-        public double EraseBrushRadius
-        {
-            get => Erase.BrushRadius;
-            set => Erase.BrushRadius = value;
-        }
-        public int SmoothStrength
-        {
-            get => Smooth.Strength;
-            set => Smooth.Strength = value;
-        }
-        public double SmoothBrushRadius
-        {
-            get => Smooth.BrushRadius;
-            set => Smooth.BrushRadius = value;
-        }
-        public bool IsGlobalSmoothSelected
-        {
-            get => Smooth.IsGlobalScope;
-            set => Smooth.IsGlobalScope = value;
-        }
         #endregion
 
         #region Measurements, elliptic Fourier analysis, and tips
@@ -1247,7 +1210,6 @@ namespace DinoLino.Utilities.Modes
         }
 
         // The blue EFD preview polyline shown in the workspace
-        private Polyline _efdPreviewPolyline = null;
         public event Action<Polyline> EFDPreviewReady;   // MainWindow wires this up
         public event Action EFDPreviewClear;             // MainWindow wires this up
 
@@ -1256,7 +1218,6 @@ namespace DinoLino.Utilities.Modes
         public void UpdateEFDPreview()
         {
             EFDPreviewClear?.Invoke();
-            _efdPreviewPolyline = null;
 
             if (_efd.RawCoefficients == null || _efd.RawCoefficients.Length == 0) return;
             if (_activePolyline == null || _activePolyline.Points.Count < 3) return;
@@ -1279,7 +1240,6 @@ namespace DinoLino.Utilities.Modes
             foreach (var p in reconstructed)
                 previewLine.Points.Add(p);
 
-            _efdPreviewPolyline = previewLine;
             EFDPreviewReady?.Invoke(previewLine);
         }
 
@@ -1302,7 +1262,6 @@ namespace DinoLino.Utilities.Modes
         public void ClearEFDPreview()
         {
             EFDPreviewClear?.Invoke();
-            _efdPreviewPolyline = null;
             _efd.Clear();
         }
 

@@ -284,7 +284,6 @@ namespace DinoLino
             // Pause the freehand stroke; the stroke remains resumable until the mode ends it.
             if (e.ChangedButton == MouseButton.Left && CurrentWorkMode is OutlineMode om && om.HandDrawMode)
             {
-                om.HandDraw.EndStroke();
                 (sender as UIElement)?.ReleaseMouseCapture();
                 e.Handled = true;
             }

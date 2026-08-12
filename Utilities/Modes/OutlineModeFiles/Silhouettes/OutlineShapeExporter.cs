@@ -672,7 +672,7 @@ namespace DinoLino.Utilities
             return candidate;
         }
 
-        private static string Sanitize(string name)
+        public static string Sanitize(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
 

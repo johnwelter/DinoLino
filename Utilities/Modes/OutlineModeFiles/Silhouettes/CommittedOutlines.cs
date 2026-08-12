@@ -63,19 +63,6 @@ namespace DinoLino.Utilities
             if (suppress) SuppressDialog = true;
         }
 
-        /// <summary>Brings the window back after "Don't show window again".</summary>
-        public static void ResetPreferences() => SuppressDialog = false;
-
-        /// <summary>Options seeded from the remembered settings, PNG output.</summary>
-        public static OutlineExportOptions NewOptions() => new OutlineExportOptions
-        {
-            Format = OutlineImageFormat.Png,
-            ScaleToCommonArea = DefaultScaleToCommonArea,
-            AlignRotation = DefaultAlignRotation,
-            CanvasSize = DefaultCanvasSize,
-            Margin = Math.Max(4, DefaultCanvasSize * 0.03)
-        };
-
         // ---- Store ----
 
         /// <summary>Trims a typed name and caps its length.</summary>

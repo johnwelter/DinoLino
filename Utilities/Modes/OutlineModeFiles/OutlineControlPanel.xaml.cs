@@ -973,15 +973,6 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // Strips characters that are invalid in file names so the suggested
-        // filename derived from the specimen name is always valid.
-        private static string SanitizeFileName(string name)
-        {
-            foreach (char c in System.IO.Path.GetInvalidFileNameChars())
-                name = name.Replace(c, '_');
-            return name;
-        }
-
         // Renders both projection plots to a single PNG at a fixed export size.
         // Builds a fresh, off-screen copy of the plots rather than capturing the
         // on-screen panel, so export works regardless of the current window size
@@ -1003,7 +994,7 @@ namespace DinoLino.Utilities.Modes
                 Title = "Export Projection Plots",
                 Filter = "PNG image (*.png)|*.png|All files (*.*)|*.*",
                 DefaultExt = "png",
-                FileName = SanitizeFileName(specimenName) + "_projections.png"
+                FileName = OutlineShapeExporter.Sanitize(specimenName) + "_projections.png"
             };
 
             if (dialog.ShowDialog() != true) return;
