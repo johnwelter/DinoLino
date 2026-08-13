@@ -104,6 +104,9 @@ namespace DinoLino
         // Cursor shown over the workspace for certain interactive tools.
         public Ellipse UI_DotCursor;
 
+        private void OutlineCommit_Requested() =>
+    CommitOutlineFlow.Run(this, SpecimenManager.DisplayName,
+                          OutlineMode.GetActiveOutlinePoints(), WorkingDirectory);
         public MainWindow()
         {
             InitializeComponent();

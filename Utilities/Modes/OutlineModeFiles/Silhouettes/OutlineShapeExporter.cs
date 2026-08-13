@@ -67,6 +67,56 @@ namespace DinoLino.Utilities
         public int UnstableRotationCount { get; set; }
     }
 
+    /// <summary>How a single-silhouette write turned out.</summary>
+    public enum OutlineWriteOutcome
+    {
+        /// <summary>The file was written; the result's Path says where.</summary>
+        Written,
+
+        /// <summary>No usable destination folder was given, so nothing was attempted.</summary>
+        NoDestination,
+
+        /// <summary>The outline had no drawable geometry, so no file was produced.</summary>
+        NotRendered,
+
+        /// <summary>The image was produced but could not be written; Error says why.</summary>
+        Failed
+    }
+
+    /// <summary>
+    /// The outcome of writing one silhouette, and whatever detail goes with it. The
+    /// exporter decides WHAT happened; the caller decides what to say about it.
+    /// </summary>
+    public readonly struct OutlineWriteResult
+    {
+        public OutlineWriteOutcome Outcome { get; }
+
+        /// <summary>Where the file went, when the outcome is Written.</summary>
+        public string Path { get; }
+
+        /// <summary>Why the write failed, when the outcome is Failed.</summary>
+        public string Error { get; }
+
+        private OutlineWriteResult(OutlineWriteOutcome outcome, string path, string error)
+        {
+            Outcome = outcome;
+            Path = path;
+            Error = error;
+        }
+
+        public static OutlineWriteResult Written(string path) =>
+            new OutlineWriteResult(OutlineWriteOutcome.Written, path, null);
+
+        public static OutlineWriteResult NoDestination() =>
+            new OutlineWriteResult(OutlineWriteOutcome.NoDestination, null, null);
+
+        public static OutlineWriteResult NotRendered() =>
+            new OutlineWriteResult(OutlineWriteOutcome.NotRendered, null, null);
+
+        public static OutlineWriteResult Failed(string error) =>
+            new OutlineWriteResult(OutlineWriteOutcome.Failed, null, error);
+    }
+
     /// <summary>
     /// Exports committed outlines as silhouettes: a black filled shape centred on a
     /// white square canvas, standardized to a common area only when asked for.
@@ -98,7 +148,7 @@ namespace DinoLino.Utilities
         }
 
         // =====================
-        // Entry points
+        // Batch entry point
         // =====================
 
         /// <summary>
@@ -137,11 +187,7 @@ namespace DinoLino.Utilities
                 string fileName = UniqueFileName(p.Source, options, usedNames);
                 string path = IOPath.Combine(options.Folder, fileName);
 
-                if (options.Format == OutlineImageFormat.Svg)
-                    WriteSvg(path, placed, options.CanvasSize);
-                else
-                    WriteRaster(path, placed, options.CanvasSize, options.Format);
-
+                Write(path, placed, options);
                 written++;
             }
 
@@ -163,6 +209,70 @@ namespace DinoLino.Utilities
             }
 
             return result;
+        }
+
+        // =====================
+        // Single-silhouette entry points
+        // =====================
+        //
+        // Used by "Export as png" on the commit window, which writes the one
+        // silhouette the user just stored. Nothing here throws: a missing folder, a
+        // degenerate outline, and a failed write each come back as an outcome, so
+        // the caller is left with a message to show rather than a pipeline to run.
+
+        /// Writes ONE committed silhouette into `folder`, under a name that does not
+        /// overwrite a file already sitting there. Sets options.Folder as it goes.
+        public static OutlineWriteResult WriteIntoFolder(
+            CommittedOutline outline, OutlineExportOptions options, string folder)
+        {
+            if (outline == null || options == null) return OutlineWriteResult.NotRendered();
+
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                return OutlineWriteResult.NoDestination();
+
+            options.Folder = folder;
+
+            try
+            {
+                string written = ExportOne(outline, options);
+                return written == null
+                    ? OutlineWriteResult.NotRendered()
+                    : OutlineWriteResult.Written(written);
+            }
+            catch (Exception ex)
+            {
+                return OutlineWriteResult.Failed(ex.Message);
+            }
+        }
+
+        /// <summary>Writes ONE committed silhouette to an exact path the user chose.</summary>
+        public static OutlineWriteResult WriteToFile(
+            CommittedOutline outline, OutlineExportOptions options, string path)
+        {
+            if (outline == null || options == null || string.IsNullOrEmpty(path))
+                return OutlineWriteResult.NotRendered();
+
+            try
+            {
+                return ExportToPath(outline, options, path)
+                    ? OutlineWriteResult.Written(path)
+                    : OutlineWriteResult.NotRendered();
+            }
+            catch (Exception ex)
+            {
+                return OutlineWriteResult.Failed(ex.Message);
+            }
+        }
+
+        /// Default filename for a save dialog: the silhouette's name made
+        /// filesystem-safe, with the extension the chosen format uses.
+        public static string SuggestFileName(CommittedOutline outline, OutlineImageFormat format)
+        {
+            string stem = Sanitize(outline?.Name);
+            if (string.IsNullOrWhiteSpace(stem)) stem = Sanitize(outline?.SpecimenName);
+            if (string.IsNullOrWhiteSpace(stem)) stem = "outline";
+
+            return stem + Extension(format);
         }
 
         /// Writes ONE committed silhouette into options.Folder, choosing a name that
@@ -209,13 +319,7 @@ namespace DinoLino.Utilities
                 ? AreaScale(prepared, options)
                 : CommonScale(new List<PreparedShape> { prepared }, options);
 
-            List<Point> placed = PlaceOnCanvas(prepared, scale, options.CanvasSize);
-
-            if (options.Format == OutlineImageFormat.Svg)
-                WriteSvg(path, placed, options.CanvasSize);
-            else
-                WriteRaster(path, placed, options.CanvasSize, options.Format);
-
+            Write(path, PlaceOnCanvas(prepared, scale, options.CanvasSize), options);
             return true;
         }
 
@@ -524,8 +628,17 @@ namespace DinoLino.Utilities
         }
 
         // =====================
-        // Raster output
+        // Output
         // =====================
+
+        /// <summary>Sends one placed shape to the writer its format calls for.</summary>
+        private static void Write(string path, List<Point> pts, OutlineExportOptions options)
+        {
+            if (options.Format == OutlineImageFormat.Svg)
+                WriteSvg(path, pts, options.CanvasSize);
+            else
+                WriteRaster(path, pts, options.CanvasSize, options.Format);
+        }
 
         private static void WriteRaster(string path, List<Point> pts, int size, OutlineImageFormat format)
         {
@@ -606,10 +719,6 @@ namespace DinoLino.Utilities
             return geometry;
         }
 
-        // =====================
-        // Vector output
-        // =====================
-
         /// Writes the same normalized shape as SVG, so it stays editable and
         /// resolution-independent downstream.
         private static void WriteSvg(string path, List<Point> pts, int size)
@@ -672,6 +781,7 @@ namespace DinoLino.Utilities
             return candidate;
         }
 
+        /// <summary>Replaces characters a filename cannot contain. Shared with callers that name files.</summary>
         public static string Sanitize(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
