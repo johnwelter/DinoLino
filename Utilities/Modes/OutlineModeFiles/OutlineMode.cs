@@ -26,11 +26,10 @@ namespace DinoLino.Utilities.Modes
         public override UserControl CreateControlPanel() => _cachedPanel ??= new OutlineControlPanel(this);
         public override bool IsStartingNewOperation => true;
 
-        // Erase/smooth/metadata clicks edit the existing outline and return no new
+        // Edit/metadata clicks adjust the existing outline and return no new
         // elements, so the "new operation" workspace clear must NOT fire for them or
         // the click wipes the outline being edited.
-        public override bool IsProbeInteraction =>
-            _eraseOutlineMode || _pushOutlineMode || _smoothOutlineMode || _outlineMetadataMode;
+        public override bool IsProbeInteraction => _editOutlineMode || _outlineMetadataMode;
 
         #region Tools (hand draw, erase, smooth)
 
@@ -84,7 +83,21 @@ namespace DinoLino.Utilities.Modes
         #endregion
 
         #region Active sub-mode
+        /// Selects Automated Outline and re-asserts it on the UI even when the flag is
+        /// already set. A plain assignment is swallowed by SetField's change detection,
+        /// which raises no PropertyChanged and so leaves the radio button unchecked
+        /// whenever the flag and the group's visual state have drifted apart.
+        public void SelectAutomatedOutline()
+        {
+            if (!_drawOutlineMode)
+            {
+                DrawOutlineMode = true;
+                return;
+            }
 
+            OnPropertyChanged(nameof(DrawOutlineMode));
+            OnTipChanged?.Invoke();
+        }
         private bool _handDrawMode = false;
         public bool HandDrawMode
         {
@@ -109,6 +122,33 @@ namespace DinoLino.Utilities.Modes
             set
             {
                 if (!SetField(ref _drawOutlineMode, value)) return;
+                OnTipChanged?.Invoke();
+            }
+        }
+
+
+        private bool _editOutlineMode = false;
+        public bool EditOutlineMode
+        {
+            get => _editOutlineMode;
+            set
+            {
+                if (!SetField(ref _editOutlineMode, value)) return;
+
+                if (!_editOutlineMode)
+                {
+                    // The sub-tools live in their own radio group, so WPF does not
+                    // uncheck them when this tool is deselected. Clear them here or
+                    // they stay latched and swallow every subsequent click.
+                    EraseOutlineMode = false;
+                    PushOutlineMode = false;
+                    SmoothOutlineMode = false;
+                }
+                else if (!_eraseOutlineMode && !_pushOutlineMode && !_smoothOutlineMode)
+                {
+                    EraseOutlineMode = true;   // never sit in "edit mode, no brush"
+                }
+
                 OnTipChanged?.Invoke();
             }
         }
@@ -264,6 +304,13 @@ namespace DinoLino.Utilities.Modes
             // Token also passed to Task.Run so a pre-cancelled start yields a
             // Canceled (not Faulted) task, which callers treat as superseded.
             _analysisTask = Task.Run(() => BuildImageAnalysis(pixels, w, h, stride, bpp, analysisToken), analysisToken);
+        }
+
+        private void EnsureAnalysisStarted()
+        {
+            if (_analysisTask != null || _sourceImage == null) return;
+            _analysisDebounce?.Stop();
+            StartImageAnalysis();   // the click is paying for it anyway
         }
 
         private ImageAnalysis BuildImageAnalysis(byte[] pixels, int w, int h, int stride, int bpp, CancellationToken token)
@@ -661,8 +708,14 @@ namespace DinoLino.Utilities.Modes
         {
             BeginOperation();
 
-            if (_eraseOutlineMode || _pushOutlineMode || _smoothOutlineMode || _outlineMetadataMode || _handDrawMode)
-                return new List<UIElement>();
+            // Only the Automated Outline tool creates an outline from a click. Stated
+            // positively so a new tool can't break this path by forgetting to clear a flag.
+            if (!_drawOutlineMode) return new List<UIElement>();
+
+            // A click inside the debounce window pays for the analysis rather than
+            // being silently dropped.
+            EnsureAnalysisStarted();
+
             if (_cachedPixels == null || _analysisTask == null) return new List<UIElement>();
 
             // Math.Floor not a cast: truncation-toward-zero would map a click just

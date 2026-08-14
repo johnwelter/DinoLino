@@ -58,25 +58,19 @@ namespace DinoLino
         }
 
         /// <summary>
-        /// Generate Metadata applies to the outline shown for the prior specimen.
-        /// When the active specimen changes, switch an active Outline panel back to
-        /// Automated Outline rather than carrying metadata-preview mode forward.
+        /// Every Outline tool operates on the outline shown for the prior specimen, so
+        /// a new specimen always returns the panel to Automated Outline. The panel is
+        /// cached, so doing this while another tab is showing is safe: the radio group
+        /// is already in the right state when the user comes back to Outline.
         /// </summary>
         private void ResetOutlineToolForNewSpecimen()
         {
-            // The user must actually be viewing the Outline tab. Do not change an
-            // Outline-mode setting merely because the OutlineMode object exists.
-            if (!ReferenceEquals(CurrentWorkMode, OutlineMode))
-                return;
+            if (OutlineMode == null) return;
 
-            if (!OutlineMode.OutlineMetadataMode)
-                return;
-
-            // Explicitly update both bound properties. This ensures that the backing
-            // mode state and the OutlineTool radio-button group agree even before WPF
-            // has completed its binding/UI update cycle.
             OutlineMode.OutlineMetadataMode = false;
-            OutlineMode.DrawOutlineMode = true;
+            OutlineMode.EditOutlineMode = false;   // cascades to the three brushes
+            OutlineMode.HandDrawMode = false;
+            OutlineMode.SelectAutomatedOutline();
         }
 
         // Selected workspace font settings.

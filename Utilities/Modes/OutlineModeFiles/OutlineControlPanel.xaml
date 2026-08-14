@@ -86,8 +86,8 @@
         <RadioButton x:Name="EditOutlineRadio"
              Content="Edit Outline"
              GroupName="OutlineTool"
-             MinHeight="26"
-             Margin="0,8,0,0"
+             IsChecked="{Binding EditOutlineMode, Mode=TwoWay}"
+             MinHeight="26" Margin="0,8,0,0"
              ToolTip="Choose an outline-editing tool: Erase, Push, or Smooth."/>
 
         <!-- The selected Edit Outline radio button reveals the nested tool choices.
