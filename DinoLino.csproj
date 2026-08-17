@@ -103,7 +103,7 @@
     <Compile Include="Utilities\3DDataProcessing\MeshSimplifier.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\BrushEditTools.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\HandDrawTool.cs" />
-    <Compile Include="Utilities\Modes\OutlineModeFiles\MLSegmenter.cs" />
+    <Compile Include="Utilities\Modes\OutlineModeFiles\ClickSegmentation.cs" />
     <Compile Include="Utilities\3DDataProcessing\ModelPoseController.cs" />
     <Compile Include="Utilities\3DDataProcessing\ObjLoader.cs" />
     <Compile Include="Utilities\ImageAdjustments\PictureAdjustmentWindow.xaml.cs">
@@ -114,7 +114,7 @@
     <Compile Include="Utilities\Modes\OutlineModeFiles\Silhouettes\OutlineExportDialogs.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\Silhouettes\OutlineGalleryWindow.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\Silhouettes\OutlineShapeExporter.cs" />
-    <Compile Include="Utilities\PCA.Math.cs" />
+    <Compile Include="Utilities\Morphometrics\PCA.Math.cs" />
     <Compile Include="Utilities\Scale\ScaleWindow.xaml.cs">
       <DependentUpon>ScaleWindow.xaml</DependentUpon>
     </Compile>
@@ -126,10 +126,10 @@
       <DependentUpon>UserGuide.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\CanvasUtils.cs" />
-    <Compile Include="Utilities\EFAFiles\EfsCsvCollector.cs" />
-    <Compile Include="Utilities\EFAFiles\EllipticFourierAnalysis.cs" />
-    <Compile Include="Utilities\EFAFiles\Ellipticfourierpower.cs" />
-    <Compile Include="Utilities\Modes\GeometryCalculations.cs" />
+    <Compile Include="Utilities\Morphometrics\EfsCsvCollector.cs" />
+    <Compile Include="Utilities\Morphometrics\EllipticFourierAnalysis.cs" />
+    <Compile Include="Utilities\Morphometrics\Ellipticfourierpower.cs" />
+    <Compile Include="Utilities\Geometry\GeometryCalculations.cs" />
     <Compile Include="Utilities\HistoryFiles\GeomOpHistoryWindow.cs" />
     <Compile Include="Utilities\ImageAdjustments\ImageAdjuster.cs" />
     <Compile Include="Utilities\Modes\DrawModeFiles\DrawMode.cs" />
@@ -137,8 +137,8 @@
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureMode.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineMetadataFormatter.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineMode.cs" />
-    <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineToolSupport.cs" />
-    <Compile Include="Utilities\Modes\OutlineModeFiles\PolylineGeometry.cs" />
+    <Compile Include="Utilities\Geometry\ViewTransform.cs" />
+    <Compile Include="Utilities\Geometry\PolylineGeometry.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\SmoothTool.cs" />
     <Compile Include="Utilities\Modes\WorkMode.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineControlPanel.xaml.cs">
@@ -147,7 +147,7 @@
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineProcessor.cs" />
     <Compile Include="Utilities\Scale\ScaleCalibration.cs" />
     <Compile Include="Utilities\HistoryFiles\SpecimenManager.cs" />
-    <Compile Include="Utilities\Modes\CurvatureModeFiles\SplineFitting.cs" />
+    <Compile Include="Utilities\Geometry\SplineFitting.cs" />
     <Compile Include="Utilities\HelpMenuFiles\About.xaml.cs">
       <DependentUpon>About.xaml</DependentUpon>
     </Compile>

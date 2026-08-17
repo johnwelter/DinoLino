@@ -1,4 +1,5 @@
 ﻿using DinoLino.DataTypes;
+using DinoLino.Utilities;
 using DinoLino.Utilities.Operations;
 using System;
 using System.Collections.Generic;
@@ -10,8 +11,6 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using ImageAnalysis = DinoLino.Utilities.OutlineProcessor.ImageAnalysis;
-using ImageSnapshot = DinoLino.Utilities.OutlineProcessor.ImageSnapshot;
 
 
 namespace DinoLino.Utilities.Modes
@@ -83,6 +82,7 @@ namespace DinoLino.Utilities.Modes
         #endregion
 
         #region Active sub-mode
+
         /// Selects Automated Outline and re-asserts it on the UI even when the flag is
         /// already set. A plain assignment is swallowed by SetField's change detection,
         /// which raises no PropertyChanged and so leaves the radio button unchecked
@@ -98,6 +98,7 @@ namespace DinoLino.Utilities.Modes
             OnPropertyChanged(nameof(DrawOutlineMode));
             OnTipChanged?.Invoke();
         }
+
         private bool _handDrawMode = false;
         public bool HandDrawMode
         {
@@ -125,7 +126,6 @@ namespace DinoLino.Utilities.Modes
                 OnTipChanged?.Invoke();
             }
         }
-
 
         private bool _editOutlineMode = false;
         public bool EditOutlineMode
@@ -198,9 +198,11 @@ namespace DinoLino.Utilities.Modes
                 OnTipChanged?.Invoke();
             }
         }
+
         #endregion
 
         #region Source image and per-image analysis
+
         private BitmapSource _sourceImage;
         public BitmapSource SourceImage
         {
@@ -218,6 +220,7 @@ namespace DinoLino.Utilities.Modes
         private int _cachedBpp;
         private int _cachedWidth;
         private int _cachedHeight;
+
         private int _minAreaPixels = 20;
         public int MinAreaPixels
         {
@@ -225,11 +228,12 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _minAreaPixels, value);
         }
 
+        // The per-image caches every click reads. Built by ImageAnalysis.Build
+        // (see ClickSegmentation.cs), which owns all the pixel-analysis tuning.
         private Task<ImageAnalysis> _analysisTask;
         private int _imageVersion;
 
-        // This CTS
-        // supersedes the analysis exactly like _opCts supersedes clicks.
+        // This CTS supersedes the analysis exactly like _opCts supersedes clicks.
         private CancellationTokenSource _analysisCts;
 
         // Debounces the analysis rebuild: rapid SourceImage swaps (specimen ▲/▼,
@@ -282,9 +286,10 @@ namespace DinoLino.Utilities.Modes
             _analysisDebounce.Start();
         }
 
-        // Copies pixels (fast) then runs the analysis — background mask, Sobel
-        // gradient, distance transform, texture, retinex, SAM encode — on a worker
-        // so a large image doesn't freeze the UI; the first click awaits the task.
+        // Copies pixels (fast), then hands them to ImageAnalysis.Build — background
+        // mask, Sobel gradient, distance transform, texture, retinex, SAM encode — on
+        // a worker so a large image doesn't freeze the UI; the first click awaits the
+        // task.
         private void StartImageAnalysis()
         {
             if (_sourceImage == null) return;
@@ -303,7 +308,9 @@ namespace DinoLino.Utilities.Modes
             CancellationToken analysisToken = _analysisCts.Token;
             // Token also passed to Task.Run so a pre-cancelled start yields a
             // Canceled (not Faulted) task, which callers treat as superseded.
-            _analysisTask = Task.Run(() => BuildImageAnalysis(pixels, w, h, stride, bpp, analysisToken), analysisToken);
+            _analysisTask = Task.Run(
+                () => ImageAnalysis.Build(pixels, w, h, stride, bpp, analysisToken),
+                analysisToken);
         }
 
         private void EnsureAnalysisStarted()
@@ -313,97 +320,9 @@ namespace DinoLino.Utilities.Modes
             StartImageAnalysis();   // the click is paying for it anyway
         }
 
-        private ImageAnalysis BuildImageAnalysis(byte[] pixels, int w, int h, int stride, int bpp, CancellationToken token)
-        {
-            var proc = new OutlineProcessor();
-
-            // SAM image encoder, run once per image (in parallel with the classical
-            // caches) when a model is installed; each click then pays only a fast
-            // decoder pass. Null when absent/failed, and downstream falls back.
-            Task<SamImageState> samTask = Task.Run(() =>
-            {
-                try
-                {
-                    token.ThrowIfCancellationRequested();
-                    return SamSegmenter.Shared?.EncodeImage(pixels, w, h, stride, bpp);
-                }
-                catch (OperationCanceledException) { return null; }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[sam] encode failed: {ex.Message}");
-                    return null;
-                }
-            }, token);
-
-            // Border-palette background model (see EstimateBackgroundPalette):
-            // ~6 clustered border colors + per-corner trust flags + adaptive threshold.
-            var (bgPalette, hardSeedCorners, adaptiveThreshold) =
-                proc.EstimateBackgroundPalette(pixels, w, h, stride, bpp);
-            bool[] bgMask = proc.BuildBackgroundMaskProgressive(
-                pixels, w, h, stride, bpp, bgPalette, hardSeedCorners,
-                tightThreshold: adaptiveThreshold * 0.6,
-                relaxedThreshold: adaptiveThreshold);
-            token.ThrowIfCancellationRequested();
-
-            var snap = new ImageSnapshot(pixels, bgMask, w, h, stride, bpp);
-            int[] gradient = proc.ComputeGradient(snap);
-
-            // Edge cutoff for mask scoring: 90th-percentile gradient, floored at a
-            // ~9-level luma step so a flat background can't make every rim look edgy.
-            int edgeThreshold = Math.Max(
-                OutlineProcessor.GradientPercentileThreshold(gradient, 0.90), 120_000);
-
-            // Per-pixel local texture (luma std-dev over 7×7). Lets the adaptive
-            // flood match on texture and self-tune tolerance from the seed.
-            float[] textureMap = proc.ComputeTextureMap(snap);
-            token.ThrowIfCancellationRequested();
-
-            int[] distToBackground = proc.ComputeDistanceToBackground(w, h, bgMask);
-            token.ThrowIfCancellationRequested();
-
-            // Illumination-flattened copy (retinex, radius ~min(w,h)/8) with its
-            // background model rebuilt on it, so a vignetted/side-lit scene becomes
-            // uniform for both the flattened flood and its bg mask.
-            int flattenRadius = Math.Max(8, Math.Min(w, h) / 8);
-            byte[] flattened = proc.ComputeIlluminationFlattened(snap, flattenRadius);
-            var (flatPalette, flatCorners, flatThreshold) =
-                proc.EstimateBackgroundPalette(flattened, w, h, stride, bpp);
-            bool[] flatBgMask = proc.BuildBackgroundMaskProgressive(
-                flattened, w, h, stride, bpp, flatPalette, flatCorners,
-                tightThreshold: flatThreshold * 0.6,
-                relaxedThreshold: flatThreshold);
-            token.ThrowIfCancellationRequested();
-
-            SamImageState samState = null;
-            try { samState = samTask.Result; } catch { samState = null; }
-
-            System.Diagnostics.Debug.WriteLine(samState != null
-                ? $"[sam] embedding ready ({w}x{h}) — neural candidate active"
-                : "[sam] embedding unavailable — neural candidate disabled for this image");
-
-            return new ImageAnalysis
-            {
-                Pixels = pixels,
-                Width = w,
-                Height = h,
-                Stride = stride,
-                Bpp = bpp,
-                BackgroundMask = bgMask,
-                Gradient = gradient,
-                DistToBackground = distToBackground,
-                GradientEdgeThreshold = edgeThreshold,
-                TextureMap = textureMap,
-                FlattenedPixels = flattened,
-                FlattenedBackgroundMask = flatBgMask,
-                SamState = samState
-            };
-        }
-
-        // Background palette estimation lives in OutlineProcessor
-        // (EstimateBackgroundPalette): pure pixel statistics, no mode state.
-
         // Canvas → image mapping for the click math below.
         private Point CanvasToImage(Point p) => _transform.CanvasToImage(p);
+
         #endregion
 
         #region Shared overrides
@@ -439,10 +358,10 @@ namespace DinoLino.Utilities.Modes
             // measurements and re-raise IsScaleCalibrated / ScaleUnit.
             RecomputeScaledValues();
         }
+
         #endregion
 
         #region Click pipeline and outline construction
-
 
         // Multi-click toggle (bound in XAML)
         private bool _multiClickOutline = false;
@@ -598,13 +517,13 @@ namespace DinoLino.Utilities.Modes
 
         // Cooperative cancellation inside the body, so the token is NOT passed
         // to Task.Run — the delegate always runs and busy stays balanced.
-        private void RunClickOperation(Func<ImageAnalysis, OutlineProcessor, CancellationToken, Task> body)
+        private void RunClickOperation(Func<ImageAnalysis, ClickSegmentation, CancellationToken, Task> body)
         {
             var analysisTask = _analysisTask;
             if (analysisTask == null) return;
 
             // Newest click wins: supersede any in-flight computation. Per-operation
-            // processors remove the buffer race between overlapping clicks.
+            // segmenters remove the buffer race between overlapping clicks.
             var superseded = _opCts;
             superseded?.Cancel();
             _opCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
@@ -619,11 +538,11 @@ namespace DinoLino.Utilities.Modes
                     ImageAnalysis a = await analysisTask.ConfigureAwait(false);
                     token.ThrowIfCancellationRequested();
 
-                    // Per-operation processor: scratch buffers are never shared
-                    // across concurrent tasks.
-                    var proc = new OutlineProcessor();
+                    // Per-operation segmenter: its processor's scratch buffers are
+                    // never shared across concurrent tasks.
+                    var seg = new ClickSegmentation();
 
-                    await body(a, proc, token).ConfigureAwait(false);
+                    await body(a, seg, token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { }
                 catch (Exception ex)
@@ -636,7 +555,6 @@ namespace DinoLino.Utilities.Modes
 
         // Marshals a computed result back to the UI thread, dropping it when
         // the operation was superseded or the image changed while computing.
-
         private void PostResultToUi(int version, CancellationToken token, Action apply)
         {
             var dispatcher = Application.Current?.Dispatcher;
@@ -666,8 +584,8 @@ namespace DinoLino.Utilities.Modes
 
         // Current tuning values, read fresh for every click so panel changes apply
         // to the next click without any further wiring.
-        private OutlineProcessor.SegmentationSettings CurrentSegmentationSettings =>
-            new OutlineProcessor.SegmentationSettings
+        private SegmentationSettings CurrentSegmentationSettings =>
+            new SegmentationSettings
             {
                 ForceWatershed = _useWatershed,
                 WatershedBlurLevel = _watershedBlurLevel,
@@ -678,10 +596,14 @@ namespace DinoLino.Utilities.Modes
 
         // Turns a cleaned mask into the canvas polyline shown to the user, and keeps
         // the dense contour the elliptic Fourier analysis runs on.
+        //
+        // Called from inside PostResultToUi, so this runs on the UI thread using the
+        // operation's segmenter. That is safe only because the worker does no further
+        // work with it after BeginInvoke — keep it that way.
         private Polyline BuildPolylineFromFullMask(bool[] full, ImageSnapshot snap, bool dashed,
-            OutlineProcessor proc, int[] gradient, int edgeGradThreshold)
+            ClickSegmentation seg, int[] gradient, int edgeGradThreshold)
         {
-            var (simplified, dense) = proc.BuildSimplifiedContour(
+            var (simplified, dense) = seg.BuildSimplifiedContour(
                 full, snap, gradient, edgeGradThreshold, _simplifyEpsilon);
             if (simplified == null) return null;
 
@@ -765,21 +687,22 @@ namespace DinoLino.Utilities.Modes
             _pendingClickPoints.Add((px, py));
             var samPrompts = _pendingClickPoints.ToArray();
 
-            RunClickOperation((a, proc, token) =>
+            RunClickOperation((a, seg, token) =>
             {
-                var (raw, usedX, usedY, snap, info) = proc.SegmentAtClick(
+                var (raw, usedX, usedY, snap, info) = seg.SegmentAtClick(
                     px, py, a, CurrentSegmentationSettings, token, samPrompts);
                 LastSegmentationInfo = info;
                 if (raw == null) return Task.CompletedTask;
 
-                bool[] cleaned = proc.CleanMaskFullSpace(raw, snap, usedX, usedY, MinAreaPixels, token);
-                if (cleaned == null || !proc.HasMinimumPixels(cleaned, MinAreaPixels)) return Task.CompletedTask;
+                bool[] cleaned = seg.CleanMaskFullSpace(raw, snap, usedX, usedY, MinAreaPixels, token);
+                if (cleaned == null || !seg.Processor.HasMinimumPixels(cleaned, MinAreaPixels))
+                    return Task.CompletedTask;
                 token.ThrowIfCancellationRequested();
 
                 PostResultToUi(version, token, () =>
                 {
                     bool dashed = _multiClickOutline;
-                    var poly = BuildPolylineFromFullMask(cleaned, snap, dashed, proc, a.Gradient, a.GradientEdgeThreshold);
+                    var poly = BuildPolylineFromFullMask(cleaned, snap, dashed, seg, a.Gradient, a.GradientEdgeThreshold);
                     if (poly == null) return;
                     if (dashed) SwapPending(cleaned, poly);   // store mask + show dashed preview
                     else CommitFinalOutline(poly);            // existing commit path
@@ -798,9 +721,9 @@ namespace DinoLino.Utilities.Modes
             _pendingClickPoints.Add((px, py));
             var samPrompts = _pendingClickPoints.ToArray();
 
-            RunClickOperation((a, proc, token) =>
+            RunClickOperation((a, seg, token) =>
             {
-                var (newFlood, usedX, usedY, snap, info) = proc.SegmentAtClick(
+                var (newFlood, usedX, usedY, snap, info) = seg.SegmentAtClick(
                     px, py, a, CurrentSegmentationSettings, token, samPrompts);
                 LastSegmentationInfo = info;
                 if (newFlood == null) return Task.CompletedTask;
@@ -811,18 +734,18 @@ namespace DinoLino.Utilities.Modes
 
                 const int bridgeRadius = 6; // tune to the largest gap you want to span
                 // Cropped close, avoiding two full-image distance transforms per click.
-                accumulated = proc.MorphCloseCropped(accumulated, a.Width, a.Height, bridgeRadius);
+                accumulated = seg.Processor.MorphCloseCropped(accumulated, a.Width, a.Height, bridgeRadius);
 
                 // Re-clean the union. Use the new click as the trace seed so
                 // PrepareMaskForTracing keeps the component the user just added.
-                bool[] cleaned = proc.CleanMaskFullSpace(accumulated, snap, usedX, usedY, MinAreaPixels, token,
+                bool[] cleaned = seg.CleanMaskFullSpace(accumulated, snap, usedX, usedY, MinAreaPixels, token,
                     preserveMultipleComponents: true);
                 if (cleaned == null) return Task.CompletedTask;
                 token.ThrowIfCancellationRequested();
 
                 PostResultToUi(version, token, () =>
                 {
-                    var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true, proc, a.Gradient, a.GradientEdgeThreshold);
+                    var poly = BuildPolylineFromFullMask(cleaned, snap, dashed: true, seg, a.Gradient, a.GradientEdgeThreshold);
                     if (poly == null) return;
                     SwapPending(cleaned, poly);
                 });
@@ -883,6 +806,7 @@ namespace DinoLino.Utilities.Modes
             ResetHarmonicAutoDefault(); // new specimen → re-derive the 99% default
             OutlineReady?.Invoke(output);
         }
+
         #endregion
 
         #region Tool forwarders for MainWindow input routing
@@ -973,7 +897,7 @@ namespace DinoLino.Utilities.Modes
             _denseContourOwner = null;
         }
 
-        // How many equally-spaced points the dense contour is resampled to before computing 
+        // How many equally-spaced points the dense contour is resampled to before computing
         // coefficients. Higher = more faithful, slower.
         private int _contourSampleCount = 128;
         public int ContourSampleCount
@@ -1024,6 +948,7 @@ namespace DinoLino.Utilities.Modes
 
         // Visibility companion for NormalizationWarning (BooleanToVisibilityConverter needs a bool).
         public bool HasNormalizationWarning => !string.IsNullOrEmpty(_normalizationWarning);
+
         private double _lastCanvasPerimeter;
         private double _lastCanvasArea;
         private bool _hasScaledMeasurements;
@@ -1071,11 +996,8 @@ namespace DinoLino.Utilities.Modes
             RecomputeScaledValues();
         }
 
-        // Shared frozen dash pattern (OutlineVisuals) for this mode's dashed polylines.
-
         // Fired after metadata is stamped onto the committed outline.
         public event Action MetadataGenerated;
-
 
         // Called from the panel's Generate Metadata handler and by the EFA window
         // when settings change.
@@ -1157,7 +1079,7 @@ namespace DinoLino.Utilities.Modes
             EFDCoefficientsResult = _efd.ComputeNormalized(efaSource, harmonics);
 
             // Presentation strings are built by the formatter — the mode
-            // computes numbers, the formatter owns the text 
+            // computes numbers, the formatter owns the text
             NormalizationWarning = OutlineMetadataFormatter.BuildNormalizationWarning(
                 _efd.NormalizationStatus, _efd.FirstHarmonicAxisRatio);
 
@@ -1195,7 +1117,6 @@ namespace DinoLino.Utilities.Modes
 
             UpdateEFDPreview();
         }
-
 
         // ---- ELLIPTIC FOURIER DESCRIPTORS ----
         private readonly EllipticFourierAnalysis _efd = new EllipticFourierAnalysis();
@@ -1455,6 +1376,7 @@ namespace DinoLino.Utilities.Modes
             if (HandDrawMode) return HandDrawTips;
             return NoTips;
         }
+
         #endregion
     }
 }
