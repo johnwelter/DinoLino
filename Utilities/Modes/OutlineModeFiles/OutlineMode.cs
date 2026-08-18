@@ -354,7 +354,7 @@ namespace DinoLino.Utilities.Modes
 
         public override void RefreshScalePlaceholders()
         {
-            // Calibration changed: re-derive scaled numbers from the stored canvas
+            // Calibration changed: re-derive scaled numbers from the stored image
             // measurements and re-raise IsScaleCalibrated / ScaleUnit.
             RecomputeScaledValues();
         }
@@ -949,8 +949,13 @@ namespace DinoLino.Utilities.Modes
         // Visibility companion for NormalizationWarning (BooleanToVisibilityConverter needs a bool).
         public bool HasNormalizationWarning => !string.IsNullOrEmpty(_normalizationWarning);
 
-        private double _lastCanvasPerimeter;
-        private double _lastCanvasArea;
+        // Image-space measurements behind the scaled rows. Image pixels do not move
+        // when the window is resized, so a stored value converts to the same
+        // real-world number whenever it is read.
+        private double _lastImagePerimeter;
+        private double _lastImageArea;
+        private double _lastImageMaxLength;
+        private double _lastImageMaxWidth;
         private bool _hasScaledMeasurements;
 
         public bool IsScaleCalibrated => Scale != null && Scale.IsCalibrated;
@@ -970,28 +975,60 @@ namespace DinoLino.Utilities.Modes
             private set => SetField(ref _areaScaledValue, value);
         }
 
+        private double _maxLengthValue;
+        /// Longest caliper dimension, in calibrated units when the image is scaled and
+        /// in image pixels when it is not (see MeasurementUnit).
+        public double MaxLengthValue
+        {
+            get => _maxLengthValue;
+            private set => SetField(ref _maxLengthValue, value);
+        }
+
+        private double _maxWidthValue;
+        /// <summary>Widest extent perpendicular to the long axis, same units as MaxLengthValue.</summary>
+        public double MaxWidthValue
+        {
+            get => _maxWidthValue;
+            private set => SetField(ref _maxWidthValue, value);
+        }
+
+        /// Unit label for the length/width rows: the calibrated unit, or "px" when the
+        /// image has not been scaled. Lets one row serve both cases.
+        public string MeasurementUnit => IsScaleCalibrated ? ScaleUnit : "px";
+
         private void RecomputeScaledValues()
         {
             if (IsScaleCalibrated && _hasScaledMeasurements)
             {
-                PerimeterScaledValue = Scale.ToUnits(_lastCanvasPerimeter);
-                AreaScaledValue = Scale.ToUnitsArea(_lastCanvasArea);
+                PerimeterScaledValue = Scale.ToUnitsFromImage(_lastImagePerimeter);
+                AreaScaledValue = Scale.ToUnitsAreaFromImage(_lastImageArea);
+                MaxLengthValue = Scale.ToUnitsFromImage(_lastImageMaxLength);
+                MaxWidthValue = Scale.ToUnitsFromImage(_lastImageMaxWidth);
             }
             else
             {
                 PerimeterScaledValue = 0;
                 AreaScaledValue = 0;
+
+                // Uncalibrated: fall through to raw pixels rather than blanking, so the
+                // two rows are always usable.
+                MaxLengthValue = _hasScaledMeasurements ? _lastImageMaxLength : 0;
+                MaxWidthValue = _hasScaledMeasurements ? _lastImageMaxWidth : 0;
             }
             OnPropertyChanged(nameof(IsScaleCalibrated));
             OnPropertyChanged(nameof(ScaleUnit));
+            OnPropertyChanged(nameof(MeasurementUnit));
         }
 
-        // Restores scaled Perimeter/Area on undo/redo (called by
+        // Restores the image-space measurements on undo/redo (called by
         // OutlineOperation.ApplyMetadataToMode) alongside the ratio metrics.
-        public void RestoreScaledMeasurements(double canvasPerimeter, double canvasArea)
+        public void RestoreScaledMeasurements(double imagePerimeter, double imageArea,
+            double imageMaxLength, double imageMaxWidth)
         {
-            _lastCanvasPerimeter = canvasPerimeter;
-            _lastCanvasArea = canvasArea;
+            _lastImagePerimeter = imagePerimeter;
+            _lastImageArea = imageArea;
+            _lastImageMaxLength = imageMaxLength;
+            _lastImageMaxWidth = imageMaxWidth;
             _hasScaledMeasurements = true;
             RecomputeScaledValues();
         }
@@ -1024,19 +1061,21 @@ namespace DinoLino.Utilities.Modes
             // Remove duplicate closing point if present
             PolylineGeometry.StripClosureDuplicate(pts);
 
-            // Convert from canvas space to image space for scale-invariant metric computation.
-            // All GeometryCalculations calls below use image-space coordinates.
+            // Convert from canvas space to image space. Every metric below is
+            // computed there: the ratios become zoom-independent, and the absolute
+            // measurements land in the unit they are stored and exported in.
             var imagePts = pts.Select(CanvasToImage).ToList();
 
             double perimeter = GeometryCalculations.Perimeter(imagePts);
             double area = GeometryCalculations.PolygonArea(imagePts);
 
-            // Scaled outputs use canvas-space measurements (matching the Scale Image
-            // calibration); imagePts stays image-space so ratios are zoom-independent.
-            double canvasPerimeter = GeometryCalculations.Perimeter(pts);
-            double canvasArea = GeometryCalculations.PolygonArea(pts);
-            _lastCanvasPerimeter = canvasPerimeter;
-            _lastCanvasArea = canvasArea;
+            // Caliper dimensions in image space, like every other stored measurement.
+            var (maxLength, maxWidth) = GeometryCalculations.MaxLengthAndWidth(imagePts);
+
+            _lastImagePerimeter = perimeter;
+            _lastImageArea = area;
+            _lastImageMaxLength = maxLength;
+            _lastImageMaxWidth = maxWidth;
             _hasScaledMeasurements = true;
             RecomputeScaledValues();
 
@@ -1060,6 +1099,7 @@ namespace DinoLino.Utilities.Modes
 
             // Run EFA on the dense contour (resampled to ContourSampleCount), not the
             // Douglas-Peucker polyline which drops detail the higher harmonics capture.
+            // Canvas space is fine here: normalized coefficients are scale-invariant.
             List<Point> efaSource;
             if (HasDenseContourForActiveOutline)
             {
@@ -1085,6 +1125,9 @@ namespace DinoLino.Utilities.Modes
 
             MetadataSummary = OutlineMetadataFormatter.BuildSummary(
                 AspectRatioResult,
+                MaxLengthValue,
+                MaxWidthValue,
+                MeasurementUnit,
                 PerimeterAreaRatioResult,
                 CircularityResult,
                 SolidityResult,
@@ -1099,13 +1142,15 @@ namespace DinoLino.Utilities.Modes
             {
                 op.AspectRatio = AspectRatioResult;
                 op.PerimeterAreaRatio = PerimeterAreaRatioResult;
+                op.MaxLengthImagePixels = maxLength;
+                op.MaxWidthImagePixels = maxWidth;
                 op.Circularity = CircularityResult;
                 op.EFDCoefficients = EFDCoefficientsResult;
                 op.Solidity = SolidityResult;
                 op.SumTurningAngles = SumTurningAnglesResult;
                 op.TurningAngleLength = TurningAngleLengthResult;
-                op.Perimeter = canvasPerimeter;
-                op.Area = canvasArea;
+                op.PerimeterImagePixels = perimeter;
+                op.AreaImagePixels = area;
                 op.MetadataSummary = MetadataSummary;
                 op.NormalizationWarning = NormalizationWarning;
                 op.HasMetadata = true;

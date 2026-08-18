@@ -138,7 +138,9 @@ For local smooth, set the brush size using the slider and the desired strength. 
 Alternately, hold the 'Alt' button and drag the cursor to erase part of the outline. This may be more convenient when using a trackpad.
 
 ----- Generate Metadata -----
-Aspect Ratio: Width of the outline (its longest side) divided by its height (maximum perpendicular distance from the width).
+Max Length: Maximum distance between two points along the long axis of the outline. This is not restricted to uninterrupted distance.
+Max Width: Maximum distance between two points in a perpendicular orientation to the long axis of the outline. This is not restricted to uninterrupted distance.
+Aspect Ratio (bbox): Length over width of an axis-aligned bounding box that is drawn around the outline. The bounding box is always a square that is aligned with the canvas boundaries.
 Perimeter / Area: Length of the outline divided by its area.
 Circularity: 4π*Area / Perimeter^2
 Solidity: Area of the outlined shape / Convex hull area

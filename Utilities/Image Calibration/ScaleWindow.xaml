@@ -9,10 +9,16 @@
         <StackPanel Orientation="Horizontal">
             <TextBox x:Name="UI_LengthBox" Width="100" VerticalAlignment="Center"
                      PreviewTextInput="LengthBox_PreviewTextInput"/>
-            <ComboBox x:Name="UI_UnitBox" Width="60" Margin="8,0,0,0" SelectedIndex="0">
-                <ComboBoxItem Content="mm"/>
-                <ComboBoxItem Content="cm"/>
+            <ComboBox x:Name="UI_UnitBox" Width="64" Margin="8,0,0,0" SelectedIndex="6">
+                <ComboBoxItem Content="km"/>
+                <ComboBoxItem Content="hm"/>
+                <ComboBoxItem Content="dam"/>
                 <ComboBoxItem Content="m"/>
+                <ComboBoxItem Content="dm"/>
+                <ComboBoxItem Content="cm"/>
+                <ComboBoxItem Content="mm"/>
+                <ComboBoxItem Content="&#181;m"/>
+                <ComboBoxItem Content="nm"/>
             </ComboBox>
         </StackPanel>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">

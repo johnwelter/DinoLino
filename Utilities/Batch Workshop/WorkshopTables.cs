@@ -492,6 +492,9 @@ namespace DinoLino.Utilities
         // for the four drawn shapes; line_ for lines; outline_ and efa_ for outlines.
         // Note circ_ means the circular arc in the Curvature table and the drawn
         // circle in the Shape table — separate tables, so the names never meet.
+        //
+        // Every length and area reaching FmtLength or FmtArea is in image pixels,
+        // which is what those two expect.
 
         /// One category's column groups, in table order. Callers can take a subset to
         /// table a single operation kind on its own.
@@ -530,7 +533,7 @@ namespace DinoLino.Utilities
                             {
                                 Col("spline_turnangle", o => GeomOpHistoryWindow.Fmt(((SplineOperation)o).TurningAngleArcRatio)),
                                 Col("spline_chordarc", o => GeomOpHistoryWindow.Fmt(((SplineOperation)o).SChordArcRatio)),
-                                Col("spline_length", o => GeomOpHistoryWindow.FmtLength(((SplineOperation)o).SplineLengthPixels, scale))
+                                Col("spline_length", o => GeomOpHistoryWindow.FmtLength(((SplineOperation)o).SplineLengthImagePixels, scale))
                             }
                         }
                     };
@@ -547,7 +550,7 @@ namespace DinoLino.Utilities
                                 Col("tri_angleb", o => GeomOpHistoryWindow.Fmt(((GetAngleOperation)o).AngleB)),
                                 Col("tri_anglec", o => GeomOpHistoryWindow.Fmt(((GetAngleOperation)o).AngleC)),
                                 Col("tri_aspect", o => GeomOpHistoryWindow.Fmt(((GetAngleOperation)o).TriAspectRatio)),
-                                Col("tri_area", o => GeomOpHistoryWindow.FmtArea(((GetAngleOperation)o).TriArea, scale))
+                                Col("tri_area", o => GeomOpHistoryWindow.FmtArea(((GetAngleOperation)o).TriAreaImagePixels, scale))
                             }
                         }
                     };
@@ -568,7 +571,7 @@ namespace DinoLino.Utilities
                             OperationType = typeof(LineOperation),
                             Columns = new List<WorkshopColumn>
                             {
-                                Col("line_length", o => GeomOpHistoryWindow.FmtLength(((LineOperation)o).LineLength, scale)),
+                                Col("line_length", o => GeomOpHistoryWindow.FmtLength(((LineOperation)o).LineLengthImagePixels, scale)),
                                 Col("line_ratio", o => GeomOpHistoryWindow.FmtRatio(((LineOperation)o).LineLengthRatio)),
                                 Col("line_angle", o => GeomOpHistoryWindow.FmtRatio(((LineOperation)o).LineAngle))
                             }
@@ -585,8 +588,10 @@ namespace DinoLino.Utilities
                             Columns = new List<WorkshopColumn>
                             {
                                 Col("outline_aspect", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).AspectRatio)),
-                                Col("outline_perim", o => GeomOpHistoryWindow.FmtLength(((OutlineOperation)o).Perimeter, scale)),
-                                Col("outline_area", o => GeomOpHistoryWindow.FmtArea(((OutlineOperation)o).Area, scale)),
+                                Col("outline_perim", o => GeomOpHistoryWindow.FmtLength(((OutlineOperation)o).PerimeterImagePixels, scale)),
+                                Col("outline_area", o => GeomOpHistoryWindow.FmtArea(((OutlineOperation)o).AreaImagePixels, scale)),
+                                Col("outline_maxlength", o => GeomOpHistoryWindow.FmtLength(((OutlineOperation)o).MaxLengthImagePixels, scale)),
+                                Col("outline_maxwidth", o => GeomOpHistoryWindow.FmtLength(((OutlineOperation)o).MaxWidthImagePixels, scale)),
                                 Col("outline_perimarea", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).PerimeterAreaRatio)),
                                 Col("outline_circ", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).Circularity)),
                                 Col("outline_solidity", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).Solidity)),
@@ -610,9 +615,9 @@ namespace DinoLino.Utilities
                                 Col("outline_vertices", o => VertexCount((OutlineOperation)o).ToString()),
                                 Col("outline_hasmeta", o => ((OutlineOperation)o).HasMetadata ? "yes" : "no"),
                                 Col("outline_perim", o => ((OutlineOperation)o).HasMetadata
-                                    ? GeomOpHistoryWindow.FmtLength(((OutlineOperation)o).Perimeter, scale) : ""),
+                                    ? GeomOpHistoryWindow.FmtLength(((OutlineOperation)o).PerimeterImagePixels, scale) : ""),
                                 Col("outline_area", o => ((OutlineOperation)o).HasMetadata
-                                    ? GeomOpHistoryWindow.FmtArea(((OutlineOperation)o).Area, scale) : "")
+                                    ? GeomOpHistoryWindow.FmtArea(((OutlineOperation)o).AreaImagePixels, scale) : "")
                             }
                         }
                     };
@@ -636,7 +641,7 @@ namespace DinoLino.Utilities
                     o => GeomOpHistoryWindow.Fmt(((ShapeOperation)o).DrawAspectRatio)));
 
             group.Columns.Add(Col(prefix + "_area",
-                o => GeomOpHistoryWindow.FmtArea(((ShapeOperation)o).ShapeArea, scale)));
+                o => GeomOpHistoryWindow.FmtArea(((ShapeOperation)o).ShapeAreaImagePixels, scale)));
 
             return group;
         }

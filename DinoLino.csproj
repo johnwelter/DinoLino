@@ -70,6 +70,10 @@
     <Compile Include="Utilities\Directory\MainWindow.Directory.cs" />
     <Compile Include="Utilities\Directory\Plot.Exporter.cs" />
     <Compile Include="Utilities\Directory\PlotAdvancedWindow.cs" />
+    <Compile Include="Utilities\Image Calibration\AlignWindow.xaml.cs">
+      <DependentUpon>AlignWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Utilities\Image Calibration\ImageAlignment.cs" />
     <Compile Include="Utilities\MainWindow.Import.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml.cs">
       <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>
@@ -115,7 +119,7 @@
     <Compile Include="Utilities\Modes\OutlineModeFiles\Silhouettes\OutlineGalleryWindow.cs" />
     <Compile Include="Utilities\Modes\OutlineModeFiles\Silhouettes\OutlineShapeExporter.cs" />
     <Compile Include="Utilities\Morphometrics\PCA.Math.cs" />
-    <Compile Include="Utilities\Scale\ScaleWindow.xaml.cs">
+    <Compile Include="Utilities\Image Calibration\ScaleWindow.xaml.cs">
       <DependentUpon>ScaleWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\3DDataProcessing\StlLoader.cs" />
@@ -145,7 +149,7 @@
       <DependentUpon>OutlineControlPanel.xaml</DependentUpon>
     </Compile>
     <Compile Include="Utilities\Modes\OutlineModeFiles\OutlineProcessor.cs" />
-    <Compile Include="Utilities\Scale\ScaleCalibration.cs" />
+    <Compile Include="Utilities\Image Calibration\ScaleCalibration.cs" />
     <Compile Include="Utilities\HistoryFiles\SpecimenManager.cs" />
     <Compile Include="Utilities\Geometry\SplineFitting.cs" />
     <Compile Include="Utilities\HelpMenuFiles\About.xaml.cs">
@@ -154,6 +158,10 @@
     <Compile Include="Utilities\Modes\Operations.cs" />
     <Compile Include="Utilities\HistoryFiles\UndoRedoManager.cs" />
     <Compile Include="Utilities\Batch Workshop\WorkshopEditWindow.cs" />
+    <Page Include="Utilities\Image Calibration\AlignWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -190,7 +198,7 @@
     <Page Include="Utilities\ImageAdjustments\PictureAdjustmentWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="Utilities\Scale\ScaleWindow.xaml">
+    <Page Include="Utilities\Image Calibration\ScaleWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

@@ -69,7 +69,10 @@ namespace DinoLino.Utilities.Operations
     {
         public double TurningAngleArcRatio { get; set; }
         public double SChordArcRatio { get; set; }
-        public double SplineLengthPixels { get; set; }
+
+        // Measured in image pixels, which do not change with window size, so a value
+        // stored here converts to the same real-world number whenever it is read.
+        public double SplineLengthImagePixels { get; set; }
 
         public override void ApplyMetadataToMode()
         {
@@ -77,7 +80,7 @@ namespace DinoLino.Utilities.Operations
             {
                 mode.TurningAngleArcRatioResult = TurningAngleArcRatio;
                 mode.SChordArcRatioResult = SChordArcRatio;
-                mode.RestoreScaledMeasurements(SplineLengthPixels);
+                mode.RestoreScaledMeasurements(SplineLengthImagePixels);
             }
         }
     }
@@ -91,7 +94,10 @@ namespace DinoLino.Utilities.Operations
         public double AngleB { get; set; }
         public double AngleC { get; set; }
         public double TriAspectRatio { get; set; }
-        public double TriArea { get; set; }
+
+        // Measured in square image pixels.
+        public double TriAreaImagePixels { get; set; }
+
         public object RelativeArea { get; set; }
 
         public override void ApplyMetadataToMode()
@@ -103,7 +109,7 @@ namespace DinoLino.Utilities.Operations
                 mode.AngleCResult = AngleC;
                 mode.TriAspectRatioResult = TriAspectRatio;
                 mode.RelativeAreaResult = RelativeArea;
-                mode.RestoreScaledMeasurements(TriArea);
+                mode.RestoreScaledMeasurements(TriAreaImagePixels);
             }
         }
     }
@@ -125,7 +131,8 @@ namespace DinoLino.Utilities.Operations
         /// the first of its kind. Boxed as a double or that string.
         public object RelativeArea { get; set; }
 
-        public double ShapeArea { get; set; }
+        // Measured in square image pixels.
+        public double ShapeAreaImagePixels { get; set; }
 
         public override void ApplyMetadataToMode()
         {
@@ -133,7 +140,7 @@ namespace DinoLino.Utilities.Operations
             {
                 mode.DrawAspectRatioResult = DrawAspectRatio;
                 mode.RelativeAreaResult = RelativeArea;
-                mode.RestoreShapeMeasurement(ShapeArea);
+                mode.RestoreShapeMeasurement(ShapeAreaImagePixels);
             }
         }
     }
@@ -143,7 +150,9 @@ namespace DinoLino.Utilities.Operations
     /// </summary>
     public class LineOperation : WorkOperation
     {
-        public double LineLength { get; set; }
+        // Measured in image pixels.
+        public double LineLengthImagePixels { get; set; }
+
         public object LineLengthRatio { get; set; }
 
         /// Clockwise angle from the line this one was drawn against to this line, in
@@ -154,7 +163,8 @@ namespace DinoLino.Utilities.Operations
         // Direction this line was drawn in, as a clockwise heading in canvas
         // coordinates (0 = right, 90 = down, 180 = left, 270 = up). Kept so the next
         // line can measure its angle without digging the geometry back out of the
-        // visuals, which erasing or hiding them would break.
+        // visuals, which erasing or hiding them would break. Unaffected by the view
+        // ratio: a uniform scale and a translation both preserve angles.
         public double HeadingDegrees { get; set; }
 
         public override void ApplyMetadataToMode()
@@ -163,7 +173,7 @@ namespace DinoLino.Utilities.Operations
             {
                 mode.LineLengthRatioResult = LineLengthRatio;
                 mode.LineAngleResult = LineAngle;
-                mode.RestoreLineMeasurement(LineLength);
+                mode.RestoreLineMeasurement(LineLengthImagePixels);
             }
         }
     }
@@ -183,9 +193,12 @@ namespace DinoLino.Utilities.Operations
         // Flattened coefficient array: [a1, b1, c1, d1, a2, b2, c2, d2, ...].
         public double[] EFDCoefficients { get; set; }
 
-        // Measured in canvas coordinates so the values stay aligned with scale calibration.
-        public double Perimeter { get; set; }
-        public double Area { get; set; }
+        // Measured in image pixels, which do not change with window size, so a value
+        // stored here converts to the same real-world number whenever it is read.
+        public double PerimeterImagePixels { get; set; }
+        public double AreaImagePixels { get; set; }
+        public double MaxLengthImagePixels { get; set; }
+        public double MaxWidthImagePixels { get; set; }
 
         public bool HasMetadata { get; set; }
 
@@ -208,7 +221,9 @@ namespace DinoLino.Utilities.Operations
                 // Restore the scaled measurements and summary text only when metadata exists.
                 if (HasMetadata)
                 {
-                    mode.RestoreScaledMeasurements(Perimeter, Area);
+                    mode.RestoreScaledMeasurements(
+                        PerimeterImagePixels, AreaImagePixels,
+                        MaxLengthImagePixels, MaxWidthImagePixels);
                     mode.MetadataSummary = MetadataSummary;
                     mode.NormalizationWarning = NormalizationWarning;
                 }

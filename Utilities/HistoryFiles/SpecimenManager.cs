@@ -41,6 +41,12 @@ namespace DinoLino.Utilities
         public System.Windows.Media.Media3D.Quaternion ModelOrientation { get; set; }
                = System.Windows.Media.Media3D.Quaternion.Identity;
 
+        // Orientation of the specimen within its image, set by Tools ▸ Align Image.
+        public AlignmentState Alignment { get; set; } = AlignmentState.None;
+
+        // Scale calibration for this specimen's image, set by Tools ▸ Set Scale.
+        public ScaleState Calibration { get; set; } = ScaleState.None;
+
         // True while this specimen is a 3D model that still needs positioning.
         public bool NeedsPositioning => Image == null && PendingModelPath != null;
 
@@ -370,6 +376,8 @@ namespace DinoLino.Utilities
                 // that was never positioned still needs positioning of its own.
                 ModelPath = original.ModelPath,
                 ModelOrientation = original.ModelOrientation,
+                Alignment = original.Alignment,
+                Calibration = original.Calibration,
                 PendingModelPath = original.PendingModelPath
 
                 // Record stays null: the copy starts with no measurements.

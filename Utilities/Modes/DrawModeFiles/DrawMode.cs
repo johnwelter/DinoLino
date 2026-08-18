@@ -89,7 +89,7 @@ namespace DinoLino.Utilities.Modes
             // Clear the stored reference direction once no constrained line remains.
             bool anyConstrainedLinesRemain = UndoRedoManager?.History
                 .OfType<LineOperation>()
-                .Any(op => op.LineLength > 0.00001) ?? false;
+                .Any(op => op.LineLengthImagePixels > 0.00001) ?? false;
 
             if (!anyConstrainedLinesRemain)
             {
@@ -112,33 +112,33 @@ namespace DinoLino.Utilities.Modes
 
         // ---- Scaled measurements ----
 
-        // Canvas-space measurements behind the scaled rows, kept so those rows can be
+        // Image-space measurements behind the scaled rows, kept so those rows can be
         // re-derived whenever the calibration changes or an undo restores a different
         // shape or line.
-        private double _canvasShapeArea;
-        private bool _hasCanvasShapeArea;
-        private double _canvasLineLength;
-        private bool _hasCanvasLineLength;
+        private double _imageShapeArea;
+        private bool _hasImageShapeArea;
+        private double _imageLineLength;
+        private bool _hasImageLineLength;
 
         private void RecomputeScaledResults()
         {
-            ShapeAreaScaledResult = FormatScaledArea(_canvasShapeArea, _hasCanvasShapeArea);
-            LineLengthScaledResult = FormatScaledLength(_canvasLineLength, _hasCanvasLineLength);
+            ShapeAreaScaledResult = FormatScaledArea(_imageShapeArea, _hasImageShapeArea);
+            LineLengthScaledResult = FormatScaledLength(_imageLineLength, _hasImageLineLength);
         }
 
-        /// <summary>Restores the canvas-space area behind the shape row.</summary>
-        public void RestoreShapeMeasurement(double canvasArea)
+        /// <summary>Restores the image-space area behind the shape row.</summary>
+        public void RestoreShapeMeasurement(double imageArea)
         {
-            _canvasShapeArea = canvasArea;
-            _hasCanvasShapeArea = true;
+            _imageShapeArea = imageArea;
+            _hasImageShapeArea = true;
             RecomputeScaledResults();
         }
 
-        /// <summary>Restores the canvas-space length behind the line row.</summary>
-        public void RestoreLineMeasurement(double canvasLength)
+        /// <summary>Restores the image-space length behind the line row.</summary>
+        public void RestoreLineMeasurement(double imageLength)
         {
-            _canvasLineLength = canvasLength;
-            _hasCanvasLineLength = true;
+            _imageLineLength = imageLength;
+            _hasImageLineLength = true;
             RecomputeScaledResults();
         }
 
@@ -148,10 +148,10 @@ namespace DinoLino.Utilities.Modes
             RelativeAreaResult = "N/A";
             LineLengthRatioResult = "N/A";
             LineAngleResult = "N/A";
-            _canvasShapeArea = 0;
-            _hasCanvasShapeArea = false;
-            _canvasLineLength = 0;
-            _hasCanvasLineLength = false;
+            _imageShapeArea = 0;
+            _hasImageShapeArea = false;
+            _imageLineLength = 0;
+            _hasImageLineLength = false;
             RecomputeScaledResults();
         }
 
@@ -258,7 +258,7 @@ namespace DinoLino.Utilities.Modes
 
                         DrawAspectRatio = DrawAspectRatioResult,
                         RelativeArea = RelativeAreaResult,
-                        ShapeArea = _canvasShapeArea
+                        ShapeAreaImagePixels = _imageShapeArea
                     });
 
                     FinishOperation();
@@ -432,24 +432,26 @@ namespace DinoLino.Utilities.Modes
 
         private void CommitLine(object angleToPrevious)
         {
-            // Measure the final line in canvas pixels before converting to calibrated units.
+            // Measure the final line in image pixels, the space every stored
+            // measurement uses.
             double dx = _currentLine.X2 - _currentLine.X1;
             double dy = _currentLine.Y2 - _currentLine.Y1;
-            double length = Math.Sqrt(dx * dx + dy * dy);
+            double length = ToImageLength(Math.Sqrt(dx * dx + dy * dy));
 
-            _canvasLineLength = length;
-            _hasCanvasLineLength = true;
+            _imageLineLength = length;
+            _hasImageLineLength = true;
             RecomputeScaledResults();
 
             // Compare against the previous measured line, if one exists.
             var prev = PreviousLine();
-            LineLengthRatioResult = GeometryCalculations.RelativeLength(length, prev?.LineLength ?? 0);
+            LineLengthRatioResult = GeometryCalculations.RelativeLength(
+                length, prev?.LineLengthImagePixels ?? 0);
             LineAngleResult = angleToPrevious;
 
             CommitCurrentOperation(new LineOperation
             {
                 OperationKind = "Lines",
-                LineLength = length,
+                LineLengthImagePixels = length,
                 LineLengthRatio = LineLengthRatioResult,
                 LineAngle = LineAngleResult,
                 HeadingDegrees = HeadingOf(dx, dy)
@@ -460,7 +462,7 @@ namespace DinoLino.Utilities.Modes
         /// first one. Called before the new line is committed, so it never finds
         /// the line being drawn.
         private LineOperation PreviousLine() =>
-            OperationsOfKind<LineOperation>().LastOrDefault(op => op.LineLength > 0.00001);
+            OperationsOfKind<LineOperation>().LastOrDefault(op => op.LineLengthImagePixels > 0.00001);
 
         // ---- Line angle ----
 
@@ -496,6 +498,8 @@ namespace DinoLino.Utilities.Modes
         // Canvas Y grows downwards, so atan2 already sweeps clockwise on screen:
         // 0° points right, 90° down, 180° left, 270° up. Reading a clock face, a line
         // drawn towards 11 o'clock after one drawn towards 12 gives 330, not 30.
+        // Headings stay in canvas space: a uniform scale and a translation both
+        // preserve angles, so the view ratio does not enter here.
         private static double HeadingOf(double dx, double dy) =>
             Normalize360(Math.Atan2(dy, dx) * 180.0 / Math.PI);
 
@@ -583,12 +587,12 @@ namespace DinoLino.Utilities.Modes
         private void CalculateAndUpdateResults(double width, double height)
         {
             // Use ellipse math for round shapes and rectangle math for box shapes.
-            double area = (CurrentShape == ShapeConstraint.Ellipse || CurrentShape == ShapeConstraint.Circle)
+            double canvasArea = (CurrentShape == ShapeConstraint.Ellipse || CurrentShape == ShapeConstraint.Circle)
                 ? GeometryCalculations.EllipseArea(width, height)
                 : GeometryCalculations.RectangleArea(width, height);
 
-            _canvasShapeArea = area;
-            _hasCanvasShapeArea = true;
+            _imageShapeArea = ToImageArea(canvasArea);
+            _hasImageShapeArea = true;
             RecomputeScaledResults();
 
             DrawAspectRatioResult = height > 1e-5 ? Math.Round(width / height, 2) : 0;
@@ -599,7 +603,8 @@ namespace DinoLino.Utilities.Modes
             var previous = OperationsOfKind<ShapeOperation>()
                 .LastOrDefault(op => op.ShapeKind == CurrentShape);
 
-            RelativeAreaResult = GeometryCalculations.RelativeArea(area, previous?.ShapeArea ?? 0);
+            RelativeAreaResult = GeometryCalculations.RelativeArea(
+                _imageShapeArea, previous?.ShapeAreaImagePixels ?? 0);
         }
 
         private static readonly string[] ShapeTips = BuildTips(

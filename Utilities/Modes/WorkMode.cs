@@ -39,6 +39,9 @@ namespace DinoLino.Utilities.Modes
         /// <summary>Shared scale calibration supplied by the main window.</summary>
         public ScaleCalibration Scale { get; set; }
 
+        /// <summary>Shared axis alignment supplied by the main window.</summary>
+        public ImageAlignment Alignment { get; set; }
+
         /// <summary>Controls whether previously drawn operations remain visible.</summary>
         public bool SeePreviousOperations { get; set; } = false;
 
@@ -246,6 +249,24 @@ namespace DinoLino.Utilities.Modes
 
         #endregion
 
+        #region Measurement space
+
+        // Every stored measurement is held in image pixels. Canvas pixels move when
+        // the window is resized, because the image is stretched to fit, so a value
+        // stored in them would convert to a different real-world number depending on
+        // when it was read. These two turn a freshly drawn canvas measurement into
+        // the storable form.
+
+        /// <summary>Converts a canvas-space length into image pixels.</summary>
+        protected double ToImageLength(double canvasLength) =>
+            Scale?.CanvasToImageLength(canvasLength) ?? canvasLength;
+
+        /// <summary>Converts a canvas-space area into square image pixels.</summary>
+        protected double ToImageArea(double canvasArea) =>
+            Scale?.CanvasToImageArea(canvasArea) ?? canvasArea;
+
+        #endregion
+
         #region Scaled measurements
 
         /// Placeholder shown in place of a scaled value when the mode holds no
@@ -253,24 +274,24 @@ namespace DinoLino.Utilities.Modes
         protected string ScaledPlaceholder =>
             Scale != null && Scale.IsCalibrated ? "N/A" : "Unscaled";
 
-        /// <summary>True when the shared calibration can convert canvas measurements.</summary>
+        /// <summary>True when the shared calibration can convert stored measurements.</summary>
         protected bool IsScaleUsable => Scale != null && Scale.IsCalibrated;
 
-        /// Formats a canvas-space length in calibrated units. hasMeasurement is false
+        /// Formats an image-pixel length in calibrated units. hasMeasurement is false
         /// before anything has been measured, which yields the placeholder instead.
-        protected string FormatScaledLength(double canvasLength, bool hasMeasurement = true) =>
+        protected string FormatScaledLength(double imageLength, bool hasMeasurement = true) =>
             hasMeasurement && IsScaleUsable
-                ? $"{Scale.ToUnits(canvasLength):F2} {Scale.Unit}"
+                ? $"{Scale.ToUnitsFromImage(imageLength):F2} {Scale.Unit}"
                 : ScaledPlaceholder;
 
-        /// Formats a canvas-space area in calibrated square units. hasMeasurement is
+        /// Formats an image-pixel area in calibrated square units. hasMeasurement is
         /// false before anything has been measured, which yields the placeholder.
-        protected string FormatScaledArea(double canvasArea, bool hasMeasurement = true) =>
+        protected string FormatScaledArea(double imageArea, bool hasMeasurement = true) =>
             hasMeasurement && IsScaleUsable
-                ? $"{Scale.ToUnitsArea(canvasArea):F2} {Scale.Unit}\u00B2"
+                ? $"{Scale.ToUnitsAreaFromImage(imageArea):F2} {Scale.Unit}\u00B2"
                 : ScaledPlaceholder;
 
-        /// Re-derives every scaled value the mode displays from the canvas-space
+        /// Re-derives every scaled value the mode displays from the image-space
         /// measurements it has stored.
         public virtual void RefreshScalePlaceholders() { }
 
@@ -286,22 +307,22 @@ namespace DinoLino.Utilities.Modes
             return Math.Round(list.Average(), 1).ToString();
         }
 
-        /// Mean of a canvas-space length series in calibrated units, or "N/A" with no
+        /// Mean of an image-pixel length series in calibrated units, or "N/A" with no
         /// attempts or no calibration.
-        protected string FormatScaledLengthAverage(IEnumerable<double> canvasLengths)
+        protected string FormatScaledLengthAverage(IEnumerable<double> imageLengths)
         {
-            var list = canvasLengths.ToList();
+            var list = imageLengths.ToList();
             if (list.Count == 0 || !IsScaleUsable) return "N/A";
-            return $"{Scale.ToUnits(list.Average()):F2} {Scale.Unit}";
+            return $"{Scale.ToUnitsFromImage(list.Average()):F2} {Scale.Unit}";
         }
 
-        /// Mean of a canvas-space area series in calibrated square units, or "N/A" with
-        /// no attempts or no calibration.
-        protected string FormatScaledAreaAverage(IEnumerable<double> canvasAreas)
+        /// Mean of an image-pixel area series in calibrated square units, or "N/A"
+        /// with no attempts or no calibration.
+        protected string FormatScaledAreaAverage(IEnumerable<double> imageAreas)
         {
-            var list = canvasAreas.ToList();
+            var list = imageAreas.ToList();
             if (list.Count == 0 || !IsScaleUsable) return "N/A";
-            return $"{Scale.ToUnitsArea(list.Average()):F2} {Scale.Unit}\u00B2";
+            return $"{Scale.ToUnitsAreaFromImage(list.Average()):F2} {Scale.Unit}\u00B2";
         }
 
         /// Committed operations of one kind from the live history, empty when no

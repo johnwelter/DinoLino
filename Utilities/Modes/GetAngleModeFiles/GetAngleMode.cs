@@ -86,22 +86,22 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _triAreaScaledResult, value);
         }
 
-        // Canvas-space area of the displayed triangle, kept so the scaled row can be
+        // Image-space area of the displayed triangle, kept so the scaled row can be
         // re-derived whenever the calibration changes or an undo restores a
         // different triangle.
-        private double _canvasArea;
-        private bool _hasCanvasArea;
+        private double _imageArea;
+        private bool _hasImageArea;
 
         private void RecomputeScaledResults()
         {
-            TriAreaScaledResult = FormatScaledArea(_canvasArea, _hasCanvasArea);
+            TriAreaScaledResult = FormatScaledArea(_imageArea, _hasImageArea);
         }
 
-        /// <summary>Restores the canvas-space area behind the scaled row.</summary>
-        public void RestoreScaledMeasurements(double canvasArea)
+        /// <summary>Restores the image-space area behind the scaled row.</summary>
+        public void RestoreScaledMeasurements(double imageArea)
         {
-            _canvasArea = canvasArea;
-            _hasCanvasArea = true;
+            _imageArea = imageArea;
+            _hasImageArea = true;
             RecomputeScaledResults();
         }
 
@@ -112,8 +112,8 @@ namespace DinoLino.Utilities.Modes
             AngleCResult = 0;
             TriAspectRatioResult = 0;
             RelativeAreaResult = "N/A";
-            _canvasArea = 0;
-            _hasCanvasArea = false;
+            _imageArea = 0;
+            _hasImageArea = false;
             RecomputeScaledResults();
         }
 
@@ -199,7 +199,7 @@ namespace DinoLino.Utilities.Modes
                         AngleB = AngleBResult,
                         AngleC = AngleCResult,
                         TriAspectRatio = TriAspectRatioResult,
-                        TriArea = _canvasArea,
+                        TriAreaImagePixels = _imageArea,
                         RelativeArea = RelativeAreaResult
                     });
 
@@ -242,18 +242,23 @@ namespace DinoLino.Utilities.Modes
             double sideBC = BC.Magnitude();
             double sideCA = CA.Magnitude();
 
-            double area = Math.Abs(cross) / 2.0;
-            _canvasArea = area;
-            _hasCanvasArea = true;
-            RecomputeScaledResults();
+            double canvasArea = Math.Abs(cross) / 2.0;
 
+            // Aspect ratio divides a length by a height derived from the area, so
+            // both terms have to be in the same space; it is computed before the
+            // area is converted.
             double longestSide = Math.Max(sideAB, Math.Max(sideBC, sideCA));
-            TriAspectRatioResult = GeometryCalculations.TriangleAspectRatio(longestSide, area);
+            TriAspectRatioResult = GeometryCalculations.TriangleAspectRatio(longestSide, canvasArea);
+
+            _imageArea = ToImageArea(canvasArea);
+            _hasImageArea = true;
+            RecomputeScaledResults();
 
             // Compare area to the previous triangle's area if one exists
             var previousTriangle = TriangleOps.LastOrDefault();
 
-            RelativeAreaResult = GeometryCalculations.RelativeArea(area, previousTriangle?.TriArea ?? 0);
+            RelativeAreaResult = GeometryCalculations.RelativeArea(
+                _imageArea, previousTriangle?.TriAreaImagePixels ?? 0);
         }
 
         #endregion
@@ -271,7 +276,7 @@ namespace DinoLino.Utilities.Modes
         public string AvgAngleBResult => FormatAverage(TriangleOps.Select(o => o.AngleB));
         public string AvgAngleCResult => FormatAverage(TriangleOps.Select(o => o.AngleC));
         public string AvgTriAspectRatioResult => FormatAverage(TriangleOps.Select(o => o.TriAspectRatio));
-        public string AvgTriAreaScaledResult => FormatScaledAreaAverage(TriangleOps.Select(o => o.TriArea));
+        public string AvgTriAreaScaledResult => FormatScaledAreaAverage(TriangleOps.Select(o => o.TriAreaImagePixels));
 
         protected override void RecomputeAverages()
         {

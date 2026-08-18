@@ -157,6 +157,8 @@ namespace DinoLino
                 return;
             }
 
+            if (AlignCaptureClick(new Vector2(Mouse.GetPosition(UI_WorkCanvas)))) return;
+
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
 
             if (CurrentWorkMode is OutlineMode)
@@ -233,6 +235,8 @@ namespace DinoLino
                 UI_DotCursor.SetPosition(p.X - 5, p.Y - 5);
                 return;
             }
+
+            if (AlignCaptureMove(new Vector2(Mouse.GetPosition(UI_WorkCanvas)))) return;
 
             Vector2 mousePos = new Vector2(Mouse.GetPosition(UI_WorkCanvas));
             Vector2 centeredCursorPos = CurrentWorkMode.ProcessMouseMovement(mousePos) - new Vector2(5, 5);

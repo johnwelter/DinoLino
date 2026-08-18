@@ -80,6 +80,9 @@ namespace DinoLino
         // Shared image scaling state used by all work modes.
         public ScaleCalibration ScaleCalibration = new ScaleCalibration();
 
+        // Shared axis alignment for the loaded specimen.
+        public ImageAlignment ImageAlignment = new ImageAlignment();
+
         // The image currently shown in the workspace.
         public BitmapSource WorkingImage { get; private set; }
 
@@ -130,6 +133,7 @@ namespace DinoLino
             SpecimenManager.BindToTextBox(UI_SpecimenNameBox);
             UI_LoadedFileText.DataContext = SpecimenManager;
             UI_ScaleStatus.DataContext = ScaleCalibration;
+            UI_AlignStatus.DataContext = ImageAlignment;
 
             // Global keyboard shortcuts are handled at the window level.
             this.PreviewKeyDown += MainWindow_KeyDown;
@@ -222,6 +226,11 @@ namespace DinoLino
             DrawMode.Scale = ScaleCalibration;
             OutlineMode.Scale = ScaleCalibration;
 
+            CurvatureMode.Alignment = ImageAlignment;
+            GetAngleMode.Alignment = ImageAlignment;
+            DrawMode.Alignment = ImageAlignment;
+            OutlineMode.Alignment = ImageAlignment;
+
             AllWorkModes = new List<WorkMode> { CurvatureMode, GetAngleMode, DrawMode, OutlineMode };
             CurrentWorkMode = CurvatureMode;
 
@@ -232,6 +241,10 @@ namespace DinoLino
             // Initialize the workspace transforms before any image interaction begins.
             UI_WorkImage.InitializeGroupTransform(new Point(0, 0));
             UI_WorkBorder.InitializeGroupTransform(new Point(0, 0));
+
+            // The image is stretched to fit, so its displayed size — and with it the
+            // canvas coordinate space — changes whenever the workspace is laid out.
+            UI_WorkImage.SizeChanged += (s, e) => SyncOutlineImageTransform();
 
             // Cursor used by tools that need a visible point marker.
             UI_DotCursor = new Ellipse

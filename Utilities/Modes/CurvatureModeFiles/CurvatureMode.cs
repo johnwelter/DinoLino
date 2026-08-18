@@ -150,8 +150,8 @@ namespace DinoLino.Utilities.Modes
             VertexCurvatureResult = 0;
             TurningAngleArcRatioResult = 0;
             SChordArcRatioResult = 0;
-            _canvasSplineLength = 0;
-            _hasCanvasSplineLength = false;
+            _imageSplineLength = 0;
+            _hasImageSplineLength = false;
             RecomputeScaledResults();
         }
 
@@ -161,22 +161,22 @@ namespace DinoLino.Utilities.Modes
             OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
         }
 
-        // Canvas-space length of the displayed spline, kept so the scaled row can be
+        // Image-space length of the displayed spline, kept so the scaled row can be
         // re-derived whenever the calibration changes or an undo restores a different
         // spline.
-        private double _canvasSplineLength;
-        private bool _hasCanvasSplineLength;
+        private double _imageSplineLength;
+        private bool _hasImageSplineLength;
 
         private void RecomputeScaledResults()
         {
-            SplineLengthScaledResult = FormatScaledLength(_canvasSplineLength, _hasCanvasSplineLength);
+            SplineLengthScaledResult = FormatScaledLength(_imageSplineLength, _hasImageSplineLength);
         }
 
-        /// <summary>Restores the canvas-space length behind the scaled row.</summary>
-        public void RestoreScaledMeasurements(double canvasLength)
+        /// <summary>Restores the image-space length behind the scaled row.</summary>
+        public void RestoreScaledMeasurements(double imageLength)
         {
-            _canvasSplineLength = canvasLength;
-            _hasCanvasSplineLength = true;
+            _imageSplineLength = imageLength;
+            _hasImageSplineLength = true;
             RecomputeScaledResults();
         }
 
@@ -251,6 +251,10 @@ namespace DinoLino.Utilities.Modes
 
         #region Circular Arc Section
         //-----CIRCULAR ARCS-----//
+
+        // Every circular-arc output is a ratio of two canvas lengths or an angle
+        // between them, so none of them changes with the view ratio and none needs
+        // converting to image space.
 
         private double _chordArcRatioResult;
         public double ChordArcRatioResult
@@ -424,6 +428,10 @@ namespace DinoLino.Utilities.Modes
 
         #region Parabolic Arc Section
         //-----PARABOLIC ARCS-----//
+
+        // The fitted parabola is solved in a chord-normalized local basis, so its
+        // coefficients and every metric derived from them are already independent of
+        // the view ratio.
 
         private double ParabolaA;
         private double ParabolaB;
@@ -715,11 +723,18 @@ namespace DinoLino.Utilities.Modes
                     ? SplineFitting.GetSchneiderBezierPoints(_splinePoints, 50)
                     : SplineFitting.GetCatmullRomPoints(_splinePoints, 50);
             _lastSplineDense = splinePointsDense;   // keep for the Find-turning-angle tool
-            double splineLength = GeometryCalculations.ArcLength(splinePointsDense);
-            _canvasSplineLength = splineLength;
-            _hasCanvasSplineLength = true;
+
+            double imageLength = ToImageLength(GeometryCalculations.ArcLength(splinePointsDense));
+            _imageSplineLength = imageLength;
+            _hasImageSplineLength = true;
             RecomputeScaledResults();
-            TurningAngleArcRatioResult = Math.Round(GeometryCalculations.TurningAnglePerUnitLength(splinePointsDense), 1);
+
+            // Turn/Length carries a length in its denominator, so it is measured
+            // against the image-pixel length like everything else that is stored.
+            double totalTurning = GeometryCalculations.SumTurningAnglesOpen(splinePointsDense);
+            TurningAngleArcRatioResult = Math.Round(
+                imageLength > 1e-5 ? totalTurning / imageLength : 0, 1);
+
             SChordArcRatioResult = Math.Round(CalculateSChordArcRatio(splinePointsDense, _splinePoints), 1);
 
             // Captured before the commit, which empties the accumulator.
@@ -732,7 +747,7 @@ namespace DinoLino.Utilities.Modes
                     : "n-Point Catmull-Rom Spline",
                 TurningAngleArcRatio = TurningAngleArcRatioResult,
                 SChordArcRatio = SChordArcRatioResult,
-                SplineLengthPixels = splineLength
+                SplineLengthImagePixels = imageLength
             });
 
             _splinePoints.Clear();
@@ -882,9 +897,9 @@ namespace DinoLino.Utilities.Modes
             return (i0, i1);
         }
 
-        // Turning angle and arc length over the probed span; matches the committed
-        // Turn/Length metric restricted to that span (caller divides).
-        private static (double angleDeg, double arcLenPx) LocalTurningAngleArcLength(
+        // Turning angle and arc length over the probed span, in canvas pixels; the
+        // caller converts the length before dividing.
+        private static (double angleDeg, double arcLenCanvas) LocalTurningAngleArcLength(
             List<Vector2> pts, int index, int window)
         {
             int n = pts.Count;
@@ -909,12 +924,15 @@ namespace DinoLino.Utilities.Modes
             return (totalTurning, arc);
         }
 
-        // Hover readout in °/px, matching the committed Turn/Length column's units.
+        // Hover readout in °/px, matching the committed Turn/Length column's units:
+        // the span's length is converted to image pixels so the live number and the
+        // stored one are on the same scale.
         private string FormatTurningReadout(List<Vector2> pts, int index, int window)
         {
-            var (angleDeg, arcLenPx) = LocalTurningAngleArcLength(pts, index, window);
-            if (arcLenPx < 1e-9) return "";
-            return $"{angleDeg / arcLenPx:F2}\u00B0/px";
+            var (angleDeg, arcLenCanvas) = LocalTurningAngleArcLength(pts, index, window);
+            double arcLen = ToImageLength(arcLenCanvas);
+            if (arcLen < 1e-9) return "";
+            return $"{angleDeg / arcLen:F2}\u00B0/px";
         }
 
         // Sizes and rotates the oval to enclose the probed span.
@@ -1022,7 +1040,7 @@ namespace DinoLino.Utilities.Modes
         // n-point spline (Catmull-Rom and Bézier combined, matching n_spline)
         public string AvgTurningAngleArcRatioResult => FormatAverage(SplineOps.Select(o => o.TurningAngleArcRatio));
         public string AvgSChordArcRatioResult => FormatAverage(SplineOps.Select(o => o.SChordArcRatio));
-        public string AvgSplineLengthScaledResult => FormatScaledLengthAverage(SplineOps.Select(o => o.SplineLengthPixels));
+        public string AvgSplineLengthScaledResult => FormatScaledLengthAverage(SplineOps.Select(o => o.SplineLengthImagePixels));
 
         protected override void RecomputeAverages()
         {

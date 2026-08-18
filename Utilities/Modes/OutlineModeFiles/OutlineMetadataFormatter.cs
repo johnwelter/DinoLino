@@ -41,6 +41,9 @@ namespace DinoLino.Utilities.Modes
         /// </summary>
         public static string BuildSummary(
             double aspectRatio,
+            double maxLength,
+            double maxWidth,
+            string unit,
             double perimeterAreaRatio,
             double circularity,
             double solidity,
@@ -59,6 +62,8 @@ namespace DinoLino.Utilities.Modes
             }
 
             sb.AppendLine($"Aspect Ratio:       {aspectRatio:F3}");
+            sb.AppendLine($"Max Length:         {maxLength:F2} {unit}");
+            sb.AppendLine($"Max Width:          {maxWidth:F2} {unit}");
             sb.AppendLine($"Perim / Area:       {perimeterAreaRatio:F4}");
             sb.AppendLine($"Circularity:        {circularity:F4}");
             sb.AppendLine($"Solidity:           {solidity:F4}");

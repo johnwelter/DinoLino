@@ -152,6 +152,44 @@ namespace DinoLino.Utilities
             return PolygonArea(hull);
         }
 
+        /// Maximum caliper length of a closed outline, and the maximum width measured
+        /// perpendicular to that long axis. Returns (0, 0) for degenerate input.
+        public static (double length, double width) MaxLengthAndWidth(List<Point> pts)
+        {
+            if (pts == null || pts.Count < 2) return (0, 0);
+
+            // The two farthest-apart points of a set are always hull vertices, so the
+            // search only has to consider the hull — dozens of points, not hundreds.
+            var hull = ConvexHull(pts);
+            if (hull.Count < 2) hull = pts;
+
+            double bestSq = -1;
+            Point a = hull[0], b = hull[0];
+            for (int i = 0; i < hull.Count; i++)
+                for (int j = i + 1; j < hull.Count; j++)
+                {
+                    double dx = hull[j].X - hull[i].X, dy = hull[j].Y - hull[i].Y;
+                    double d2 = dx * dx + dy * dy;
+                    if (d2 > bestSq) { bestSq = d2; a = hull[i]; b = hull[j]; }
+                }
+
+            double length = Math.Sqrt(Math.Max(0, bestSq));
+            if (length < 1e-9) return (0, 0);
+
+            // Width is the span of the outline along the unit normal to the long axis.
+            // Projecting the hull suffices: every original point lies inside it.
+            double nx = -(b.Y - a.Y) / length, ny = (b.X - a.X) / length;
+            double min = double.MaxValue, max = double.MinValue;
+            foreach (var p in hull)
+            {
+                double proj = p.X * nx + p.Y * ny;
+                if (proj < min) min = proj;
+                if (proj > max) max = proj;
+            }
+
+            return (length, max - min);
+        }
+
         /// Solidity: ratio of polygon area to its convex hull area.
         /// A value of 1 means fully convex; lower values indicate concavities.
         /// Returns 0 if the convex hull area is effectively zero.

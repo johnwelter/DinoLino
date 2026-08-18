@@ -1,0 +1,30 @@
+﻿<Window x:Class="DinoLino.AlignWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Align Image" SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        ShowInTaskbar="False" FontFamily="Arial">
+    <StackPanel Margin="16" MinWidth="280">
+        <TextBlock Text="Draw the X or Y-axis of the specimen"
+                   FontWeight="Bold" Margin="0,0,0,8"/>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <RadioButton x:Name="UI_AxisX" Content="X" GroupName="AlignAxis"
+                         IsChecked="True" Margin="0,0,16,0"
+                         ToolTip="The line you draw is the specimen's X-axis"/>
+            <RadioButton x:Name="UI_AxisY" Content="Y" GroupName="AlignAxis"
+                         ToolTip="The line you draw is the specimen's Y-axis"/>
+        </StackPanel>
+
+        <TextBlock x:Name="UI_Status" Foreground="Gray" TextWrapping="Wrap"
+                   Text="Click two points on the image to draw the axis."
+                   Margin="0,0,0,4"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="UI_Accept" Content="Accept" Width="72"
+                    IsEnabled="False" IsDefault="True" Click="Accept_Click"/>
+            <Button Content="Retry" Width="72" Margin="8,0,0,0" Click="Retry_Click"/>
+            <Button Content="Cancel" Width="72" Margin="8,0,0,0" IsCancel="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

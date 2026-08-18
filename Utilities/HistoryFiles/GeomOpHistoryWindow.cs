@@ -750,17 +750,19 @@ namespace DinoLino.Utilities
         internal static string FmtRatio(object ratio) =>
             ratio is double d ? Fmt(d) : ratio?.ToString() ?? "";
 
-        // Real-world units when calibrated, else raw canvas pixels so the cell is
-        // never blank.
-        internal static string FmtLength(double pixels, ScaleCalibration scale) =>
+        // Real-world units when calibrated, else raw image pixels so the cell is
+        // never blank. The input is in image pixels, the unit every stored
+        // measurement uses, so the number does not depend on the window size at the
+        // moment of export.
+        internal static string FmtLength(double imagePixels, ScaleCalibration scale) =>
             scale != null && scale.IsCalibrated
-                ? $"{scale.ToUnits(pixels):F2} {scale.Unit}"
-                : $"{Math.Round(pixels, 1).ToString(CultureInfo.InvariantCulture)} px";
+                ? $"{scale.ToUnitsFromImage(imagePixels):F2} {scale.Unit}"
+                : $"{Math.Round(imagePixels, 1).ToString(CultureInfo.InvariantCulture)} px";
 
-        internal static string FmtArea(double pixelArea, ScaleCalibration scale) =>
+        internal static string FmtArea(double imagePixelArea, ScaleCalibration scale) =>
             scale != null && scale.IsCalibrated
-                ? $"{scale.ToUnitsArea(pixelArea):F2} {scale.Unit}\u00B2"
-                : $"{Math.Round(pixelArea, 1).ToString(CultureInfo.InvariantCulture)} px\u00B2";
+                ? $"{scale.ToUnitsAreaFromImage(imagePixelArea):F2} {scale.Unit}\u00B2"
+                : $"{Math.Round(imagePixelArea, 1).ToString(CultureInfo.InvariantCulture)} px\u00B2";
 
         #endregion
     }

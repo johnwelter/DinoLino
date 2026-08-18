@@ -16,7 +16,7 @@ namespace DinoLino
         private void LengthBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
         {
             string proposed = ((TextBox)sender).Text + e.Text;   // digits + one decimal point
-            e.Handled = !Regex.IsMatch(proposed, @"^\d*\.?\d*$");
+            e.Handled = !Regex.IsMatch(proposed, @"^\d*\.?\d*([eE][-+]?\d*)?$");
         }
 
         private void Ok_Click(object sender, RoutedEventArgs e)

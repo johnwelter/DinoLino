@@ -63,6 +63,7 @@ namespace DinoLino
             // A hard reset invalidates any half-finished calibration line, so end
             // the capture and remove its cue before wiping the canvas.
             CancelScaleCapture();
+            CancelAlignCapture();
 
             UI_WorkCanvas.Children.Clear();
             AddElementToWorkSpace(UI_DotCursor);
@@ -181,12 +182,16 @@ namespace DinoLino
             if (registerAsNewSpecimen)
                 SpecimenManager.OnImageOpened(bmp, specimenName);
 
+            // Scale and alignment both belong to the specimen and come back with it.
+            ScaleCalibration.BindTo(SpecimenManager.CurrentSpecimen);
+            ImageAlignment.BindTo(SpecimenManager.CurrentSpecimen);
+
             ResetWorkSpaceZoom();
-            ScaleCalibration.Clear();
             ClearWorkspace();
             RefreshAllScalePlaceholders();
 
             _imageAdjuster.CacheImage(WorkingImage);
+            UI_MenuAlignImage.IsEnabled = true;
             OutlineMode.SourceImage = WorkingImage;
 
             Dispatcher.BeginInvoke(
@@ -201,7 +206,9 @@ namespace DinoLino
             WorkingImage = null;
             UI_WorkImage.Source = null;
 
-            ScaleCalibration.Clear();
+            ScaleCalibration.BindTo(null);
+            ImageAlignment.BindTo(null);
+            UI_MenuAlignImage.IsEnabled = false;
             ResetWorkSpaceZoom();
             ClearWorkspace();
             RefreshAllScalePlaceholders();
@@ -235,6 +242,9 @@ namespace DinoLino
             var imagePos = UI_WorkImage.TranslatePoint(new Point(0, 0), UI_WorkCanvas);
             OutlineMode.OffsetX = imagePos.X;
             OutlineMode.OffsetY = imagePos.Y;
+
+            if (ScaleCalibration.UpdateViewScale(displayW / WorkingImage.PixelWidth))
+                RefreshAllScalePlaceholders();
         }
 
         // =====================
@@ -285,7 +295,7 @@ namespace DinoLino
             // A flip or rotation changes the image geometry, so existing overlays and scale calibration
             // must be rebuilt against the new image.
             ResetWorkSpaceZoom();
-            ScaleCalibration.Clear();
+            ImageAlignment.Clear();
             ClearWorkspace();
             RefreshAllScalePlaceholders();
 
@@ -572,6 +582,7 @@ namespace DinoLino
 
             // Restarting always discards any half-finished capture.
             CancelScaleCapture();
+            CancelAlignCapture();
 
             _scaleClicks = 0;
             _scaleMode = true;   // The next two workspace clicks define the calibration line.

@@ -40,6 +40,9 @@
             <MenuItem Header="_Tools" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Set Scale" Click="Menu_SetScale"
                           ToolTip="Calibrate measurements: click both ends of a feature of known length, then enter that length."/>
+                <MenuItem Header="_Align Image" x:Name="UI_MenuAlignImage"
+                          Click="Menu_AlignImage" IsEnabled="False"
+                          ToolTip="Note the specimen's X or Y axis. The alignment is stored with the specimen."/>
                 <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"
                           ToolTip="Adjust picture properties such as brightness, contrast, and saturation."/>
                 <MenuItem Header="_Decimate" Click="Menu_DownSample"/>
@@ -171,6 +174,7 @@
                     <StackPanel Margin="10,0,10,-5">
                         <TextBlock x:Name="UI_ScaleStatus"
                                Text="{Binding StatusText}"/>
+                        <TextBlock x:Name="UI_AlignStatus" Text="{Binding StatusText}"/>
                     </StackPanel>
                     <Button x:Name="UI_ClearSpecimenButton"
                     Margin="10,10,10,10"

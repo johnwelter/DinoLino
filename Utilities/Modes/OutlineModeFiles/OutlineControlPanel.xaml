@@ -236,18 +236,48 @@
             <TextBlock Text="Shape Metrics:" FontWeight="Bold" Margin="0,0,0,4"/>
 
             <!-- Compact summary rows -->
+
             <Grid Margin="0,2,0,2">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Aspect Ratio:" Foreground="Gray"/>
+                <TextBlock Grid.Column="0" Text="Max Length:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" HorizontalAlignment="Right">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}{0:F2} {1}">
+                            <Binding Path="MaxLengthValue"/>
+                            <Binding Path="MeasurementUnit"/>
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+            </Grid>
+
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Max Width:" Foreground="Gray"/>
+                <TextBlock Grid.Column="1" HorizontalAlignment="Right">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}{0:F2} {1}">
+                            <Binding Path="MaxWidthValue"/>
+                            <Binding Path="MeasurementUnit"/>
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+            </Grid>
+
+            <Grid Margin="0,2,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Aspect Ratio (bbox):" Foreground="Gray"/>
                 <TextBlock Grid.Column="1" Text="{Binding AspectRatioResult, StringFormat={}{0:F3}}" HorizontalAlignment="Right"/>
             </Grid>
 
-            <!-- The scaled rows bind NUMBERS + IsScaleCalibrated; the view owns
-                 the formatting and the uncalibrated wording (previously the
-                 mode baked "Error: Unscaled" into the value string). -->
             <Grid Margin="0,2,0,2">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
