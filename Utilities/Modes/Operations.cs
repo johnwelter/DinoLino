@@ -153,18 +153,17 @@ namespace DinoLino.Utilities.Operations
         // Measured in image pixels.
         public double LineLengthImagePixels { get; set; }
 
+        /// Extent of the line along the specimen's X axis, in image pixels, taken from
+        /// the orientation set by Tools ▸ Align Image. An unaligned specimen falls back
+        /// to the image's own axes, which is what ImageAlignment hands back when no
+        /// orientation has been drawn.
+        public double LineDeltaXImagePixels { get; set; }
+
+        /// <summary>Extent along the specimen's Y axis, in image pixels.</summary>
+        public double LineDeltaYImagePixels { get; set; }
+
         public object LineLengthRatio { get; set; }
-
-        /// Clockwise angle from the line this one was drawn against to this line, in
-        /// degrees within [0, 360), or "N/A" for the first line of a specimen. Boxed
-        /// as a double or that string, like LineLengthRatio.
         public object LineAngle { get; set; }
-
-        // Direction this line was drawn in, as a clockwise heading in canvas
-        // coordinates (0 = right, 90 = down, 180 = left, 270 = up). Kept so the next
-        // line can measure its angle without digging the geometry back out of the
-        // visuals, which erasing or hiding them would break. Unaffected by the view
-        // ratio: a uniform scale and a translation both preserve angles.
         public double HeadingDegrees { get; set; }
 
         public override void ApplyMetadataToMode()
@@ -173,7 +172,8 @@ namespace DinoLino.Utilities.Operations
             {
                 mode.LineLengthRatioResult = LineLengthRatio;
                 mode.LineAngleResult = LineAngle;
-                mode.RestoreLineMeasurement(LineLengthImagePixels);
+                mode.RestoreLineMeasurement(
+                    LineLengthImagePixels, LineDeltaXImagePixels, LineDeltaYImagePixels);
             }
         }
     }

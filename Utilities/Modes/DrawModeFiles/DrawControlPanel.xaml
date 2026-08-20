@@ -56,13 +56,29 @@
                              TextChanged="DrawAngleValue_TextChanged"/>
                 </StackPanel>
             </StackPanel>
+
             <!-- Outputs -->
             <StackPanel Orientation="Horizontal" Margin="10,-4,0,0">
                 <Label Content="Output:" FontWeight="Bold"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
-                <Label Content="Length:"/>
+                <Label Content="Length:"
+                       ToolTip="Straight-line distance from the first point to the second."/>
                 <Label Content="{Binding LineLengthScaledResult}" Width="175"/>
+            </StackPanel>
+            <!-- The line resolved onto the specimen's own axes, set by Tools > Align
+                 Image. The two axes are perpendicular by construction, so these close
+                 the triangle with Length. Without an alignment they fall back to the
+                 image's axes rather than reading blank. -->
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+                <Label Content="X Distance:"
+                       ToolTip="Extent along the specimen's X-axis, set by Tools &gt; Align Image. Falls back to the image's own X-axis when no alignment is set."/>
+                <Label Content="{Binding LineDeltaXScaledResult}" Width="175"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
+                <Label Content="Y Distance:"
+                       ToolTip="Extent along the specimen's Y-axis, set by Tools &gt; Align Image. Falls back to the image's own Y-axis when no alignment is set."/>
+                <Label Content="{Binding LineDeltaYScaledResult}" Width="175"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">
                 <Label Content="Line Ratio:"/>

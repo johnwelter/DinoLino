@@ -134,6 +134,7 @@ namespace DinoLino
             UI_LoadedFileText.DataContext = SpecimenManager;
             UI_ScaleStatus.DataContext = ScaleCalibration;
             UI_AlignStatus.DataContext = ImageAlignment;
+            UI_ImageAxes.DataContext = ImageAlignment;
 
             // Global keyboard shortcuts are handled at the window level.
             this.PreviewKeyDown += MainWindow_KeyDown;

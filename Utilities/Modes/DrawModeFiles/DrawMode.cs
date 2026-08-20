@@ -118,12 +118,16 @@ namespace DinoLino.Utilities.Modes
         private double _imageShapeArea;
         private bool _hasImageShapeArea;
         private double _imageLineLength;
-        private bool _hasImageLineLength;
+        private double _imageLineDeltaX;
+        private double _imageLineDeltaY;
+        private bool _hasImageLineLength;   // covers all three: they are set together
 
         private void RecomputeScaledResults()
         {
             ShapeAreaScaledResult = FormatScaledArea(_imageShapeArea, _hasImageShapeArea);
             LineLengthScaledResult = FormatScaledLength(_imageLineLength, _hasImageLineLength);
+            LineDeltaXScaledResult = FormatScaledLength(_imageLineDeltaX, _hasImageLineLength);
+            LineDeltaYScaledResult = FormatScaledLength(_imageLineDeltaY, _hasImageLineLength);
         }
 
         /// <summary>Restores the image-space area behind the shape row.</summary>
@@ -134,10 +138,12 @@ namespace DinoLino.Utilities.Modes
             RecomputeScaledResults();
         }
 
-        /// <summary>Restores the image-space length behind the line row.</summary>
-        public void RestoreLineMeasurement(double imageLength)
+        /// <summary>Restores the image-space length and axis components behind the line rows.</summary>
+        public void RestoreLineMeasurement(double imageLength, double imageDeltaX, double imageDeltaY)
         {
             _imageLineLength = imageLength;
+            _imageLineDeltaX = imageDeltaX;
+            _imageLineDeltaY = imageDeltaY;
             _hasImageLineLength = true;
             RecomputeScaledResults();
         }
@@ -151,6 +157,8 @@ namespace DinoLino.Utilities.Modes
             _imageShapeArea = 0;
             _hasImageShapeArea = false;
             _imageLineLength = 0;
+            _imageLineDeltaX = 0;
+            _imageLineDeltaY = 0;
             _hasImageLineLength = false;
             RecomputeScaledResults();
         }
@@ -335,6 +343,20 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _lineLengthScaledResult, value);
         }
 
+        private string _lineDeltaXScaledResult = "Unscaled";
+        public string LineDeltaXScaledResult
+        {
+            get => _lineDeltaXScaledResult;
+            set => SetField(ref _lineDeltaXScaledResult, value);
+        }
+
+        private string _lineDeltaYScaledResult = "Unscaled";
+        public string LineDeltaYScaledResult
+        {
+            get => _lineDeltaYScaledResult;
+            set => SetField(ref _lineDeltaYScaledResult, value);
+        }
+
         public double LockedAngleDegrees { get; set; } = 0;
 
         private object _lineLengthRatioResult;
@@ -438,7 +460,21 @@ namespace DinoLino.Utilities.Modes
             double dy = _currentLine.Y2 - _currentLine.Y1;
             double length = ToImageLength(Math.Sqrt(dx * dx + dy * dy));
 
+            // The same line resolved onto the specimen's own axes. The X and Y axes are
+            // perpendicular by construction — a drawn Y axis is turned back 90° when the
+            // alignment is stored — so this is a rotation, and the two components close
+            // the triangle: deltaX² + deltaY² == length². Magnitudes, not signed offsets:
+            // the sign would turn on which end was clicked first and which way the axis
+            // line was dragged, neither of which says anything about the specimen.
+            // Without an alignment ToAligned passes the vector through, leaving the
+            // components on the image's own axes rather than blank.
+            Vector aligned = ActiveAlignment.Current.ToAligned(new Vector(dx, dy));
+            double deltaX = ToImageLength(Math.Abs(aligned.X));
+            double deltaY = ToImageLength(Math.Abs(aligned.Y));
+
             _imageLineLength = length;
+            _imageLineDeltaX = deltaX;
+            _imageLineDeltaY = deltaY;
             _hasImageLineLength = true;
             RecomputeScaledResults();
 
@@ -452,6 +488,8 @@ namespace DinoLino.Utilities.Modes
             {
                 OperationKind = "Lines",
                 LineLengthImagePixels = length,
+                LineDeltaXImagePixels = deltaX,
+                LineDeltaYImagePixels = deltaY,
                 LineLengthRatio = LineLengthRatioResult,
                 LineAngle = LineAngleResult,
                 HeadingDegrees = HeadingOf(dx, dy)

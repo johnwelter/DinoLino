@@ -15,6 +15,25 @@ using System.Windows.Shapes;
 
 namespace DinoLino.Utilities
 {
+    /// <summary>
+    /// The session's live alignment, reachable from the work modes. MainWindow owns the
+    /// one ImageAlignment instance and rebinds it as specimens change; this holds that
+    /// same object, so a mode can express a measurement in the specimen's own frame
+    /// without a path back to the window.
+    /// </summary>
+    public static class ActiveAlignment
+    {
+        // Stands in before Bind, and in any tooling that runs a mode headless. Unset,
+        // so it leaves vectors in canvas space rather than throwing.
+        private static readonly ImageAlignment _unset = new ImageAlignment();
+
+        private static ImageAlignment _current;
+
+        /// <summary>Supplies MainWindow's alignment. Call once at startup.</summary>
+        public static void Bind(ImageAlignment alignment) => _current = alignment;
+
+        public static ImageAlignment Current => _current ?? _unset;
+    }
     /// <summary>Which of the specimen's two axes the user drew.</summary>
     public enum AlignmentAxis { X, Y }
 
@@ -56,12 +75,14 @@ namespace DinoLino.Utilities
             if (dx * dx + dy * dy < MinimumLinePixels * MinimumLinePixels) return None;
 
             // With Y growing downward the specimen's +Y axis sits 90 degrees
-            // clockwise from its +X axis, so a drawn Y axis turns back by that much.
+            // counter-clockwise from its +X axis, so a drawn Y axis turns forward by
+            // that much to give +X. This is the convention the axes compass draws:
+            // X right, Y up.
             if (axis == AlignmentAxis.Y)
             {
                 double t = dx;
-                dx = dy;
-                dy = -t;
+                dx = -dy;
+                dy = t;
             }
 
             return new AlignmentState(Math.Atan2(dy, dx), axis);
@@ -111,6 +132,9 @@ namespace DinoLino.Utilities
         public AlignmentAxis DrawnAxis => _state.DrawnAxis;
         public double RotationRadians => _state.RotationRadians;
         public double RotationDegrees => _state.RotationRadians * 180.0 / Math.PI;
+        /// The opposite turn. A label carried around by the axes graphic spins back
+        /// by this much, so its letter stays upright instead of ending up on its head.
+        public double CounterRotationDegrees => -RotationDegrees;
 
         /// The live orientation. Assigning writes through to the bound specimen, so
         /// what is displayed and what is stored cannot drift apart.
@@ -182,6 +206,7 @@ namespace DinoLino.Utilities
             OnPropertyChanged(nameof(DrawnAxis));
             OnPropertyChanged(nameof(RotationRadians));
             OnPropertyChanged(nameof(RotationDegrees));
+            OnPropertyChanged(nameof(CounterRotationDegrees));
             OnPropertyChanged(nameof(StatusText));
         }
     }
@@ -363,6 +388,47 @@ namespace DinoLino
             _alignCapture.TrackCursor(new Point(mousePos.X, mousePos.Y));
             UI_DotCursor.SetPosition(mousePos.X - 5, mousePos.Y - 5);
             return true;
+        }
+
+        // ---- Image axes compass (View ▸ See Image Axes) ----
+
+        // Where the pointer and the overlay stood when the drag began, so the widget
+        // follows the cursor instead of jumping its centre under it.
+        private Point _axesDragPointer;
+        private Point _axesDragOrigin;
+        private bool _axesDragging;
+
+        /// Shows or hides the axis compass. Its orientation is bound to ImageAlignment,
+        /// so there is nothing to push into it here.
+        internal void SetImageAxesVisible(bool visible)
+        {
+            UI_ImageAxes.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void ImageAxes_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            _axesDragPointer = e.GetPosition(UI_WorkSpace);
+            _axesDragOrigin = new Point(UI_ImageAxesTransform.X, UI_ImageAxesTransform.Y);
+            _axesDragging = UI_ImageAxes.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void ImageAxes_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_axesDragging) return;
+
+            Point now = e.GetPosition(UI_WorkSpace);
+            UI_ImageAxesTransform.X = _axesDragOrigin.X + (now.X - _axesDragPointer.X);
+            UI_ImageAxesTransform.Y = _axesDragOrigin.Y + (now.Y - _axesDragPointer.Y);
+        }
+
+        private void ImageAxes_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_axesDragging) return;
+
+            _axesDragging = false;
+            UI_ImageAxes.ReleaseMouseCapture();
+            e.Handled = true;
         }
     }
 }

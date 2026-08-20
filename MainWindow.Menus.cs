@@ -235,6 +235,13 @@ namespace DinoLino
             }
         }
 
+        /// Toggles the image-axes compass. The overlay itself lives in the alignment
+        /// file, which owns SetImageAxesVisible.
+        private void Menu_SeeImageAxes(object sender, RoutedEventArgs e)
+        {
+            SetImageAxesVisible(UI_SeeImageAxes.IsChecked);
+        }
+
         /// Toggles the mini-map overview panel. The panel itself lives in
         /// MainWindow_Navigation.cs, which owns SetMiniMapVisible.
         private void Menu_SeeMiniMap(object sender, RoutedEventArgs e)

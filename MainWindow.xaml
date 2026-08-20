@@ -68,6 +68,8 @@
                           ToolTip="Keep all previously drawn operations on screen until cleared."/>
                 <MenuItem Header="_See Operation Count" x:Name="UI_SeeAttempts" IsCheckable="True" IsChecked="True" Click="Menu_SeeAttempts"
                           ToolTip="Display the number of operations performed for each specimen."/>
+                <MenuItem Header="See Image _Axes" x:Name="UI_SeeImageAxes" IsCheckable="True" IsChecked="False" Click="Menu_SeeImageAxes"
+                          ToolTip="Show a compass in the workspace corner pointing along the specimen's X and Y axes."/>
                 <MenuItem Header="See _Navigation Window" x:Name="UI_SeeMiniMap" IsCheckable="True" IsChecked="False" Click="Menu_SeeMiniMap"
                           ToolTip="Show a draggable overview of the whole image. Click a spot on it to pan the zoomed view there."/>
                 <MenuItem Header="See _Batch Workshop" x:Name="UI_SeeWorkshop" IsCheckable="True" IsChecked="True" Click="Menu_SeeWorkshop"
@@ -352,6 +354,80 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Image axes compass (View ▸ See Image Axes). One L-shaped
+                         double-headed arrow: the corner sits at the origin, one head
+                         runs along the specimen's X axis and the other along its Y,
+                         as set by Tools ▸ Align Image. The whole drawing turns by
+                         RotationDegrees, so the X head lands on the direction the user
+                         drew and Y stays square to it. With no alignment the rotation
+                         is zero, leaving X right and Y up. Each label spins back the
+                         opposite way so the letters stay upright at any rotation.
+                         Draggable, since it opens over the busy indicator's corner. -->
+                    <Border x:Name="UI_ImageAxes" Panel.ZIndex="55"
+                            HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                            Margin="16,0,0,16"
+                            Background="Transparent"
+                            Cursor="SizeAll" Visibility="Collapsed"
+                            ToolTip="The specimen's X and Y axes, set by Tools ▸ Align Image. Drag to move."
+                            MouseLeftButtonDown="ImageAxes_MouseDown"
+                            MouseMove="ImageAxes_MouseMove"
+                            MouseLeftButtonUp="ImageAxes_MouseUp">
+                        <Border.RenderTransform>
+                            <TranslateTransform x:Name="UI_ImageAxesTransform"/>
+                        </Border.RenderTransform>
+
+                        <!-- Faded while the specimen has no alignment, so the fallback
+                             orientation is not mistaken for a measured one. -->
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsAligned}" Value="False">
+                                        <Setter Property="Opacity" Value="0.6"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+
+                        <!-- Everything is drawn within a radius of 52 about the centre
+                             (52,52), so nothing leaves the box at any rotation. -->
+                        <Canvas Width="104" Height="104" RenderTransformOrigin="0.5,0.5">
+                            <Canvas.RenderTransform>
+                                <RotateTransform Angle="{Binding RotationDegrees}"/>
+                            </Canvas.RenderTransform>
+
+                            <!-- Both arms are one closed outline rather than two shapes,
+                                 so no white seam crosses the elbow where they meet. -->
+                            <Polygon Points="55,55 72,55 72,60 86,52 72,44 72,49 55,49
+                                             55,32 60,32 52,18 44,32 49,32 49,55"
+                                     Fill="Black" Stroke="White" StrokeThickness="1.5"
+                                     StrokeLineJoin="Round"/>
+
+                            <TextBlock Canvas.Left="89" Canvas.Top="45" Width="12" Height="14"
+                                       Text="X" Foreground="Black" FontWeight="Bold"
+                                       FontFamily="Segoe UI" FontSize="11" TextAlignment="Center"
+                                       RenderTransformOrigin="0.5,0.5">
+                                <TextBlock.Effect>
+                                    <DropShadowEffect Color="White" ShadowDepth="0" BlurRadius="4"/>
+                                </TextBlock.Effect>
+                                <TextBlock.RenderTransform>
+                                    <RotateTransform Angle="{Binding CounterRotationDegrees}"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+
+                            <TextBlock Canvas.Left="46" Canvas.Top="1" Width="12" Height="14"
+                                       Text="Y" Foreground="Black" FontWeight="Bold"
+                                       FontFamily="Segoe UI" FontSize="11" TextAlignment="Center"
+                                       RenderTransformOrigin="0.5,0.5">
+                                <TextBlock.Effect>
+                                    <DropShadowEffect Color="White" ShadowDepth="0" BlurRadius="4"/>
+                                </TextBlock.Effect>
+                                <TextBlock.RenderTransform>
+                                    <RotateTransform Angle="{Binding CounterRotationDegrees}"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </Canvas>
+                    </Border>
+                    
                     <!-- Navigation window overlay: draggable, resizable overview of the whole image
                      (View ▸ See Navigation Window). Clicking or dragging on the picture pans the
                      zoomed workspace view to that spot. -->

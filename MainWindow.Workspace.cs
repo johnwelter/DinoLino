@@ -185,6 +185,7 @@ namespace DinoLino
             // Scale and alignment both belong to the specimen and come back with it.
             ScaleCalibration.BindTo(SpecimenManager.CurrentSpecimen);
             ImageAlignment.BindTo(SpecimenManager.CurrentSpecimen);
+            ActiveAlignment.Bind(ImageAlignment);
 
             ResetWorkSpaceZoom();
             ClearWorkspace();

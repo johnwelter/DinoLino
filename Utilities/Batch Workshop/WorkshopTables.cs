@@ -572,8 +572,10 @@ namespace DinoLino.Utilities
                             Columns = new List<WorkshopColumn>
                             {
                                 Col("line_length", o => GeomOpHistoryWindow.FmtLength(((LineOperation)o).LineLengthImagePixels, scale)),
-                                Col("line_ratio", o => GeomOpHistoryWindow.FmtRatio(((LineOperation)o).LineLengthRatio)),
-                                Col("line_angle", o => GeomOpHistoryWindow.FmtRatio(((LineOperation)o).LineAngle))
+                                Col("line_xdist",  o => GeomOpHistoryWindow.FmtLength(((LineOperation)o).LineDeltaXImagePixels, scale)),
+                                Col("line_ydist",  o => GeomOpHistoryWindow.FmtLength(((LineOperation)o).LineDeltaYImagePixels, scale)),
+                                Col("line_ratio",  o => GeomOpHistoryWindow.FmtRatio(((LineOperation)o).LineLengthRatio)),
+                                Col("line_angle",  o => GeomOpHistoryWindow.FmtRatio(((LineOperation)o).LineAngle))
                             }
                         }
                     };
