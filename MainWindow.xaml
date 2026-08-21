@@ -30,7 +30,8 @@
                 <MenuItem Header="Open 3D _Model" Click="Menu_Open3DModel"/>
                 <MenuItem Header="_Import Folder" Click="Menu_ImportFolder"
                           ToolTip="Import every image and 3D model in a folder as specimens."/>
-                <MenuItem Header="_Take Screenshot" Click="Menu_Screenshot" InputGestureText="Ctrl+S"/>
+                <MenuItem Header="_Take Screenshot" x:Name="UI_MenuScreenshot" IsEnabled="False"
+                          Click="Menu_Screenshot" InputGestureText="Ctrl+S"/>
                 <MenuItem Header="_Export Operation History" Click="Menu_ExportHistory" InputGestureText="Ctrl+E"/>
             </MenuItem>
             <MenuItem Header="_Edit" MouseLeave="Menu_MouseLeave">
@@ -38,19 +39,21 @@
                 <MenuItem Header="_Redo" x:Name="UI_MenuRedo" Click="Menu_Redo"  InputGestureText="Ctrl+Y"/>
             </MenuItem>
             <MenuItem Header="_Tools" MouseLeave="Menu_MouseLeave">
-                <MenuItem Header="_Set Scale" Click="Menu_SetScale"
+                <MenuItem Header="_Set Scale" x:Name="UI_MenuSetScale" IsEnabled="False"
+                          Click="Menu_SetScale"
                           ToolTip="Calibrate measurements: click both ends of a feature of known length, then enter that length."/>
                 <MenuItem Header="_Align Image" x:Name="UI_MenuAlignImage"
                           Click="Menu_AlignImage" IsEnabled="False"
                           ToolTip="Note the specimen's X or Y axis. The alignment is stored with the specimen."/>
-                <MenuItem Header="_Picture Corrections" Click="Menu_PictureAdjustment"
+                <MenuItem Header="_Picture Corrections" x:Name="UI_MenuPictureCorrections" IsEnabled="False"
+                          Click="Menu_PictureAdjustment"
                           ToolTip="Adjust picture properties such as brightness, contrast, and saturation."/>
-                <MenuItem Header="_Decimate" Click="Menu_DownSample"/>
-                <MenuItem Header="_Flip">
+                <MenuItem Header="_Decimate" x:Name="UI_MenuDecimate" IsEnabled="False" Click="Menu_DownSample"/>
+                <MenuItem Header="_Flip" x:Name="UI_MenuFlip" IsEnabled="False">
                     <MenuItem Header="_Horizontal"  Click="Menu_FlipHorizontal"/>
                     <MenuItem Header="_Vertical"  Click="Menu_FlipVertical"/>
                 </MenuItem>
-                <MenuItem Header="_Rotate">
+                <MenuItem Header="_Rotate" x:Name="UI_MenuRotate" IsEnabled="False">
                     <MenuItem Header="_Rotate Right 90°"  Click="Menu_RotateRight"/>
                     <MenuItem Header="_Rotate Left 90°"  Click="Menu_RotateLeft"/>
                 </MenuItem>
@@ -185,6 +188,7 @@
                     HorizontalContentAlignment="Center"
                     VerticalAlignment="Top"
                     Padding="8,4"
+                    IsEnabled="False"
                     Click="GlobalTools_ClearSpecimen"
                     ToolTip="Clear measurements and operations for the current specimen only">
                         <TextBlock Text="Clear Specimen Data"
@@ -192,18 +196,42 @@
                         TextAlignment="Center"/>
                     </Button>
 
-                    <Button x:Name="UI_ScaleButton"
-                        Margin="10,10,10,10"
-                        MinHeight="32"
-                        HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Center"
-                        VerticalAlignment="Top"
-                        Padding="8,4"
-                        Click="Menu_SetScale">
-                        <TextBlock Text="Scale Image"
-                        TextWrapping="Wrap"
-                        TextAlignment="Center"/>
-                    </Button>
+                    <Grid Margin="10,10,10,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Button x:Name="UI_ScaleButton"
+                                Grid.Column="0"
+                                Margin="0,0,5,0"
+                                MinHeight="32"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                VerticalAlignment="Top"
+                                Padding="8,4"
+                                IsEnabled="False"
+                                Click="Menu_SetScale">
+                            <TextBlock Text="Scale Image"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"/>
+                        </Button>
+
+                        <Button x:Name="UI_AlignButton"
+                                Grid.Column="1"
+                                Margin="5,0,0,0"
+                                MinHeight="32"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                VerticalAlignment="Top"
+                                Padding="8,4"
+                                IsEnabled="False"
+                                Click="Menu_AlignImage">
+                            <TextBlock Text="Align"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"/>
+                        </Button>
+                    </Grid>
 
 
                     <!-- Creature art: the 1:2:1 columns make the middle column exactly half
@@ -561,9 +589,10 @@
                             DockPanel.Dock="Bottom" 
                             Content="Clear All" MinHeight="32"
                             Margin="2,10,2,0"
+                            IsEnabled="False"
                             Click="GlobalTools_Clear"
-                            ToolTip="Clear all operations from the current specimen"/>
-                    
+                            ToolTip="Clear all data for every specimen in the session"/>
+
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                               VerticalAlignment="Top" MaxHeight="340">
                         <StackPanel>
@@ -588,7 +617,9 @@
                                     <Setter Property="FontSize" Value="13"/>
                                     <Setter Property="HorizontalAlignment" Value="Right"/>
                                     <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <!-- Show the tooltip at the cursor rather than below the button. -->
+                                    <!-- Every row starts unavailable and is switched on by
+                                         UpdateWorkshopButtonsEnabled once its category holds data. -->
+                                    <Setter Property="IsEnabled" Value="False"/>
                                     <Setter Property="ToolTipService.Placement" Value="Mouse"/>
                                     <Setter Property="ToolTipService.InitialShowDelay" Value="150"/>
                                     <Setter Property="ToolTipService.ShowDuration" Value="20000"/>
@@ -616,7 +647,7 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="UI_EditCurvature" Style="{StaticResource WorkshopEditButton}"
                                         Click="Workshop_EditCurvature"/>
-                                    <Button Style="{StaticResource WorkshopExportButton}"
+                                    <Button x:Name="UI_ExportCurvature" Style="{StaticResource WorkshopExportButton}"
                                         Click="Workshop_ExportCurvature"/>
                                 </StackPanel>
                             </Grid>
@@ -630,7 +661,7 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="UI_EditAngle" Style="{StaticResource WorkshopEditButton}"
                                         Click="Workshop_EditAngle"/>
-                                    <Button Style="{StaticResource WorkshopExportButton}"
+                                    <Button x:Name="UI_ExportAngle" Style="{StaticResource WorkshopExportButton}"
                                         Click="Workshop_ExportAngle"/>
                                 </StackPanel>
                             </Grid>
@@ -644,7 +675,7 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="UI_EditShape" Style="{StaticResource WorkshopEditButton}"
                                         Click="Workshop_EditShape"/>
-                                    <Button Style="{StaticResource WorkshopExportButton}"
+                                    <Button x:Name="UI_ExportShape" Style="{StaticResource WorkshopExportButton}"
                                         Click="Workshop_ExportShape"/>
                                 </StackPanel>
                             </Grid>
@@ -658,7 +689,7 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="UI_EditOutline" Style="{StaticResource WorkshopEditButton}"
                                         Click="Workshop_EditOutline"/>
-                                    <Button Style="{StaticResource WorkshopExportButton}"
+                                    <Button x:Name="UI_ExportOutline" Style="{StaticResource WorkshopExportButton}"
                                         Click="Workshop_ExportOutline"/>
                                 </StackPanel>
                             </Grid>
@@ -672,7 +703,7 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="UI_EditAllGeometric" Style="{StaticResource WorkshopEditButton}"
                                             Click="Workshop_EditAllGeometric"/>
-                                    <Button Style="{StaticResource WorkshopExportButton}"
+                                    <Button x:Name="UI_ExportAllGeometric" Style="{StaticResource WorkshopExportButton}"
                                             Click="Workshop_ExportAllGeometric"/>
                                 </StackPanel>
                             </Grid>
@@ -686,7 +717,7 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="UI_EditEfa" Style="{StaticResource WorkshopEditButton}"
                                         Click="Workshop_EditEfa"/>
-                                    <Button Style="{StaticResource WorkshopExportButton}"
+                                    <Button x:Name="UI_ExportEfa" Style="{StaticResource WorkshopExportButton}"
                                         Click="Workshop_ExportEfa"/>
                                 </StackPanel>
                             </Grid>
@@ -700,7 +731,7 @@
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="UI_Edit2DOutlines" Style="{StaticResource WorkshopEditButton}"
                                         Click="Workshop_Edit2DOutlines"/>
-                                    <Button Style="{StaticResource WorkshopExportButton}"
+                                    <Button x:Name="UI_Export2DOutlines" Style="{StaticResource WorkshopExportButton}"
                                         Click="Workshop_Export2DOutlines"/>
                                 </StackPanel>
                             </Grid>

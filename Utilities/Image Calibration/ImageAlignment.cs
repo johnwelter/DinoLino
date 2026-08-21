@@ -341,8 +341,6 @@ namespace DinoLino
     {
         private AlignmentCapture _alignCapture;
 
-        private void Menu_AlignImage(object sender, RoutedEventArgs e) => BeginAlignCapture();
-
         /// Opens the axis dialog and arms the workspace. The dialog is modeless
         /// because the user has to reach the image while it is open.
         internal void BeginAlignCapture()

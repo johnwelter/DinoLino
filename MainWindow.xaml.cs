@@ -101,9 +101,13 @@ namespace DinoLino
         // Cursor shown over the workspace for certain interactive tools.
         public Ellipse UI_DotCursor;
 
-        private void OutlineCommit_Requested() =>
-    CommitOutlineFlow.Run(this, SpecimenManager.DisplayName,
-                          OutlineMode.GetActiveOutlinePoints(), WorkingDirectory);
+        private void OutlineCommit_Requested()
+        {
+            CommitOutlineFlow.Run(this, SpecimenManager.DisplayName,
+                                  OutlineMode.GetActiveOutlinePoints(), WorkingDirectory);
+            UpdateOutlineGalleryEnabled();
+        }
+
         public MainWindow()
         {
             InitializeComponent();
@@ -218,9 +222,16 @@ namespace DinoLino
             DrawMode.UndoRedoManager = UndoRedoManager;
             OutlineMode.UndoRedoManager = UndoRedoManager;
 
-            // The attempt counter depends on the current undo/redo history.
-            UndoRedoManager.PropertyChanged += (s, e) => UpdateAttemptCounter();
+            // The attempt counter and every data-gated control depend on what the
+            // session has recorded, so both are refreshed whenever history changes.
+            UndoRedoManager.PropertyChanged += (s, e) =>
+            {
+                UpdateAttemptCounter();
+                UpdateDataDependentControls();
+            };
             UpdateAttemptCounter();
+            UpdateDataDependentControls();
+            UpdateOutlineGalleryEnabled();
 
             CurvatureMode.Scale = ScaleCalibration;
             GetAngleMode.Scale = ScaleCalibration;

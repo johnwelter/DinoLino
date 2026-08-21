@@ -579,14 +579,7 @@ namespace DinoLino.Utilities
         {
             var table = WorkshopTables.Build(category, ur, currentName, scale);
 
-            if (table.IsEmpty)
-            {
-                MessageBox.Show(
-                    $"No {WorkshopTables.TitleFor(category)} has been recorded yet.",
-                    "Export " + WorkshopTables.TitleFor(category),
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
+            if (table.IsEmpty) return;
 
             // Hidden columns are already dropped by ToCsv; group columns are included.
             var (headers, rows) = table.ToCsv();

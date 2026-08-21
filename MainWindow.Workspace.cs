@@ -192,7 +192,7 @@ namespace DinoLino
             RefreshAllScalePlaceholders();
 
             _imageAdjuster.CacheImage(WorkingImage);
-            UI_MenuAlignImage.IsEnabled = true;
+            SetImageToolsEnabled(true);
             OutlineMode.SourceImage = WorkingImage;
 
             Dispatcher.BeginInvoke(
@@ -209,7 +209,7 @@ namespace DinoLino
 
             ScaleCalibration.BindTo(null);
             ImageAlignment.BindTo(null);
-            UI_MenuAlignImage.IsEnabled = false;
+            SetImageToolsEnabled(false);
             ResetWorkSpaceZoom();
             ClearWorkspace();
             RefreshAllScalePlaceholders();
@@ -456,9 +456,6 @@ namespace DinoLino
         // Remembers "Don't show this message again" for the rest of the session.
         private bool _suppressClearAllPrompt;
 
-        // Remembers the per-specimen clear confirmation preference for this session.
-        private bool _suppressClearSpecimenPrompt;
-
         /// Clear All: returns the program to how it opened — every specimen, every
         /// measurement, and every cached image gone.
         private void GlobalTools_Clear(object sender, RoutedEventArgs e)
@@ -497,6 +494,7 @@ namespace DinoLino
 
             // Keep derived UI current after removing the active specimen's data.
             UpdateAttemptCounter();
+            UpdateClearSpecimenEnabled();
             RefreshPlotTab();
         }
 
@@ -534,6 +532,7 @@ namespace DinoLino
 
             RebuildSampleList();
             UpdateAttemptCounter();
+            UpdateClearSpecimenEnabled();
             RefreshPlotTab();
         }
 
@@ -575,11 +574,7 @@ namespace DinoLino
         /// calibration line. Invoked from Tools ▸ Set Scale (Menu_SetScale).
         internal void BeginScaleCapture()
         {
-            if (WorkingImage == null)
-            {
-                MessageBox.Show("Please open an image first.", "No Image", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
+            if (WorkingImage == null) return;
 
             // Restarting always discards any half-finished capture.
             CancelScaleCapture();

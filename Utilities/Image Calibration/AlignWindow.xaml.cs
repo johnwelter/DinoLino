@@ -41,5 +41,8 @@ namespace DinoLino
             RetryRequested?.Invoke();
             SetLineReady(false);
         }
+
+        /// <summary>Abandons the capture. Closing is what tears it down.</summary>
+        private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
     }
 }

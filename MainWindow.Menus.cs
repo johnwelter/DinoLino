@@ -146,6 +146,75 @@ namespace DinoLino
             BeginScaleCapture();
         }
 
+        // ---- Alignment ----
+
+        /// Arms the axis-drawing capture (Tools ▸ Align Image, and the control
+        /// panel's Align button). The capture itself lives in the alignment file,
+        /// which owns BeginAlignCapture.
+        private void Menu_AlignImage(object sender, RoutedEventArgs e)
+        {
+            BeginAlignCapture();
+        }
+
+        // ---- Image tool availability ----
+
+        /// Enables or disables the tools that need a loaded image, across every
+        /// entry point each one has. Called wherever the working image arrives or
+        /// is cleared, so no tool is offered when there is nothing to measure and
+        /// the menu items cannot drift apart from the buttons.
+        internal void SetImageToolsEnabled(bool enabled)
+        {
+            UI_MenuAlignImage.IsEnabled = enabled;
+            UI_AlignButton.IsEnabled = enabled;
+
+            UI_MenuSetScale.IsEnabled = enabled;
+            UI_ScaleButton.IsEnabled = enabled;
+
+            UI_MenuScreenshot.IsEnabled = enabled;
+            UI_MenuPictureCorrections.IsEnabled = enabled;
+            UI_MenuDecimate.IsEnabled = enabled;
+            UI_MenuFlip.IsEnabled = enabled;
+            UI_MenuRotate.IsEnabled = enabled;
+        }
+
+        /// Enables Clear Specimen Data only while the loaded specimen has something
+        /// to clear. Undone operations count: they are still on the specimen's
+        /// record and the button discards them along with the rest.
+        internal void UpdateClearSpecimenEnabled()
+        {
+            UI_ClearSpecimenButton.IsEnabled =
+                UndoRedoManager.CanUndo || UndoRedoManager.CanRedo;
+        }
+
+        /// Enables Clear All only while the session holds at least one measurement,
+        /// in an archived specimen or in the live one. Undone operations count: they
+        /// are still recoverable, and the reset discards them along with everything
+        /// else.
+        internal void UpdateClearAllEnabled()
+        {
+            bool anyArchived = false;
+            foreach (var record in UndoRedoManager.Archive)
+            {
+                if (record.Operations.Count > 0)
+                {
+                    anyArchived = true;
+                    break;
+                }
+            }
+
+            UI_AAClearButton.IsEnabled =
+                anyArchived || UndoRedoManager.CanUndo || UndoRedoManager.CanRedo;
+        }
+
+        /// Refreshes every control whose availability depends on what the session
+        /// has recorded. Call this wherever measurements are added or removed.
+        internal void UpdateDataDependentControls()
+        {
+            UpdateClearSpecimenEnabled();
+            UpdateClearAllEnabled();
+            UpdateWorkshopButtonsEnabled();
+        }
+
         // ---- Tips ----
 
         private bool _tipsVisible = true;

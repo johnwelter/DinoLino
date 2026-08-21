@@ -24,7 +24,8 @@
             <Button x:Name="UI_Accept" Content="Accept" Width="72"
                     IsEnabled="False" IsDefault="True" Click="Accept_Click"/>
             <Button Content="Retry" Width="72" Margin="8,0,0,0" Click="Retry_Click"/>
-            <Button Content="Cancel" Width="72" Margin="8,0,0,0" IsCancel="True"/>
+            <Button x:Name="UI_Cancel" Content="Cancel" Width="72" Margin="8,0,0,0"
+                    IsCancel="True" Click="Cancel_Click"/>
         </StackPanel>
     </StackPanel>
 </Window>

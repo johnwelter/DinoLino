@@ -2,6 +2,8 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using DinoLino.Utilities.Operations;
+using System.Collections.Generic;
 
 namespace DinoLino
 {
@@ -189,7 +191,75 @@ namespace DinoLino
             GeomOpHistoryWindow.ExportAllGeometricData(
                 UndoRedoManager, SpecimenManager.DisplayName, ScaleCalibration);
         }
-        
+
+        // =====================
+        // Row availability
+        // =====================
+
+        /// Enables each row's edit and export buttons only while its category holds
+        /// something to show. The test runs the same acceptance check the tables
+        /// themselves use, so a row can never offer an empty table.
+        internal void UpdateWorkshopButtonsEnabled()
+        {
+            bool curvature = HasWorkshopData(WorkshopCategory.Curvature);
+            bool angle = HasWorkshopData(WorkshopCategory.Angle);
+            bool shape = HasWorkshopData(WorkshopCategory.Shape);
+            bool outline = HasWorkshopData(WorkshopCategory.OutlineMetadata);
+            bool efa = HasWorkshopData(WorkshopCategory.Efa);
+
+            UI_EditCurvature.IsEnabled = UI_ExportCurvature.IsEnabled = curvature;
+            UI_EditAngle.IsEnabled = UI_ExportAngle.IsEnabled = angle;
+            UI_EditShape.IsEnabled = UI_ExportShape.IsEnabled = shape;
+            UI_EditOutline.IsEnabled = UI_ExportOutline.IsEnabled = outline;
+            UI_EditEfa.IsEnabled = UI_ExportEfa.IsEnabled = efa;
+
+            // The workbook holds the History window's tabs, which are built from the
+            // four geometric categories; EFA has no tab there.
+            bool anyGeometric = curvature || angle || shape || outline;
+            UI_EditAllGeometric.IsEnabled = UI_ExportAllGeometric.IsEnabled = anyGeometric;
+        }
+
+        /// True when any specimen of the session, archived or live, holds a
+        /// measurement one of the category's column groups would table.
+        private bool HasWorkshopData(WorkshopCategory category)
+        {
+            if (UndoRedoManager == null) return false;
+
+            var groups = WorkshopTables.ColumnGroups(category, UndoRedoManager, ScaleCalibration);
+
+            foreach (var record in UndoRedoManager.Archive)
+            {
+                if (AnyAccepted(groups, record.Operations)) return true;
+            }
+
+            return AnyAccepted(groups, UndoRedoManager.History);
+        }
+
+        private static bool AnyAccepted(
+            List<WorkshopColumnGroup> groups, IReadOnlyList<WorkOperation> operations)
+        {
+            foreach (var op in operations)
+            {
+                foreach (var group in groups)
+                {
+                    if (group.Accepts(op)) return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// Enables the 2D Outlines row from the stored silhouettes. Those live in a
+        /// folder rather than in session history, so this is refreshed where that
+        /// folder can change instead of on every measurement.
+        internal void UpdateOutlineGalleryEnabled()
+        {
+            bool any = OutlineShapeExporter.Survey().TracedCount > 0;
+
+            UI_Edit2DOutlines.IsEnabled = any;
+            UI_Export2DOutlines.IsEnabled = any;
+        }
+
         // =====================
         // Editing
         // =====================
@@ -221,6 +291,8 @@ namespace DinoLino
             };
 
             window.ShowDialog();
+
+            UpdateOutlineGalleryEnabled();
         }
 
         /// Opens the History window, where each tab can be staged for the workbook
@@ -254,6 +326,7 @@ namespace DinoLino
             }
 
             UpdateAttemptCounter();
+            UpdateDataDependentControls();
         }
 
         private void Workshop_Export2DOutlines(object sender, RoutedEventArgs e)
@@ -261,18 +334,7 @@ namespace DinoLino
             var availability = OutlineShapeExporter.Survey();
 
             // Nothing to export until the user has stored at least one silhouette.
-            if (availability.TracedCount == 0)
-            {
-                MessageBox.Show(
-                    this,
-                    "There are no stored outlines to export yet.\n\n" +
-                    "Trace or hand-draw an outline, generate its metadata, then use " +
-                    "\"Commit Outline to History\" in the Outline panel to keep it.",
-                    "Export 2D Outlines",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-                return;
-            }
+            if (availability.TracedCount == 0) return;
 
             var dialog = new OutlineExportWindow(availability)
             {
