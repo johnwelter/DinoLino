@@ -134,6 +134,9 @@ namespace DinoLino
         /// is unaffected. Maximized windows are left alone, since they cannot grow.
         private void ResizeWindowForSidebar(double delta)
         {
+            // Nothing to trade before the window is laid out: ActualWidth is still zero
+            // and the size the XAML asks for has not been applied.
+            if (!IsLoaded) return;
             if (WindowState != WindowState.Normal) return;
 
             double available = SystemParameters.WorkArea.Width;

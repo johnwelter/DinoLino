@@ -273,6 +273,10 @@ namespace DinoLino
             // Hook up the workspace scrollbars and the mini-map (MainWindow_Navigation.cs).
             // Must run after the workspace transforms are initialized above.
             InitializeNavigationAids();
+
+            // Preferences from the user's last session (MainWindow_Settings.cs).
+            // Runs last so it settles over the defaults everything above starts at.
+            ApplyUserSettings();
         }
 
         private void ControlTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -368,34 +368,44 @@ namespace DinoLino
 
             fontWindow.OnFontSizeChanged = size =>
             {
-                _currentFontSize = size;
-                TextElement.SetFontSize(UI_ControlPanel, size);
-                TextElement.SetFontSize(UI_WorkshopPanel, size);
-                UI_TipText.FontSize = size;
-
-                // Set on the counter overlay itself rather than row by row, so rows
-                // added to it later (the per-shape tallies, and anything after them)
-                // scale without another edit here. The rows carry no local FontSize,
-                // which is what lets this inherit down to them.
-                TextElement.SetFontSize(UI_AttemptCounter, size);
-
+                ApplyFontSize(size);
                 fontWindow.FontSize = size;
             };
 
             fontWindow.OnFontFamilyChanged = family =>
             {
-                _currentFont = family;
-                TextElement.SetFontFamily(UI_ControlPanel, family);
-                TextElement.SetFontFamily(UI_WorkshopPanel, family);
-                UI_TipText.FontFamily = family;
-
-                TextElement.SetFontFamily(UI_AttemptCounter, family);
-
+                ApplyFontFamily(family);
                 fontWindow.FontFamily = family;
             };
 
             // Use a modeless window so font changes can be previewed live in the main UI.
             fontWindow.Show();
+        }
+
+        /// Applies a font size to every part of the main window that follows the
+        /// View ▸ Font setting.
+        private void ApplyFontSize(double size)
+        {
+            _currentFontSize = size;
+            TextElement.SetFontSize(UI_ControlPanel, size);
+            TextElement.SetFontSize(UI_WorkshopPanel, size);
+            UI_TipText.FontSize = size;
+
+            // Set on the counter overlay itself rather than row by row, so rows
+            // added to it later (the per-shape tallies, and anything after them)
+            // scale without another edit here. The rows carry no local FontSize,
+            // which is what lets this inherit down to them.
+            TextElement.SetFontSize(UI_AttemptCounter, size);
+        }
+
+        /// <summary>Applies a font family everywhere the size setting reaches.</summary>
+        private void ApplyFontFamily(FontFamily family)
+        {
+            _currentFont = family;
+            TextElement.SetFontFamily(UI_ControlPanel, family);
+            TextElement.SetFontFamily(UI_WorkshopPanel, family);
+            UI_TipText.FontFamily = family;
+            TextElement.SetFontFamily(UI_AttemptCounter, family);
         }
     }
 }

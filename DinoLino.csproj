@@ -75,6 +75,7 @@
     </Compile>
     <Compile Include="Utilities\Image Calibration\ImageAlignment.cs" />
     <Compile Include="Utilities\MainWindow.Import.cs" />
+    <Compile Include="Utilities\MainWindow.Settings.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureControlPanel.xaml.cs">
       <DependentUpon>CurvatureControlPanel.xaml</DependentUpon>
     </Compile>
@@ -158,6 +159,7 @@
     <Compile Include="Utilities\Modes\Operations.cs" />
     <Compile Include="Utilities\HistoryFiles\UndoRedoManager.cs" />
     <Compile Include="Utilities\Batch Workshop\WorkshopEditWindow.cs" />
+    <Compile Include="Utilities\UserSettings.cs" />
     <Page Include="Utilities\Image Calibration\AlignWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
