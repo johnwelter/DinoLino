@@ -356,6 +356,22 @@ namespace DinoLino
             }
         }
 
+        // ---- Settings ----
+
+        /// Toggles whether the View settings are kept for later sessions. The reading
+        /// and writing lives in MainWindow_Settings.cs, which owns SetSaveSettings.
+        private void Menu_SaveSettings(object sender, RoutedEventArgs e)
+        {
+            SetSaveSettings(UI_MenuSaveSettings.IsChecked);
+        }
+
+        /// Returns every View setting to how the program first opens. The defaults
+        /// themselves live in MainWindow_Settings.cs, which owns RestoreDefaultSettings.
+        private void Menu_RestoreDefaults(object sender, RoutedEventArgs e)
+        {
+            RestoreDefaultSettings();
+        }
+
         // ---- Font ----
 
         private void Menu_Font(object sender, RoutedEventArgs e)

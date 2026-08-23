@@ -33,6 +33,11 @@
                 <MenuItem Header="_Take Screenshot" x:Name="UI_MenuScreenshot" IsEnabled="False"
                           Click="Menu_Screenshot" InputGestureText="Ctrl+S"/>
                 <MenuItem Header="_Export Operation History" Click="Menu_ExportHistory" InputGestureText="Ctrl+E"/>
+                <MenuItem Header="Save _Settings" x:Name="UI_MenuSaveSettings"
+                          IsCheckable="True" IsChecked="False" Click="Menu_SaveSettings"
+                          ToolTip="Remember and keep View settings for later sessions"/>
+                <MenuItem Header="_Restore Default Settings" Click="Menu_RestoreDefaults"
+                          ToolTip="Return every View setting to how the program first opens."/>
             </MenuItem>
             <MenuItem Header="_Edit" MouseLeave="Menu_MouseLeave">
                 <MenuItem Header="_Undo" x:Name="UI_MenuUndo" Click="Menu_Undo"  InputGestureText="Ctrl+Z"/>

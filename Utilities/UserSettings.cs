@@ -11,10 +11,14 @@ namespace DinoLino.Utilities
     /// are kept in between sessions.
     /// </summary>
     /// <remarks>
-    /// Only choices about how the program itself looks belong here. Anything that
-    /// describes a specimen — its scale, its alignment, its measurements — is session
-    /// data and is deliberately left out: opening the program must never offer a
-    /// calibration that was measured against an image nobody has loaded.
+    /// Nothing is kept unless File ▸ Save Settings is switched on, so the file exists
+    /// only while the user has asked for one: no file means every default stands,
+    /// including the switch itself.
+    ///
+    /// Only choices about how the program looks belong here. Anything that describes a
+    /// specimen — its scale, its alignment, its measurements — is session data and is
+    /// deliberately left out: opening the program must never offer a calibration that
+    /// was measured against an image nobody has loaded.
     ///
     /// Every property starts at the value the XAML gives the control it drives, so a
     /// missing or unreadable file leaves the program looking exactly as it does on a
@@ -22,6 +26,14 @@ namespace DinoLino.Utilities
     /// </remarks>
     public class UserSettings
     {
+        #region The switch
+
+        /// Whether File ▸ Save Settings is on. Read before anything else: while it is
+        /// off, the rest of the file is ignored and the program opens on its defaults.
+        public bool SaveSettings { get; set; } = false;
+
+        #endregion
+
         #region Preferences
 
         public bool SeeTips { get; set; } = true;
@@ -37,12 +49,16 @@ namespace DinoLino.Utilities
         /// picks a color, which leaves every work mode on its own default.
         public string LineColor { get; set; }
 
+        /// The color View ▸ Line Color ticks on a window that has never been told
+        /// otherwise. Named here so a reset has something to name, since a null
+        /// LineColor asks for the modes to be left alone rather than reddened.
+        public const string DefaultLineColor = "Red";
+
         public string FontFamily { get; set; } = "Arial";
         public double FontSize { get; set; } = 14;
 
-        // A size outside this range leaves the control panel unreadable or the
-        // buttons unusable, so a hand-edited or damaged file cannot ask for one.
-        // Match these to the range the font dialog offers.
+        // The range the font dialog accepts. A file naming a size outside it has been
+        // hand-edited or damaged, so the default is used in its place.
         private const double MinFontSize = 10;
         private const double MaxFontSize = 50;
 
@@ -80,6 +96,8 @@ namespace DinoLino.Utilities
             }
             catch (IOException) { return settings; }
             catch (UnauthorizedAccessException) { return settings; }
+
+            settings.SaveSettings = ReadBool(values, "SaveSettings", settings.SaveSettings);
 
             settings.SeeTips = ReadBool(values, "SeeTips", settings.SeeTips);
             settings.SeePreviousOperations = ReadBool(values, "SeePreviousOperations", settings.SeePreviousOperations);
@@ -164,10 +182,26 @@ namespace DinoLino.Utilities
             catch (UnauthorizedAccessException) { }
         }
 
+        /// Removes the stored preferences, so the next start opens on the defaults.
+        /// Nothing to remove is not a problem, and neither is being unable to: the
+        /// same silence Save keeps applies here.
+        public static void Delete()
+        {
+            try
+            {
+                if (File.Exists(FilePath)) File.Delete(FilePath);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
         private string Serialize()
         {
             var text = new StringBuilder();
-            text.AppendLine("# DinoLino preferences. Delete this file to return to the defaults.");
+            text.AppendLine("# DinoLino preferences, kept while File > Save Settings is on.");
+            text.AppendLine("# Delete this file, or set SaveSettings to false, to return to the defaults.");
+
+            Write(text, "SaveSettings", SaveSettings);
 
             Write(text, "SeeTips", SeeTips);
             Write(text, "SeePreviousOperations", SeePreviousOperations);
