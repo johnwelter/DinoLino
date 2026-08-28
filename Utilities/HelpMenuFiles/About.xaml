@@ -21,6 +21,9 @@
                     <Label Content="Contributers:" HorizontalAlignment="Center"/>
                     <Label Content="John Welter"/>
                     <Label Content="Savannah Cobb"/>
+                    <Label Content="Stephanie Palmer"/>
+                    <Label Content="Mason Hintermeister"/>
+                    <Label Content="Fernando Torres-Chiriboga"/>
 
                 </StackPanel>
             </Grid>

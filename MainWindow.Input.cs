@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Runtime.InteropServices;
 
 namespace DinoLino
 {
@@ -45,6 +46,25 @@ namespace DinoLino
                     e.Handled = true;
                     return;
                 }
+            }
+
+            if ((e.Key == Key.Left || e.Key == Key.Right)
+                && Keyboard.Modifiers == ModifierKeys.None
+                && UI_WorkCanvas.IsKeyboardFocusWithin)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            // Space presses and holds the left mouse button, so the workspace can be
+            // clicked and dragged without a mouse.
+            if (e.Key == Key.Space
+                && Keyboard.Modifiers == ModifierKeys.None
+                && UI_WorkCanvas.IsKeyboardFocusWithin)
+            {
+                if (!e.IsRepeat) PressKeyboardClick();
+                e.Handled = true;
+                return;
             }
 
             if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C)
@@ -128,6 +148,220 @@ namespace DinoLino
                 e.Handled = true;
                 return;
             }
+        }
+
+        // ---- Keyboard cursor movement ----
+
+        // How far one arrow keypress moves the pointer, in screen pixels.
+        private const double CursorNudgeStep = 1;
+        private const double CursorNudgeStepCoarse = 10;
+
+        // Holding an arrow accelerates up to this multiple of the step, so the far
+        // side of the screen is reachable without hundreds of presses.
+        private const double CursorNudgeMaxAcceleration = 14;
+
+        private Key _heldArrow = Key.None;
+        private int _arrowRepeatCount;
+
+        private const int WH_KEYBOARD_LL = 13;
+        private const int WM_KEYDOWN = 0x0100;
+        private const int WM_KEYUP = 0x0101;
+        private const int WM_SYSKEYDOWN = 0x0104;
+        private const int WM_SYSKEYUP = 0x0105;
+        private const int VK_SHIFT = 0x10;
+        private const int VK_CONTROL = 0x11;
+        private const int VK_MENU = 0x12;
+
+        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        // The delegate is held in a field because the hook keeps an unmanaged
+        // pointer to it, which the garbage collector cannot see.
+        private LowLevelKeyboardProc _keyboardHookProc;
+        private IntPtr _keyboardHook = IntPtr.Zero;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(
+            int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentProcessId();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetCursorPos(int x, int y);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetCursorPos(out POINT point);
+
+        /// Installs a system-wide keyboard hook, which is what lets the arrow keys
+        /// reach the pointer even while a dialog owns the keyboard. Safe to call
+        /// repeatedly: Windows drops the hook if the UI thread ever stalls too long,
+        /// so it is reinstalled whenever the window is activated.
+        private void InstallKeyboardHook()
+        {
+            if (_keyboardHook != IntPtr.Zero) return;
+
+            _keyboardHookProc = KeyboardHookCallback;
+            _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardHookProc, GetModuleHandle(null), 0);
+        }
+
+        private void RemoveKeyboardHook()
+        {
+            if (_keyboardHook == IntPtr.Zero) return;
+
+            UnhookWindowsHookEx(_keyboardHook);
+            _keyboardHook = IntPtr.Zero;
+        }
+
+        private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode < 0) return CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+
+            Key key = KeyInterop.KeyFromVirtualKey(Marshal.ReadInt32(lParam));
+            bool isArrow = key == Key.Left || key == Key.Right || key == Key.Up || key == Key.Down;
+
+            // The hook sees every key on the machine, so anything that is not an
+            // arrow, and everything typed into other programs, passes straight on.
+            if (!isArrow || !IsThisApplicationInForeground())
+                return CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+
+            int message = wParam.ToInt32();
+            bool isKeyUp = message == WM_KEYUP || message == WM_SYSKEYUP;
+            bool coarse = IsKeyDown(VK_SHIFT);
+
+            // Ctrl + arrow moves the pointer one pixel and Shift + arrow moves it in
+            // large steps.
+            bool movesCursor = !IsKeyDown(VK_MENU)
+                && (IsKeyDown(VK_CONTROL) || (coarse && !(Keyboard.FocusedElement is TextBox)));
+
+            if (!movesCursor)
+            {
+                // Letting go of the modifier before the arrow still ends the movement.
+                if (isKeyUp && key == _heldArrow) ClearHeldArrow();
+                return CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+            }
+
+            if (isKeyUp)
+            {
+                if (key != _heldArrow) return CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+
+                ClearHeldArrow();
+                return (IntPtr)1;
+            }
+
+            if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN)
+            {
+                NudgeCursor(key, coarse);
+                return (IntPtr)1;   // Swallowed, so no control receives the arrow key.
+            }
+
+            return CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+        }
+
+        private void ClearHeldArrow()
+        {
+            _heldArrow = Key.None;
+            _arrowRepeatCount = 0;
+        }
+
+        /// Moves the pointer in raw screen coordinates. Windows clips the result to
+        /// the desktop, so every monitor is reachable and no bounds check is needed.
+        private void NudgeCursor(Key key, bool coarse)
+        {
+            if (key == _heldArrow) _arrowRepeatCount++;
+            else
+            {
+                _heldArrow = key;
+                _arrowRepeatCount = 0;
+            }
+
+            double step = coarse ? CursorNudgeStepCoarse : CursorNudgeStep;
+            step *= Math.Min(1 + _arrowRepeatCount / 4.0, CursorNudgeMaxAcceleration);
+
+            int dx = key == Key.Left ? -1 : key == Key.Right ? 1 : 0;
+            int dy = key == Key.Up ? -1 : key == Key.Down ? 1 : 0;
+
+            if (!GetCursorPos(out POINT p)) return;
+
+            SetCursorPos(
+                p.X + (int)Math.Round(dx * step),
+                p.Y + (int)Math.Round(dy * step));
+        }
+
+        private static bool IsKeyDown(int virtualKey) => (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+
+        private static bool IsThisApplicationInForeground()
+        {
+            IntPtr foreground = GetForegroundWindow();
+            if (foreground == IntPtr.Zero) return false;
+
+            GetWindowThreadProcessId(foreground, out uint processId);
+            return processId == GetCurrentProcessId();
+        }
+
+        // ---- Keyboard clicking ----
+
+        // True while the spacebar is holding the left mouse button down.
+        private bool _keyboardClickHeld;
+
+        [DllImport("user32.dll")]
+        private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
+
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
+        private void MainWindow_KeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Space) return;
+
+            // Released whatever the focus or modifiers are now: whatever pressed the
+            // button has to be able to let go of it.
+            if (ReleaseKeyboardClick()) e.Handled = true;
+        }
+
+        /// Presses the real left button at the pointer's current position, so the
+        /// click reaches every mode exactly as a mouse click would.
+        private void PressKeyboardClick()
+        {
+            if (_keyboardClickHeld) return;
+
+            _keyboardClickHeld = true;
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+        }
+
+        private bool ReleaseKeyboardClick()
+        {
+            if (!_keyboardClickHeld) return false;
+
+            _keyboardClickHeld = false;
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+            return true;
         }
 
         // ---- Workspace clicks ----
@@ -324,6 +558,15 @@ namespace DinoLino
             // The window has a handle only from here on, which is what the hook
             // needs, so this cannot move into the constructor.
             AttachHorizontalWheel(this);
+
+            InstallKeyboardHook();
+            Activated += (s, args) => InstallKeyboardHook();
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            RemoveKeyboardHook();
+            base.OnClosed(e);
         }
 
         /// Gives one window sideways scrolling: two-finger trackpad gestures and

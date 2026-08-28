@@ -16,6 +16,11 @@ Use the scroll wheel to zoom in and out of the image at the location of the curs
 
 Drag image:
 Hold Ctrl and left click to drag and move the viewable window while zoomed in.
+
+Move cursor:
+Move the mouse, or hold Ctrl and press arrow keys to nudge the cursor one pixel at a time. Hold Shift to move in larger steps.
+
+Press the spacebar to left click at the cursor's position.
 ------------------------------------------------------------------------------------------------
 KEYBOARD SHORTCUTS: 
 
@@ -30,7 +35,9 @@ View next specimen:		Up arrow key
 View previous specimen: Down arrow key
 Zoom:					Scroll wheel (mouse) or pinch (trackpad)
 Drag image:				Ctrl + left click and drag
-Add landmark:			TBD
+Move cursor slowly:		Ctrl + Arrow keys (hold Shift + Ctrl for larger movements)
+Left click:				Spacebar (hold to drag)
+Double click:			Spacebar (twice rapidly)
 
 ------------------------------------------------------------------------------------------------
 CURVATURE MODE: 
@@ -233,7 +240,36 @@ While zoomed in, click anywhere in the navigation window to move the viewable ar
 ----- See Batch Workshop -----
 Edit and export data tables as CSV files for each mode. Toggle on or off to display on the right sidebar.
 
-Column names in these data tables correspond to the following: 
+EFA Data:
+The coefficients table may be exported in wide format in Batch Workshop, or it may be exported in the Elliptic Fourier Analysis window.
+
+2D Outlines:
+All outlines created in a session may be exported as black silhouettes on a white background. Outlines are automatically filled prior to export.
+All generated outlines will be exported unless they are manually removed in the Edit window.
+Select a destination folder for export, a file type, and desired canvas size.
+Scale: Outline area will be resized such that the filled shape covers 25% of the canvas. 
+	   Some elongated shapes are exceptions to this. If an elongated shape at target area reaches past the margins, it is shrunk until it fits within the canvas.
+Align: Outlines may be rotated onto the long axis to align orientations, or exported in original orientation.
+
+----- See Directory -----
+Navigate file paths, view, and edit the specimens uploaded for a given a session.
+
+----- See Rex -----
+A friend to help you work.
+
+----- See History ----- 
+View and export CSV tables of all operations performed.
+
+----- Line Color ----- 
+Adjust color of drawn elements. Multiple options are available to accommodate colorblindness and ensure operation visibility on any image.
+
+----- Font ----- 
+Adjust font size or font family. Dyslexia-friendly fonts are available. 
+If needed, you may accommodate very large font sizes by resizing the sidebar or program window with clicking and dragging.
+
+----- Column names and abbreviations -----
+
+Column names in data tables correspond to the following: 
 
 "Specimen" = Specimen Name
 "Attempt" = Operation Count
@@ -276,32 +312,4 @@ In Outline Mode:
 "outline_circ" = Outline Circularity
 "outline_solidity" = Outline Solidity
 "outline_turnlength" = Ratio of Sum of Turning Angles / Outline Perimeter Length
-
-EFA Data:
-The coefficients table may be exported in wide format in Batch Workshop, or it may be exported in the Elliptic Fourier Analysis window.
-
-2D Outlines:
-All outlines created in a session may be exported as black silhouettes on a white background. Outlines are automatically filled prior to export.
-All generated outlines will be exported unless they are manually removed in the Edit window.
-Select a destination folder for export, a file type, and desired canvas size.
-Scale: Outline area will be resized such that the filled shape covers 25% of the canvas. 
-	   Some elongated shapes are exceptions to this. If an elongated shape at target area reaches past the margins, it is shrunk until it fits within the canvas.
-Align: Outlines may be rotated onto the long axis to align orientations, or exported in original orientation.
-
------ See Directory -----
-Navigate file paths, view, and edit the specimens uploaded for a given a session.
-
------ See Rex -----
-A friend to help you work.
-
------ See History ----- 
-View and export CSV tables of all operations performed.
-
------ Line Color ----- 
-Adjust color of drawn elements. Multiple options are available to accommodate colorblindness and ensure operation visibility on any image.
-
------ Font ----- 
-Adjust font size or font family. Dyslexia-friendly fonts are available. 
-If needed, you may accommodate very large font sizes by resizing the sidebar or program window with clicking and dragging.
-
 ------------------------------------------------------------------------------------------------

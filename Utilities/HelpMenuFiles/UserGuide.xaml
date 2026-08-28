@@ -1,13 +1,236 @@
 ﻿<Window x:Class="DinoLino.UserGuideWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="User Guide" Height="600" Width="500">
+        Title="User Guide"
+        Height="640" Width="580"
+        MinHeight="360" MinWidth="420"
+        WindowStartupLocation="CenterOwner"
+        FontFamily="Segoe UI" FontSize="13"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        Closed="Window_Closed">
 
-    <ScrollViewer>
-        <TextBox x:Name="GuideText"
-                 IsReadOnly="True"
-                 TextWrapping="Wrap"
-                 VerticalScrollBarVisibility="Auto"/>
-    </ScrollViewer>
+    <Window.Resources>
 
+        <!-- Icon artwork, drawn in a 20 x 20 coordinate space -->
+        <PathGeometry x:Key="MegaphoneBody"
+                      Figures="M3,8 L7,8 L14,3 L14,17 L7,12 L5.5,12 L6.5,18 L4,18 L3,12 Z"/>
+        <PathGeometry x:Key="MegaphoneWave"
+                      Figures="M16,6.5 A4.5,4.5 0 0 1 16,13.5"/>
+        <PathGeometry x:Key="StopSquare"
+                      Figures="M5,5 L15,5 L15,15 L5,15 Z"/>
+        <PathGeometry x:Key="PauseBars"
+                      Figures="M6,5 L9,5 L9,15 L6,15 Z M11,5 L14,5 L14,15 L11,15 Z"/>
+        <PathGeometry x:Key="PlayTriangle"
+                      Figures="M6.5,4.5 L15.5,10 L6.5,15.5 Z"/>
+
+        <SolidColorBrush x:Key="SpeakBrush" Color="#16607A"/>
+        <SolidColorBrush x:Key="StopBrush" Color="#B03A2E"/>
+        <SolidColorBrush x:Key="RuleBrush" Color="#DDE3E8"/>
+        <SolidColorBrush x:Key="ToolbarBrush" Color="#F5F7F9"/>
+
+        <Style x:Key="IconButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#E3EAEE"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#CBD8DE"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#16607A"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.35"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="BodyText" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="26,4,8,12"/>
+            <Setter Property="IsTabStop" Value="False"/>
+        </Style>
+
+    </Window.Resources>
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top"
+                Background="{StaticResource ToolbarBrush}"
+                BorderBrush="{StaticResource RuleBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="10,8">
+            <DockPanel>
+
+                <Button x:Name="ReadAllButton"
+                        DockPanel.Dock="Left"
+                        Style="{StaticResource IconButton}"
+                        Click="ReadAll_Click"
+                        ToolTip="Read the whole guide aloud"
+                        AutomationProperties.Name="Read the whole guide aloud">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="18" Height="18">
+                            <Canvas Width="20" Height="20">
+                                <Path x:Name="ReadAllSpeakIcon"
+                                      Data="{StaticResource MegaphoneBody}"
+                                      Fill="{StaticResource SpeakBrush}"/>
+                                <Path x:Name="ReadAllWaveIcon"
+                                      Data="{StaticResource MegaphoneWave}"
+                                      Stroke="{StaticResource SpeakBrush}"
+                                      StrokeThickness="1.4"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"/>
+                                <Path x:Name="ReadAllStopIcon"
+                                      Data="{StaticResource StopSquare}"
+                                      Fill="{StaticResource StopBrush}"
+                                      Visibility="Collapsed"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock x:Name="ReadAllLabel"
+                                   Text="Read the whole guide"
+                                   Margin="8,0,2,0"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="PauseButton"
+                        DockPanel.Dock="Left"
+                        Margin="6,0,0,0"
+                        IsEnabled="False"
+                        Style="{StaticResource IconButton}"
+                        Click="Pause_Click"
+                        ToolTip="Pause reading"
+                        AutomationProperties.Name="Pause reading">
+                    <Viewbox Width="18" Height="18">
+                        <Canvas Width="20" Height="20">
+                            <Path x:Name="PauseIcon"
+                                  Data="{StaticResource PauseBars}"
+                                  Fill="{StaticResource SpeakBrush}"/>
+                            <Path x:Name="ResumeIcon"
+                                  Data="{StaticResource PlayTriangle}"
+                                  Fill="{StaticResource SpeakBrush}"
+                                  Visibility="Collapsed"/>
+                        </Canvas>
+                    </Viewbox>
+                </Button>
+
+                <TextBlock DockPanel.Dock="Left"
+                           Text="Speed"
+                           Margin="16,0,6,0"
+                           VerticalAlignment="Center"/>
+
+                <Slider x:Name="RateSlider"
+                        DockPanel.Dock="Left"
+                        Width="96"
+                        Minimum="-6" Maximum="6" Value="0"
+                        TickFrequency="1"
+                        IsSnapToTickEnabled="True"
+                        VerticalAlignment="Center"
+                        ToolTip="Reading speed"
+                        AutomationProperties.Name="Reading speed"
+                        ValueChanged="RateSlider_ValueChanged"/>
+
+                <ComboBox x:Name="VoiceBox"
+                          DockPanel.Dock="Right"
+                          Width="150"
+                          Margin="12,0,0,0"
+                          VerticalAlignment="Center"
+                          ToolTip="Voice"
+                          AutomationProperties.Name="Voice"
+                          SelectionChanged="VoiceBox_SelectionChanged"/>
+
+            </DockPanel>
+        </Border>
+
+        <TextBlock x:Name="StatusText"
+                   DockPanel.Dock="Bottom"
+                   Padding="12,6"
+                   Foreground="#5A6872"
+                   TextWrapping="Wrap"
+                   Text="Click a megaphone to hear that section. Press Esc to stop."/>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="6,4">
+            <ItemsControl x:Name="SectionList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border BorderBrush="{StaticResource RuleBrush}"
+                                BorderThickness="0,0,0,1"
+                                Padding="6,2">
+                            <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                                      HorizontalContentAlignment="Stretch">
+                                <Expander.Header>
+                                    <DockPanel LastChildFill="True">
+                                        <Button DockPanel.Dock="Right"
+                                                Style="{StaticResource IconButton}"
+                                                Click="SpeakSection_Click"
+                                                ToolTip="{Binding SpeakButtonLabel}"
+                                                AutomationProperties.Name="{Binding SpeakButtonLabel}">
+                                            <Viewbox Width="18" Height="18">
+                                                <Canvas Width="20" Height="20">
+                                                    <Path x:Name="SectionSpeakIcon"
+                                                          Data="{StaticResource MegaphoneBody}"
+                                                          Fill="{StaticResource SpeakBrush}"/>
+                                                    <Path x:Name="SectionWaveIcon"
+                                                          Data="{StaticResource MegaphoneWave}"
+                                                          Stroke="{StaticResource SpeakBrush}"
+                                                          StrokeThickness="1.4"
+                                                          StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round"/>
+                                                    <Path x:Name="SectionStopIcon"
+                                                          Data="{StaticResource StopSquare}"
+                                                          Fill="{StaticResource StopBrush}"
+                                                          Visibility="Collapsed"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                        </Button>
+                                        <TextBlock Text="{Binding Title}"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Margin="2,0,8,0"/>
+                                    </DockPanel>
+                                </Expander.Header>
+
+                                <TextBox Style="{StaticResource BodyText}"
+                                         Text="{Binding Body, Mode=OneWay}"/>
+                            </Expander>
+                        </Border>
+
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding IsSpeaking}" Value="True">
+                                <Setter TargetName="SectionSpeakIcon" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="SectionWaveIcon" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="SectionStopIcon" Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+    </DockPanel>
 </Window>

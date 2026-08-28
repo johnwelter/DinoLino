@@ -143,12 +143,22 @@ namespace DinoLino
             // Global keyboard shortcuts are handled at the window level.
             this.PreviewKeyDown += MainWindow_KeyDown;
 
+            this.PreviewKeyUp += MainWindow_KeyUp;
+
+            // Losing the window mid-press would otherwise leave the button held
+            // down system-wide.
+            Deactivated += (s, e) => ReleaseKeyboardClick();
+
             // Clicking the workspace clears focus so keyboard shortcuts continue to work.
             UI_WorkCanvas.MouseDown += (s, e) =>
             {
                 Keyboard.ClearFocus();
                 UI_WorkCanvas.Focus();
             };
+
+            // The workspace holds focus from startup, so the arrow keys move the
+            // cursor before anything has been clicked.
+            Loaded += (s, e) => UI_WorkCanvas.Focus();
 
             CurvatureMode = new();
             GetAngleMode = new();
