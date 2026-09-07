@@ -233,6 +233,26 @@
              Margin="0,8,0,0"/>
 
         <StackPanel Visibility="{Binding OutlineMetadataMode, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Measurement Resolution:" FontWeight="Bold" Margin="0,0,0,2"/>
+            <TextBlock TextWrapping="Wrap" Foreground="Gray"
+           Text="The outline is resampled to evenly spaced vertices before the metrics below are computed."
+           Margin="0,0,0,4"/>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+            Visibility="{Binding IsScaleCalibrated, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Spacing:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBox Width="60" VerticalContentAlignment="Center"
+             Text="{Binding ResampleSpacingUnits, Mode=TwoWay,
+                            UpdateSourceTrigger=LostFocus, StringFormat={}{0:F3}}"
+             ToolTip="Distance between resampled vertices, in the calibrated unit"/>
+                <TextBlock Text="{Binding ScaleUnit}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+            </StackPanel>
+
+            <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="0,0,0,4"
+           Text="Uncalibrated: a fixed vertex count is used. Set a scale to fix the physical spacing instead."
+           Visibility="{Binding IsScaleCalibrated, Converter={StaticResource InverseBoolToVis}}"/>
+
+            <TextBlock Text="{Binding MeasurementSpacingLabel}" Foreground="Gray" Margin="0,0,0,6"/>
             <TextBlock Text="Shape Metrics:" FontWeight="Bold" Margin="0,0,0,4"/>
 
             <!-- Compact summary rows -->
@@ -276,26 +296,6 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Aspect Ratio (bbox):" Foreground="Gray"/>
                 <TextBlock Grid.Column="1" Text="{Binding AspectRatioResult, StringFormat={}{0:F3}}" HorizontalAlignment="Right"/>
-            </Grid>
-
-            <Grid Margin="0,2,0,2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Perimeter:" Foreground="Gray"/>
-                <TextBlock Grid.Column="1" HorizontalAlignment="Right"
-                           Visibility="{Binding IsScaleCalibrated, Converter={StaticResource BoolToVis}}">
-                    <TextBlock.Text>
-                        <MultiBinding StringFormat="{}{0:F2} {1}">
-                            <Binding Path="PerimeterScaledValue"/>
-                            <Binding Path="ScaleUnit"/>
-                        </MultiBinding>
-                    </TextBlock.Text>
-                </TextBlock>
-                <TextBlock Grid.Column="1" Text="Uncalibrated" Foreground="#C0392B" HorizontalAlignment="Right"
-                           ToolTip="Use the Scale tool to calibrate, then regenerate metadata."
-                           Visibility="{Binding IsScaleCalibrated, Converter={StaticResource InverseBoolToVis}}"/>
             </Grid>
 
             <Grid Margin="0,2,0,2">

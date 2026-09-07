@@ -72,6 +72,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <Label Grid.Row="0" Grid.Column="0" Content="Central Angle:" Margin="5,0,8,4"/>
@@ -84,10 +85,15 @@
                 <Label Grid.Row="1" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,4"/>
                 <Label Grid.Row="1" Grid.Column="3" Content="{Binding AvgChordArcRatioResult}" Margin="0,0,0,4"/>
 
-                <Label Grid.Row="2" Grid.Column="0" Content="Rise-Span Ratio:" Margin="5,0,8,0"/>
-                <Label Grid.Row="2" Grid.Column="1" Content="{Binding AspectRatioResult}" HorizontalContentAlignment="Left"/>
-                <Label Grid.Row="2" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,0"/>
-                <Label Grid.Row="2" Grid.Column="3" Content="{Binding AvgAspectRatioResult}"/>
+                <Label Grid.Row="2" Grid.Column="0" Content="Rise-Span Ratio:" Margin="5,0,8,4"/>
+                <Label Grid.Row="2" Grid.Column="1" Content="{Binding AspectRatioResult}" HorizontalContentAlignment="Left" Margin="0,0,0,4"/>
+                <Label Grid.Row="2" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,4"/>
+                <Label Grid.Row="2" Grid.Column="3" Content="{Binding AvgAspectRatioResult}" Margin="0,0,0,4"/>
+
+                <Label Grid.Row="3" Grid.Column="0" Content="Radius:" Margin="5,0,8,0"/>
+                <Label Grid.Row="3" Grid.Column="1" Content="{Binding CircularRadiusScaledResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="3" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,0"/>
+                <Label Grid.Row="3" Grid.Column="3" Content="{Binding AvgCircularRadiusScaledResult}"/>
             </Grid>
         </StackPanel>
 
@@ -114,6 +120,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <Label Grid.Row="0" Grid.Column="0" Content="Chord-Arc Ratio:" Margin="5,0,8,4"/>
@@ -126,10 +133,15 @@
                 <Label Grid.Row="1" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,4"/>
                 <Label Grid.Row="1" Grid.Column="3" Content="{Binding AvgRiseSpanRatioResult}" Margin="0,0,0,4"/>
 
-                <Label Grid.Row="2" Grid.Column="0" Content="Vertex Curv.:" Margin="5,0,8,0"/>
-                <Label Grid.Row="2" Grid.Column="1" Content="{Binding VertexCurvatureResult}" HorizontalContentAlignment="Left"/>
-                <Label Grid.Row="2" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,0"/>
-                <Label Grid.Row="2" Grid.Column="3" Content="{Binding AvgVertexCurvatureResult}"/>
+                <Label Grid.Row="2" Grid.Column="0" Content="Vertex Curv.:" Margin="5,0,8,4"/>
+                <Label Grid.Row="2" Grid.Column="1" Content="{Binding VertexCurvatureResult}" HorizontalContentAlignment="Left" Margin="0,0,0,4"/>
+                <Label Grid.Row="2" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,4"/>
+                <Label Grid.Row="2" Grid.Column="3" Content="{Binding AvgVertexCurvatureResult}" Margin="0,0,0,4"/>
+
+                <Label Grid.Row="3" Grid.Column="0" Content="Vertex Radius:" Margin="5,0,8,0"/>
+                <Label Grid.Row="3" Grid.Column="1" Content="{Binding ParabolicRadiusScaledResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="3" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,0"/>
+                <Label Grid.Row="3" Grid.Column="3" Content="{Binding AvgParabolicRadiusScaledResult}"/>
             </Grid>
         </StackPanel>
 
@@ -171,9 +183,6 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <Label Grid.Row="0" Grid.Column="0" Content="Turn/Length:" Margin="5,0,8,4"/>
@@ -181,15 +190,15 @@
                 <Label Grid.Row="0" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,4"/>
                 <Label Grid.Row="0" Grid.Column="3" Content="{Binding AvgTurningAngleArcRatioResult}" Margin="0,0,0,4"/>
 
-                <Label Grid.Row="4" Grid.Column="0" Content="Chord-Arc Ratio:" Margin="5,0,8,4"/>
-                <Label Grid.Row="4" Grid.Column="1" Content="{Binding SChordArcRatioResult}" HorizontalContentAlignment="Left" Margin="0,0,0,4"/>
-                <Label Grid.Row="4" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,4"/>
-                <Label Grid.Row="4" Grid.Column="3" Content="{Binding AvgSChordArcRatioResult}" Margin="0,0,0,4"/>
+                <Label Grid.Row="1" Grid.Column="0" Content="Tortuosity:" Margin="5,0,8,4"/>
+                <Label Grid.Row="1" Grid.Column="1" Content="{Binding SChordArcRatioResult}" HorizontalContentAlignment="Left" Margin="0,0,0,4"/>
+                <Label Grid.Row="1" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,4"/>
+                <Label Grid.Row="1" Grid.Column="3" Content="{Binding AvgSChordArcRatioResult}" Margin="0,0,0,4"/>
 
-                <Label Grid.Row="5" Grid.Column="0" Content="Length:" Margin="5,0,8,0"/>
-                <Label Grid.Row="5" Grid.Column="1" Content="{Binding SplineLengthScaledResult}" HorizontalContentAlignment="Left"/>
-                <Label Grid.Row="5" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,0"/>
-                <Label Grid.Row="5" Grid.Column="3" Content="{Binding AvgSplineLengthScaledResult}"/>
+                <Label Grid.Row="2" Grid.Column="0" Content="Length:" Margin="5,0,8,0"/>
+                <Label Grid.Row="2" Grid.Column="1" Content="{Binding SplineLengthScaledResult}" HorizontalContentAlignment="Left"/>
+                <Label Grid.Row="2" Grid.Column="2" Content="Avg" Foreground="Gray" Margin="6,0,4,0"/>
+                <Label Grid.Row="2" Grid.Column="3" Content="{Binding AvgSplineLengthScaledResult}"/>
             </Grid>
 
             <StackPanel Orientation="Horizontal" Margin="10,0,0,0">

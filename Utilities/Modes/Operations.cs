@@ -28,6 +28,7 @@ namespace DinoLino.Utilities.Operations
         public double CentralAngle { get; set; }
         public double AspectRatio { get; set; }
         public double ChordArcRatio { get; set; }
+        public double RadiusImagePixels { get; set; }
 
         public override void ApplyMetadataToMode()
         {
@@ -36,6 +37,7 @@ namespace DinoLino.Utilities.Operations
                 mode.CentralAngleResult = CentralAngle;
                 mode.AspectRatioResult = AspectRatio;
                 mode.ChordArcRatioResult = ChordArcRatio;
+                mode.RestoreCircularArcRadius(RadiusImagePixels);
             }
         }
     }
@@ -49,6 +51,7 @@ namespace DinoLino.Utilities.Operations
         public double RiseSpanRatio { get; set; }
         public double PChordArcRatio { get; set; }
         public double VertexCurvature { get; set; }
+        public double VertexRadiusImagePixels { get; set; }
 
         public override void ApplyMetadataToMode()
         {
@@ -58,6 +61,7 @@ namespace DinoLino.Utilities.Operations
                 mode.RiseSpanRatioResult = RiseSpanRatio;
                 mode.PChordArcRatioResult = PChordArcRatio;
                 mode.VertexCurvatureResult = VertexCurvature;
+                mode.RestoreParabolicVertexRadius(VertexRadiusImagePixels);
             }
         }
     }
@@ -184,7 +188,6 @@ namespace DinoLino.Utilities.Operations
     public class OutlineOperation : WorkOperation
     {
         public double AspectRatio { get; set; }
-        public double PerimeterAreaRatio { get; set; }
         public double Circularity { get; set; }
         public double Solidity { get; set; }
         public double SumTurningAngles { get; set; }
@@ -199,6 +202,11 @@ namespace DinoLino.Utilities.Operations
         public double AreaImagePixels { get; set; }
         public double MaxLengthImagePixels { get; set; }
         public double MaxWidthImagePixels { get; set; }
+        // Vertex spacing the metrics above were measured at, in image pixels, and
+        // the vertex count it produced. Recorded because every number on this
+        // operation is conditional on them.
+        public double MeasurementSpacingImagePixels { get; set; }
+        public int MeasurementPointCount { get; set; }
 
         public bool HasMetadata { get; set; }
 
@@ -211,7 +219,6 @@ namespace DinoLino.Utilities.Operations
             if (SourceMode is OutlineMode mode)
             {
                 mode.AspectRatioResult = AspectRatio;
-                mode.PerimeterAreaRatioResult = PerimeterAreaRatio;
                 mode.CircularityResult = Circularity;
                 mode.SolidityResult = Solidity;
                 mode.SumTurningAnglesResult = SumTurningAngles;
@@ -223,7 +230,8 @@ namespace DinoLino.Utilities.Operations
                 {
                     mode.RestoreScaledMeasurements(
                         PerimeterImagePixels, AreaImagePixels,
-                        MaxLengthImagePixels, MaxWidthImagePixels);
+                        MaxLengthImagePixels, MaxWidthImagePixels,
+                        MeasurementSpacingImagePixels, MeasurementPointCount);
                     mode.MetadataSummary = MetadataSummary;
                     mode.NormalizationWarning = NormalizationWarning;
                 }

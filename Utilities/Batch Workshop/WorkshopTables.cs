@@ -513,7 +513,8 @@ namespace DinoLino.Utilities
                             {
                                 Col("circ_centangle", o => GeomOpHistoryWindow.Fmt(((CircularArcOperation)o).CentralAngle)),
                                 Col("circ_chordarc", o => GeomOpHistoryWindow.Fmt(((CircularArcOperation)o).ChordArcRatio)),
-                                Col("circ_risespan", o => GeomOpHistoryWindow.Fmt(((CircularArcOperation)o).AspectRatio))
+                                Col("circ_risespan", o => GeomOpHistoryWindow.Fmt(((CircularArcOperation)o).AspectRatio)),
+                                Col("circ_radius", o => GeomOpHistoryWindow.FmtLength(((CircularArcOperation)o).RadiusImagePixels, scale))
                             }
                         },
                         new WorkshopColumnGroup
@@ -523,7 +524,8 @@ namespace DinoLino.Utilities
                             {
                                 Col("para_chordarc", o => GeomOpHistoryWindow.Fmt(((ParabolaOperation)o).PChordArcRatio)),
                                 Col("para_risespan", o => GeomOpHistoryWindow.Fmt(((ParabolaOperation)o).RiseSpanRatio)),
-                                Col("para_vertcurv", o => GeomOpHistoryWindow.Fmt(((ParabolaOperation)o).VertexCurvature))
+                                Col("para_vertcurv", o => GeomOpHistoryWindow.Fmt(((ParabolaOperation)o).VertexCurvature)),
+                                Col("para_radius", o => GeomOpHistoryWindow.FmtLength(((ParabolaOperation)o).VertexRadiusImagePixels, scale))
                             }
                         },
                         new WorkshopColumnGroup
@@ -532,7 +534,7 @@ namespace DinoLino.Utilities
                             Columns = new List<WorkshopColumn>
                             {
                                 Col("spline_turnangle", o => GeomOpHistoryWindow.Fmt(((SplineOperation)o).TurningAngleArcRatio)),
-                                Col("spline_chordarc", o => GeomOpHistoryWindow.Fmt(((SplineOperation)o).SChordArcRatio)),
+                                Col("spline_tortuosity", o => GeomOpHistoryWindow.Fmt(((SplineOperation)o).SChordArcRatio)),
                                 Col("spline_length", o => GeomOpHistoryWindow.FmtLength(((SplineOperation)o).SplineLengthImagePixels, scale))
                             }
                         }
@@ -594,11 +596,13 @@ namespace DinoLino.Utilities
                                 Col("outline_area", o => GeomOpHistoryWindow.FmtArea(((OutlineOperation)o).AreaImagePixels, scale)),
                                 Col("outline_maxlength", o => GeomOpHistoryWindow.FmtLength(((OutlineOperation)o).MaxLengthImagePixels, scale)),
                                 Col("outline_maxwidth", o => GeomOpHistoryWindow.FmtLength(((OutlineOperation)o).MaxWidthImagePixels, scale)),
-                                Col("outline_perimarea", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).PerimeterAreaRatio)),
                                 Col("outline_circ", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).Circularity)),
                                 Col("outline_solidity", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).Solidity)),
                                 Col("outline_sumturn", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).SumTurningAngles)),
-                                Col("outline_turnlength", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).TurningAngleLength))
+                                Col("outline_turnlength", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).TurningAngleLength)),
+                                                                Col("outline_turnlength", o => GeomOpHistoryWindow.Fmt4(((OutlineOperation)o).TurningAngleLength)),
+                                Col("outline_spacing", o => GeomOpHistoryWindow.FmtLength(((OutlineOperation)o).MeasurementSpacingImagePixels, scale)),
+                                Col("outline_points", o => ((OutlineOperation)o).MeasurementPointCount.ToString())
                             }
                         }
                     };

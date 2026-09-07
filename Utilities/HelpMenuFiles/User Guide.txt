@@ -18,7 +18,7 @@ Drag image:
 Hold Ctrl and left click to drag and move the viewable window while zoomed in.
 
 Move cursor:
-Move the mouse, or hold Ctrl and press arrow keys to nudge the cursor one pixel at a time. Hold Shift to move in larger steps.
+Move the mouse, or hold Ctrl and press arrow keys to nudge the cursor one pixel at a time. Hold Shift and press arrow keys to move in larger steps.
 
 Press the spacebar to left click at the cursor's position.
 ------------------------------------------------------------------------------------------------
@@ -35,7 +35,8 @@ View next specimen:		Up arrow key
 View previous specimen: Down arrow key
 Zoom:					Scroll wheel (mouse) or pinch (trackpad)
 Drag image:				Ctrl + left click and drag
-Move cursor slowly:		Ctrl + Arrow keys (hold Shift + Ctrl for larger movements)
+Move cursor slowly:		Ctrl + arrow keys
+Move cursor quickly:	Shift + arrow keys
 Left click:				Spacebar (hold to drag)
 Double click:			Spacebar (twice rapidly)
 
@@ -282,7 +283,7 @@ In Curvature Mode:
 "para_risespan" = Rise-Span Ratio of Parabolic Arc
 "para_vertcurv" = Vertex Curvature of Parabolic Arc
 "spline_turnangle" = Turning Angle / Spline Length Ratio of n-Point Spline
-"spline_chordarc" = Chord-Arc Ratio of n-Point Spline
+"spline_tortuosity" = Chord length divided by total length of n-Point Spline
 "spline_length" = Length of n-Point Spline
 
 In Triangle Mode:
@@ -291,7 +292,6 @@ In Triangle Mode:
 "tri_anglec" = Angle C of Triangle
 "tri_aspect" = Aspect Ratio of Triangle
 "tri_area" = Area of Triangle
-"tri_relarea" = Relative Area of Triangle (compared to previous)
 
 In Draw Mode:
 "rect_aspect" = Aspect Ratio of Rectangle

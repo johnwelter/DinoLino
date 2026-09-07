@@ -647,17 +647,19 @@ namespace DinoLino.Utilities
             return Math.Round(Math.Abs(2 * parabolaA), 2);
         }
 
-
-        // =====================================================================
-        // PERIMETER / AREA RATIO  &  CIRCULARITY
-        // =====================================================================
-
-        /// Perimeter-to-area ratio of a closed polygon.
-        /// Returns 0 if the area is effectively zero.
-        public static double PerimeterAreaRatio(double perimeter, double area)
+        /// Radius of curvature at the parabola's apex, in the units the chord was
+        /// measured in. leadingCoefficient comes from the chord-normalized fit, so the
+        /// chord length restores the result to real units.
+        /// Returns 0 when the fit is too flat for a finite radius to mean anything.
+        public static double ParabolaVertexRadius(double leadingCoefficient, double chordLength)
         {
-            return area > 1e-5 ? Math.Round(perimeter / area, 4) : 0;
+            double normalizedCurvature = 2.0 * Math.Abs(leadingCoefficient);
+            return normalizedCurvature > 1e-5 ? chordLength / normalizedCurvature : 0;
         }
+
+        // =====================================================================
+        // CIRCULARITY
+        // =====================================================================
 
         /// Circularity (also called the isoperimetric quotient or shape factor):
         ///   C = 4π · A / P²

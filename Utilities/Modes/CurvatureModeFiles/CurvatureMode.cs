@@ -152,6 +152,10 @@ namespace DinoLino.Utilities.Modes
             SChordArcRatioResult = 0;
             _imageSplineLength = 0;
             _hasImageSplineLength = false;
+            _imageCircularRadius = 0;
+            _hasImageCircularRadius = false;
+            _imageParabolicVertexRadius = 0;
+            _hasImageParabolicVertexRadius = false;
             RecomputeScaledResults();
         }
 
@@ -159,6 +163,8 @@ namespace DinoLino.Utilities.Modes
         {
             RecomputeScaledResults();
             OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
+            OnPropertyChanged(nameof(AvgCircularRadiusScaledResult));
+            OnPropertyChanged(nameof(AvgParabolicRadiusScaledResult));
         }
 
         // Image-space length of the displayed spline, kept so the scaled row can be
@@ -167,9 +173,48 @@ namespace DinoLino.Utilities.Modes
         private double _imageSplineLength;
         private bool _hasImageSplineLength;
 
+        private double _imageCircularRadius;
+        private bool _hasImageCircularRadius;
+
+        private double _imageParabolicVertexRadius;
+        private bool _hasImageParabolicVertexRadius;
+
+        private string _circularRadiusScaledResult = "Unscaled";
+        public string CircularRadiusScaledResult
+        {
+            get => _circularRadiusScaledResult;
+            set => SetField(ref _circularRadiusScaledResult, value);
+        }
+
+        private string _parabolicRadiusScaledResult = "Unscaled";
+        public string ParabolicRadiusScaledResult
+        {
+            get => _parabolicRadiusScaledResult;
+            set => SetField(ref _parabolicRadiusScaledResult, value);
+        }
+
+        /// <summary>Restores the image-space radius behind the circular arc's scaled row.</summary>
+        public void RestoreCircularArcRadius(double imageRadius)
+        {
+            _imageCircularRadius = imageRadius;
+            _hasImageCircularRadius = true;
+            RecomputeScaledResults();
+        }
+
+        /// <summary>Restores the image-space radius behind the parabola's scaled row.</summary>
+        public void RestoreParabolicVertexRadius(double imageRadius)
+        {
+            _imageParabolicVertexRadius = imageRadius;
+            _hasImageParabolicVertexRadius = true;
+            RecomputeScaledResults();
+        }
+
         private void RecomputeScaledResults()
         {
             SplineLengthScaledResult = FormatScaledLength(_imageSplineLength, _hasImageSplineLength);
+            CircularRadiusScaledResult = FormatScaledLength(_imageCircularRadius, _hasImageCircularRadius);
+            ParabolicRadiusScaledResult =
+                FormatScaledLength(_imageParabolicVertexRadius, _hasImageParabolicVertexRadius);
         }
 
         /// <summary>Restores the image-space length behind the scaled row.</summary>
@@ -363,7 +408,8 @@ namespace DinoLino.Utilities.Modes
                         OperationKind = "Circular Arc",
                         CentralAngle = CentralAngleResult,
                         AspectRatio = AspectRatioResult,
-                        ChordArcRatio = ChordArcRatioResult
+                        ChordArcRatio = ChordArcRatioResult,
+                        RadiusImagePixels = _imageCircularRadius
                     });
 
                     break;
@@ -423,6 +469,10 @@ namespace DinoLino.Utilities.Modes
             double radius = (PointA - Intersection).Magnitude();
             double arcLength = GeometryCalculations.CircularArcLength(radius, CentralAngleResult);
             ChordArcRatioResult = GeometryCalculations.ChordArcRatio(chordLength, arcLength);
+
+            _imageCircularRadius = ToImageLength(radius);
+            _hasImageCircularRadius = true;
+            RecomputeScaledResults();
         }
         #endregion
 
@@ -509,7 +559,8 @@ namespace DinoLino.Utilities.Modes
                         XYFunction = XYFunctionResult,
                         RiseSpanRatio = RiseSpanRatioResult,
                         PChordArcRatio = PChordArcRatioResult,
-                        VertexCurvature = VertexCurvatureResult
+                        VertexCurvature = VertexCurvatureResult,
+                        VertexRadiusImagePixels = _imageParabolicVertexRadius
                     });
 
                     break;
@@ -586,6 +637,10 @@ namespace DinoLino.Utilities.Modes
             double arcLength = GeometryCalculations.ArcLength(worldPoints);
 
             PChordArcRatioResult = GeometryCalculations.ChordArcRatio(pChordLength, arcLength);
+            _imageParabolicVertexRadius =
+                ToImageLength(GeometryCalculations.ParabolaVertexRadius(ParabolaA, pChordLength));
+            _hasImageParabolicVertexRadius = true;
+            RecomputeScaledResults();
         }
         #endregion
         #endregion
@@ -1031,12 +1086,12 @@ namespace DinoLino.Utilities.Modes
         public string AvgCentralAngleResult => FormatAverage(CircularArcOps.Select(o => o.CentralAngle));
         public string AvgChordArcRatioResult => FormatAverage(CircularArcOps.Select(o => o.ChordArcRatio));
         public string AvgAspectRatioResult => FormatAverage(CircularArcOps.Select(o => o.AspectRatio));
-
+        public string AvgCircularRadiusScaledResult => FormatScaledLengthAverage(CircularArcOps.Select(o => o.RadiusImagePixels));
         // Parabolic arc (formula excluded)
         public string AvgPChordArcRatioResult => FormatAverage(ParabolaOps.Select(o => o.PChordArcRatio));
         public string AvgRiseSpanRatioResult => FormatAverage(ParabolaOps.Select(o => o.RiseSpanRatio));
         public string AvgVertexCurvatureResult => FormatAverage(ParabolaOps.Select(o => o.VertexCurvature));
-
+        public string AvgParabolicRadiusScaledResult => FormatScaledLengthAverage(ParabolaOps.Select(o => o.VertexRadiusImagePixels));
         // n-point spline (Catmull-Rom and Bézier combined, matching n_spline)
         public string AvgTurningAngleArcRatioResult => FormatAverage(SplineOps.Select(o => o.TurningAngleArcRatio));
         public string AvgSChordArcRatioResult => FormatAverage(SplineOps.Select(o => o.SChordArcRatio));
@@ -1053,6 +1108,8 @@ namespace DinoLino.Utilities.Modes
             OnPropertyChanged(nameof(AvgTurningAngleArcRatioResult));
             OnPropertyChanged(nameof(AvgSChordArcRatioResult));
             OnPropertyChanged(nameof(AvgSplineLengthScaledResult));
+            OnPropertyChanged(nameof(AvgCircularRadiusScaledResult));
+            OnPropertyChanged(nameof(AvgParabolicRadiusScaledResult));
         }
         #endregion
 

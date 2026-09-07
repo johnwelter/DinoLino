@@ -112,6 +112,8 @@ namespace DinoLino
         {
             InitializeComponent();
 
+            PopupChrome.ApplyToPopups(this);
+
             _tipCycleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
             _tipCycleTimer.Tick += TipCycle_Tick;
 

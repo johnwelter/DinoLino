@@ -342,7 +342,6 @@ namespace DinoLino.Utilities.Modes
         public override void ClearMetadata()
         {
             AspectRatioResult = 0;
-            PerimeterAreaRatioResult = 0;
             CircularityResult = 0;
             SolidityResult = 0;
             TurningAngleLengthResult = 0;
@@ -846,13 +845,6 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _aspectRatioResult, value);
         }
 
-        private double _perimeterAreaRatioResult;
-        public double PerimeterAreaRatioResult
-        {
-            get => _perimeterAreaRatioResult;
-            set => SetField(ref _perimeterAreaRatioResult, value);
-        }
-
         private double _circularityResult;
         public double CircularityResult
         {
@@ -904,6 +896,89 @@ namespace DinoLino.Utilities.Modes
         {
             get => _contourSampleCount;
             set { if (SetField(ref _contourSampleCount, Math.Max(16, Math.Min(2048, value)))) UpdateEFDPreview(); }
+        }
+
+        // Vertex density the shape metrics are measured at. How densely a trace is
+        // vertexed depends on the simplification tolerance and on how the boundary was
+        // produced, so every outline is resampled to a common spacing before its
+        // turning angles and perimeter are summed.
+        private const int UncalibratedResampleCount = 512;
+        private const int MinResampleCount = 64;
+        private const int MaxResampleCount = 4096;
+
+        private double _resampleSpacingUnits = 0.05;
+
+        /// Spacing the measurement contour is resampled to, in the calibrated unit.
+        /// Read only when a scale has been set.
+        public double ResampleSpacingUnits
+        {
+            get => _resampleSpacingUnits;
+            set
+            {
+                if (!SetField(ref _resampleSpacingUnits, Math.Max(1e-4, value))) return;
+                if (_outlineMetadataMode) GenerateMetadata();
+            }
+        }
+
+        private string _measurementSpacingLabel = "";
+
+        /// <summary>What the last measurement contour was resampled to.</summary>
+        public string MeasurementSpacingLabel
+        {
+            get => _measurementSpacingLabel;
+            private set => SetField(ref _measurementSpacingLabel, value);
+        }
+
+        // The resolution the last measurement contour was built at. Held in image
+        // pixels like every other stored measurement, so it converts the same way.
+        private double _lastImageSpacing;
+        private int _measurementPointCount;
+
+        private double _spacingScaledValue;
+
+        /// <summary>Vertex spacing behind the last measurement, in MeasurementUnit.</summary>
+        public double SpacingScaledValue
+        {
+            get => _spacingScaledValue;
+            private set => SetField(ref _spacingScaledValue, value);
+        }
+
+        /// <summary>Vertices the last measurement contour was resampled to.</summary>
+        public int MeasurementPointCount
+        {
+            get => _measurementPointCount;
+            private set => SetField(ref _measurementPointCount, value);
+        }
+
+        /// The contour every shape metric is measured on: the active outline resampled
+        /// to equally spaced vertices, so two traces of the same boundary are summed
+        /// over segments of the same length. A calibrated image resamples to a fixed
+        /// physical spacing, which fixes the scale the boundary is observed at; an
+        /// uncalibrated one resamples to a fixed count, which is size-free and is the
+        /// closest equivalent available without real units.
+        private List<Point> BuildMeasurementContour(List<Point> imagePts)
+        {
+            if (imagePts == null || imagePts.Count < 3) return imagePts;
+
+            double perimeter = GeometryCalculations.Perimeter(imagePts);
+            int count = UncalibratedResampleCount;
+
+            if (IsScaleCalibrated && perimeter > 0)
+            {
+                double unitsPerPixel = Scale.ToUnitsFromImage(1.0);
+                if (unitsPerPixel > 1e-12)
+                {
+                    double spacingPixels = _resampleSpacingUnits / unitsPerPixel;
+                    if (spacingPixels > 1e-9) count = (int)Math.Round(perimeter / spacingPixels);
+                }
+            }
+
+            count = Math.Max(MinResampleCount, Math.Min(MaxResampleCount, count));
+
+            _lastImageSpacing = perimeter / count;
+            MeasurementPointCount = count;
+
+            return GeometryCalculations.ResampleClosed(imagePts, count);
         }
 
         private double _solidityResult;
@@ -1004,17 +1079,22 @@ namespace DinoLino.Utilities.Modes
                 AreaScaledValue = Scale.ToUnitsAreaFromImage(_lastImageArea);
                 MaxLengthValue = Scale.ToUnitsFromImage(_lastImageMaxLength);
                 MaxWidthValue = Scale.ToUnitsFromImage(_lastImageMaxWidth);
+                SpacingScaledValue = Scale.ToUnitsFromImage(_lastImageSpacing);
             }
             else
             {
-                PerimeterScaledValue = 0;
-                AreaScaledValue = 0;
-
-                // Uncalibrated: fall through to raw pixels rather than blanking, so the
-                // two rows are always usable.
+                // Uncalibrated: report image pixels, the unit MeasurementUnit names.
+                PerimeterScaledValue = _hasScaledMeasurements ? _lastImagePerimeter : 0;
+                AreaScaledValue = _hasScaledMeasurements ? _lastImageArea : 0;
                 MaxLengthValue = _hasScaledMeasurements ? _lastImageMaxLength : 0;
                 MaxWidthValue = _hasScaledMeasurements ? _lastImageMaxWidth : 0;
+                SpacingScaledValue = _hasScaledMeasurements ? _lastImageSpacing : 0;
             }
+
+            MeasurementSpacingLabel = _hasScaledMeasurements
+                ? $"{MeasurementPointCount} points at {SpacingScaledValue:F3} {MeasurementUnit}"
+                : "";
+
             OnPropertyChanged(nameof(IsScaleCalibrated));
             OnPropertyChanged(nameof(ScaleUnit));
             OnPropertyChanged(nameof(MeasurementUnit));
@@ -1023,12 +1103,15 @@ namespace DinoLino.Utilities.Modes
         // Restores the image-space measurements on undo/redo (called by
         // OutlineOperation.ApplyMetadataToMode) alongside the ratio metrics.
         public void RestoreScaledMeasurements(double imagePerimeter, double imageArea,
-            double imageMaxLength, double imageMaxWidth)
+            double imageMaxLength, double imageMaxWidth,
+            double imageSpacing, int pointCount)
         {
             _lastImagePerimeter = imagePerimeter;
             _lastImageArea = imageArea;
             _lastImageMaxLength = imageMaxLength;
             _lastImageMaxWidth = imageMaxWidth;
+            _lastImageSpacing = imageSpacing;
+            MeasurementPointCount = pointCount;
             _hasScaledMeasurements = true;
             RecomputeScaledValues();
         }
@@ -1066,11 +1149,14 @@ namespace DinoLino.Utilities.Modes
             // measurements land in the unit they are stored and exported in.
             var imagePts = pts.Select(CanvasToImage).ToList();
 
-            double perimeter = GeometryCalculations.Perimeter(imagePts);
-            double area = GeometryCalculations.PolygonArea(imagePts);
+            // One resampled contour behind every metric below, so the reported
+            // circularity reconciles with the reported perimeter and area.
+            var measurePts = BuildMeasurementContour(imagePts);
 
-            // Caliper dimensions in image space, like every other stored measurement.
-            var (maxLength, maxWidth) = GeometryCalculations.MaxLengthAndWidth(imagePts);
+            double perimeter = GeometryCalculations.Perimeter(measurePts);
+            double area = GeometryCalculations.PolygonArea(measurePts);
+
+            var (maxLength, maxWidth) = GeometryCalculations.MaxLengthAndWidth(measurePts);
 
             _lastImagePerimeter = perimeter;
             _lastImageArea = area;
@@ -1079,17 +1165,17 @@ namespace DinoLino.Utilities.Modes
             _hasScaledMeasurements = true;
             RecomputeScaledValues();
 
-            double[] bbox = GeometryCalculations.BoundingBox(imagePts);
+            double[] bbox = GeometryCalculations.BoundingBox(measurePts);
             double bboxW = bbox[2] - bbox[0];
             double bboxH = bbox[3] - bbox[1];
             AspectRatioResult = GeometryCalculations.BoundingBoxAspectRatio(bboxW, bboxH);
-            PerimeterAreaRatioResult = GeometryCalculations.PerimeterAreaRatio(perimeter, area);
             CircularityResult = GeometryCalculations.Circularity(perimeter, area);
 
-            double convexHullArea = GeometryCalculations.ConvexHullArea(imagePts);
+            double convexHullArea = GeometryCalculations.ConvexHullArea(measurePts);
             SolidityResult = GeometryCalculations.Solidity(area, convexHullArea);
-            SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(imagePts);
-            TurningAngleLengthResult = GeometryCalculations.TurningAnglePerLength(SumTurningAnglesResult, perimeter);
+            SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(measurePts);
+            TurningAngleLengthResult =
+                GeometryCalculations.TurningAnglePerLength(SumTurningAnglesResult, perimeter);
 
             // First metadata pass for a new outline: adopt the 99%-power harmonic
             // count as default. Skipped once resolved; never overrides a manual choice.
@@ -1128,10 +1214,13 @@ namespace DinoLino.Utilities.Modes
                 MaxLengthValue,
                 MaxWidthValue,
                 MeasurementUnit,
-                PerimeterAreaRatioResult,
+                PerimeterScaledValue,
+                AreaScaledValue,
                 CircularityResult,
                 SolidityResult,
                 TurningAngleLengthResult,
+                SpacingScaledValue,
+                MeasurementPointCount,
                 harmonics,
                 EFDCoefficientsResult,
                 _efd.NormalizationStatus,
@@ -1141,7 +1230,6 @@ namespace DinoLino.Utilities.Modes
             if (UndoRedoManager?.CurrentOperation is OutlineOperation op)
             {
                 op.AspectRatio = AspectRatioResult;
-                op.PerimeterAreaRatio = PerimeterAreaRatioResult;
                 op.MaxLengthImagePixels = maxLength;
                 op.MaxWidthImagePixels = maxWidth;
                 op.Circularity = CircularityResult;
@@ -1151,6 +1239,8 @@ namespace DinoLino.Utilities.Modes
                 op.TurningAngleLength = TurningAngleLengthResult;
                 op.PerimeterImagePixels = perimeter;
                 op.AreaImagePixels = area;
+                op.MeasurementSpacingImagePixels = _lastImageSpacing;
+                op.MeasurementPointCount = MeasurementPointCount;
                 op.MetadataSummary = MetadataSummary;
                 op.NormalizationWarning = NormalizationWarning;
                 op.HasMetadata = true;

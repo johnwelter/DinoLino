@@ -24,9 +24,11 @@ namespace DinoLino.Utilities.Modes
                     // Near-circular outlines have an unstable principal axis, so normalized EFDs can vary.
                     return $"⚠ Near-circular first harmonic (axis ratio {firstHarmonicAxisRatio:F2}); " +
                            "rotation/start-point alignment is unstable — normalized coefficients may not be comparable across specimens.";
+
                 case EfdNormalizationStatus.Degenerate:
                     // A zero-length first harmonic means the outline has no usable orientation or scale basis.
                     return "⚠ First harmonic ~0; orientation and scale can't be defined for this outline.";
+
                 default:
                     return "";
             }
@@ -44,10 +46,13 @@ namespace DinoLino.Utilities.Modes
             double maxLength,
             double maxWidth,
             string unit,
-            double perimeterAreaRatio,
+            double perimeter,
+            double area,
             double circularity,
             double solidity,
             double turningAnglePerLength,
+            double vertexSpacing,
+            int vertexCount,
             int harmonics,
             double[] efdCoefficients,
             EfdNormalizationStatus normalizationStatus,
@@ -64,10 +69,12 @@ namespace DinoLino.Utilities.Modes
             sb.AppendLine($"Aspect Ratio:       {aspectRatio:F3}");
             sb.AppendLine($"Max Length:         {maxLength:F2} {unit}");
             sb.AppendLine($"Max Width:          {maxWidth:F2} {unit}");
-            sb.AppendLine($"Perim / Area:       {perimeterAreaRatio:F4}");
+            sb.AppendLine($"Perimeter:          {perimeter:F2} {unit}");
+            sb.AppendLine($"Area:               {area:F2} {unit}\u00B2");
             sb.AppendLine($"Circularity:        {circularity:F4}");
             sb.AppendLine($"Solidity:           {solidity:F4}");
-            sb.AppendLine($"Turn/Length: {turningAnglePerLength:F4}");
+            sb.AppendLine($"Turn/Length:        {turningAnglePerLength:F4}");
+            sb.AppendLine($"Vertex Spacing:     {vertexSpacing:F3} {unit} ({vertexCount} points)");
             sb.AppendLine($"EFD harmonics ({harmonics}):");
 
             // Each harmonic contributes four coefficients: a, b, c, d.
