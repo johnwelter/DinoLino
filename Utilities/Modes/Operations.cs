@@ -192,6 +192,7 @@ namespace DinoLino.Utilities.Operations
         public double Solidity { get; set; }
         public double SumTurningAngles { get; set; }
         public double TurningAngleLength { get; set; }
+        public double Convexity { get; set; }
 
         // Flattened coefficient array: [a1, b1, c1, d1, a2, b2, c2, d2, ...].
         public double[] EFDCoefficients { get; set; }
@@ -221,6 +222,7 @@ namespace DinoLino.Utilities.Operations
                 mode.AspectRatioResult = AspectRatio;
                 mode.CircularityResult = Circularity;
                 mode.SolidityResult = Solidity;
+                mode.ConvexityResult = Convexity;
                 mode.SumTurningAnglesResult = SumTurningAngles;
                 mode.TurningAngleLengthResult = TurningAngleLength;
                 mode.EFDCoefficientsResult = EFDCoefficients;

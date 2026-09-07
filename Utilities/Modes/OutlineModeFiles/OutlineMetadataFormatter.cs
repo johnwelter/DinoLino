@@ -50,6 +50,7 @@ namespace DinoLino.Utilities.Modes
             double area,
             double circularity,
             double solidity,
+            double convexity,
             double turningAnglePerLength,
             double vertexSpacing,
             int vertexCount,
@@ -73,6 +74,7 @@ namespace DinoLino.Utilities.Modes
             sb.AppendLine($"Area:               {area:F2} {unit}\u00B2");
             sb.AppendLine($"Circularity:        {circularity:F4}");
             sb.AppendLine($"Solidity:           {solidity:F4}");
+            sb.AppendLine($"Convexity:          {convexity:F4}");
             sb.AppendLine($"Turn/Length:        {turningAnglePerLength:F4}");
             sb.AppendLine($"Vertex Spacing:     {vertexSpacing:F3} {unit} ({vertexCount} points)");
             sb.AppendLine($"EFD harmonics ({harmonics}):");

@@ -200,6 +200,21 @@ namespace DinoLino.Utilities
                 : 0;
         }
 
+        /// <summary>Perimeter of the convex hull of a point set, in the input units.</summary>
+        public static double ConvexHullPerimeter(List<Point> points)
+        {
+            var hull = ConvexHull(points);
+            return hull == null || hull.Count < 3 ? 0 : Perimeter(hull);
+        }
+
+        /// Convex hull perimeter over polygon perimeter. Dimensionless and scale
+        /// invariant: 1 for a convex outline, falling toward 0 as the boundary
+        /// becomes more convoluted.
+        public static double Convexity(double convexHullPerimeter, double perimeter)
+        {
+            if (perimeter < 1e-5) return 0;
+            return Math.Round(convexHullPerimeter / perimeter, 4);
+        }
 
         // =====================================================================
         // TURNING ANGLE STATISTICS

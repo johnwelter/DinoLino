@@ -223,7 +223,11 @@ namespace DinoLino
             };
 
             // Refresh the attempt counter whenever outline metadata is generated.
-            OutlineMode.MetadataGenerated += UpdateAttemptCounter;
+            OutlineMode.MetadataGenerated += () =>
+            {
+                UpdateAttemptCounter();
+                UpdateDataDependentControls();
+            };
 
             // "Commit Outline to History" in the Outline panel.
             OutlineMode.CommitOutlineRequested += OutlineCommit_Requested;

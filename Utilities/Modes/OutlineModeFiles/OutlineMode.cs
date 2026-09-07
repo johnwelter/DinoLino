@@ -345,6 +345,7 @@ namespace DinoLino.Utilities.Modes
             CircularityResult = 0;
             SolidityResult = 0;
             TurningAngleLengthResult = 0;
+            ConvexityResult = 0;
             EFDCoefficientsResult = null;
             MetadataSummary = "";
             _hasScaledMeasurements = false;
@@ -988,6 +989,13 @@ namespace DinoLino.Utilities.Modes
             set => SetField(ref _solidityResult, value);
         }
 
+        private double _convexityResult;
+        public double ConvexityResult
+        {
+            get => _convexityResult;
+            set => SetField(ref _convexityResult, value);
+        }
+
         private double _sumTurningAnglesResult;
         public double SumTurningAnglesResult
         {
@@ -1173,6 +1181,10 @@ namespace DinoLino.Utilities.Modes
 
             double convexHullArea = GeometryCalculations.ConvexHullArea(measurePts);
             SolidityResult = GeometryCalculations.Solidity(area, convexHullArea);
+
+            double convexHullPerimeter = GeometryCalculations.ConvexHullPerimeter(measurePts);
+            ConvexityResult = GeometryCalculations.Convexity(convexHullPerimeter, perimeter);
+
             SumTurningAnglesResult = GeometryCalculations.SumTurningAngles(measurePts);
             TurningAngleLengthResult =
                 GeometryCalculations.TurningAnglePerLength(SumTurningAnglesResult, perimeter);
@@ -1218,6 +1230,7 @@ namespace DinoLino.Utilities.Modes
                 AreaScaledValue,
                 CircularityResult,
                 SolidityResult,
+                ConvexityResult,
                 TurningAngleLengthResult,
                 SpacingScaledValue,
                 MeasurementPointCount,
@@ -1233,6 +1246,7 @@ namespace DinoLino.Utilities.Modes
                 op.MaxLengthImagePixels = maxLength;
                 op.MaxWidthImagePixels = maxWidth;
                 op.Circularity = CircularityResult;
+                op.Convexity = ConvexityResult;
                 op.EFDCoefficients = EFDCoefficientsResult;
                 op.Solidity = SolidityResult;
                 op.SumTurningAngles = SumTurningAnglesResult;
