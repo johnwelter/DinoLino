@@ -1,7 +1,6 @@
 ﻿using DinoLino.DataTypes;
 using System;
 using System.Collections.Generic;
-using System.Runtime.Remoting.Contexts;
 using System.Windows;
 
 namespace DinoLino.Utilities.Modes
@@ -10,8 +9,11 @@ namespace DinoLino.Utilities.Modes
     /// Shared pipeline for the outline-editing brushes.
     ///
     /// A stroke rasterizes the active outline into a mask, lets the tool edit the
-    /// pixels under the brush, then re-traces the mask and splices only the
-    /// affected arc back into the polyline, so untouched vertices never move.
+    /// pixels under the brush, and re-traces the result. The polyline is then
+    /// rebuilt from two sources: its own vertices wherever the mask did not
+    /// change, and the traced boundary wherever it did. Vertices outside the
+    /// brush path are written back exactly as they were, so nothing the cursor
+    /// did not reach can move.
     ///
     /// Erase and Push differ in exactly two places: which pixels they write, and
     /// — because Push can write pixels the outline does not already have — how far
@@ -33,6 +35,14 @@ namespace DinoLino.Utilities.Modes
 
         /// <summary>How much wider than the brush the splice looks for its join, in canvas pixels.</summary>
         private const double SpliceMargin = 2.0;
+
+        /// <summary>
+        /// Distance, in image pixels, within which a changed mask pixel marks a
+        /// vertex or edge as edited. Rasterizing and tracing each wander by up to a
+        /// pixel, so geometry closer than this to an edit shares boundary with it and
+        /// is rebuilt from the trace along with it.
+        /// </summary>
+        private const int ChangeRadius = 2;
 
         // UI-thread-only processor used for fill and boundary tracing during a stroke.
         private readonly OutlineProcessor _processor = new OutlineProcessor();
@@ -175,6 +185,13 @@ namespace DinoLino.Utilities.Modes
                 PolylineGeometry.StripClosureDuplicate(img);
                 if (img.Count < 3) return;
 
+                // The vertices exactly as the canvas holds them, index-aligned with
+                // img. Untouched vertices are copied straight from this list, so they
+                // never pass through a coordinate round trip.
+                var oldCanvas = new List<Point>(img.Count);
+                for (int i = 0; i < img.Count; i++)
+                    oldCanvas.Add(srcPoints[i]);
+
                 double rImgX = BrushRadius / t.ScaleX;
                 double rImgY = BrushRadius / t.ScaleY;
                 int pad = (int)Math.Ceiling(Math.Max(rImgX, rImgY)) + 2;
@@ -208,39 +225,38 @@ namespace DinoLino.Utilities.Modes
                 var local = new List<Point>(img.Count);
                 foreach (var p in img) local.Add(new Point(p.X - ox, p.Y - oy));
 
-                // Rasterize the current outline into a filled mask, then let the tool
-                // edit the pixels under the brush.
-                bool[] mask = PolylineGeometry.RasterizePolygon(local, w, h);
+                // The outline as the mask sees it: filled, hole-free, single-part.
+                // Normalizing this reference the same way the edited mask is
+                // normalized below guarantees that every pixel differing between the
+                // two was changed by the brush, directly or as a consequence of it.
+                bool[] before = PolylineGeometry.RasterizePolygon(local, w, h);
+                before = _processor.FillHoles(before, w, h);
+                before = _processor.KeepLargestComponent(before, w, h);
 
                 var stroke = new BrushStroke(t, mousePos, ox, oy, w, h, rImgX, rImgY, BrushRadius);
-                if (!ApplyBrush(mask, stroke)) return;
+
+                bool[] after = (bool[])before.Clone();
+                if (!ApplyBrush(after, stroke)) return;
 
                 // Close small holes and keep the largest connected region so the
                 // outline stays single-part.
-                mask = _processor.FillHoles(mask, w, h);
-                mask = _processor.KeepLargestComponent(mask, w, h);
-                if (!_processor.HasMinimumPixels(mask, MinimumMaskPixels)) return;
+                after = _processor.FillHoles(after, w, h);
+                after = _processor.KeepLargestComponent(after, w, h);
+                if (!_processor.HasMinimumPixels(after, MinimumMaskPixels)) return;
 
                 // Trace the edited mask back into a boundary polyline.
-                var boundary = _processor.TraceBoundary(mask, w, h);
+                var boundary = _processor.TraceBoundary(after, w, h);
                 if (boundary.Count < MinimumBoundaryPoints) return;
 
-                // Splice only the affected arc back in, so untouched vertices stay put.
-                List<Point> newLocal = SpliceBrushArc(local, boundary, stroke);
-                if (newLocal == null)
-                {
-                    // Fall back to full simplification only when the edited region
-                    // cannot be isolated cleanly.
-                    newLocal = GeometryCalculations.DouglasPeucker(boundary, Context.SimplifyEpsilon);
-                }
+                // Only the edited runs are taken from the trace. When they can't be
+                // isolated cleanly the stroke is abandoned and the outline stays put.
+                List<Point> newCanvas = SpliceEditedRuns(oldCanvas, local, boundary, before, after, stroke);
+                if (newCanvas == null || newCanvas.Count < 3) return;
 
-                if (newLocal == null || newLocal.Count < 3) return;
-
-                // Rebuild the live polyline in canvas space and restore closure.
                 srcPoints.Clear();
-                foreach (var p in newLocal)
-                    srcPoints.Add(t.ImageToCanvas(p, ox, oy));
-                srcPoints.Add(t.ImageToCanvas(newLocal[0], ox, oy));
+                foreach (var p in newCanvas)
+                    srcPoints.Add(p);
+                srcPoints.Add(newCanvas[0]);
 
                 OutlineEdited?.Invoke();
             }
@@ -250,98 +266,133 @@ namespace DinoLino.Utilities.Modes
             }
         }
 
-        // ---- Arc splicing ----
-        // One implementation covers both directions, because the geometry is
-        // symmetric: the old vertices under the brush are the ones the disc
-        // swallowed (erase removed them, push made them interior), and the traced
-        // boundary's under-brush arc is the replacement — a carved bite one way, an
-        // outward bulge the other.
+        // ---- Splicing ----
+        // The traced boundary is consulted only where the mask changed. Each old
+        // vertex is classified as untouched or edited; untouched vertices are kept
+        // verbatim, and every maximal run of edited vertices (or a single bitten
+        // edge between two untouched vertices) is replaced by the stretch of the
+        // traced boundary running between its untouched neighbours. The geometry
+        // is symmetric between the tools: the run is what the disc swallowed, and
+        // the replacement is a carved bite one way or an outward bulge the other.
+        // Several runs can be spliced in one stroke, which covers a brush that
+        // touches the outline in two places, a bite that severs an appendage, and a
+        // push that bridges a concavity.
 
-        /// <summary>Replaces only the outline arc affected by the brush.</summary>
-        private List<Point> SpliceBrushArc(List<Point> oldLocal, List<Point> dense, BrushStroke stroke)
+        /// <summary>
+        /// Rebuilds the outline in canvas space from the untouched vertices and the
+        /// traced boundary. Returns null when nothing changed or when the edited
+        /// runs can't be spliced cleanly, in which case the outline is left alone.
+        /// </summary>
+        private List<Point> SpliceEditedRuns(List<Point> oldCanvas, List<Point> oldLocal,
+            List<Point> dense, bool[] before, bool[] after, BrushStroke stroke)
         {
             int n = oldLocal.Count;
             if (n < 3 || dense.Count < 3) return null;
 
-            // Test slightly wider than the brush so the join lands on stable geometry.
-            double rTest = BrushRadius + SpliceMargin;
-            bool UnderBrush(Point pLocal) => stroke.IsWithin(pLocal, rTest);
+            int w = stroke.Width, h = stroke.Height;
 
-            // Identify which old vertices were touched by the brush.
-            var under = new bool[n];
-            int underCount = 0;
-            for (int i = 0; i < n; i++)
+            // True when any mask pixel within ChangeRadius of a crop-space point
+            // differs between the two masks.
+            bool NearChange(double x, double y)
             {
-                under[i] = UnderBrush(oldLocal[i]);
-                if (under[i]) underCount++;
+                int cx = (int)Math.Floor(x), cy = (int)Math.Floor(y);
+                for (int yy = cy - ChangeRadius; yy <= cy + ChangeRadius; yy++)
+                {
+                    if ((uint)yy >= (uint)h) continue;
+                    int row = yy * w;
+                    for (int xx = cx - ChangeRadius; xx <= cx + ChangeRadius; xx++)
+                    {
+                        if ((uint)xx >= (uint)w) continue;
+                        if (before[row + xx] != after[row + xx]) return true;
+                    }
+                }
+                return false;
             }
 
-            if (underCount == n) return null;
-
-            int aIdx, bIdx;
-            if (underCount > 0)
+            // Walks the open edge between two untouched vertices at one-pixel steps.
+            // The windows overlap at that spacing, so no changed pixel along the
+            // edge can slip between samples.
+            bool EdgeNearChange(Point p, Point q)
             {
-                // Require one contiguous hit run on the cyclic outline.
-                int runs = 0, runStart = -1;
-                for (int i = 0; i < n; i++)
-                    if (under[i] && !under[(i - 1 + n) % n]) { runs++; runStart = i; }
+                double dx = q.X - p.X, dy = q.Y - p.Y;
+                int steps = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(dx * dx + dy * dy)));
+                for (int step = 1; step < steps; step++)
+                {
+                    double f = (double)step / steps;
+                    if (NearChange(p.X + f * dx, p.Y + f * dy)) return true;
+                }
+                return false;
+            }
 
-                if (runs != 1) return null;
+            // A vertex counts as edited when it sits under the brush (tested slightly
+            // wider than the disc so the joins land on stable geometry) or next to a
+            // pixel the stroke changed. The second test is what catches vertices the
+            // disc never covered but the edit removed anyway, such as those on an
+            // appendage the bite cut off or in a pocket a push sealed shut.
+            double rTest = BrushRadius + SpliceMargin;
+            var kept = new List<int>(n);
+            for (int i = 0; i < n; i++)
+            {
+                Point p = oldLocal[i];
+                if (stroke.IsWithin(p, rTest) || NearChange(p.X, p.Y)) continue;
+                kept.Add(i);
+            }
 
-                int runEnd = runStart;
-                while (under[(runEnd + 1) % n]) runEnd = (runEnd + 1) % n;
+            List<Point> result;
+            int m = kept.Count;
 
-                aIdx = (runStart - 1 + n) % n;
-                bIdx = (runEnd + 1) % n;
+            if (m == 0)
+            {
+                // Every vertex was in the brush path, so the whole outline is
+                // legitimately rebuilt from the trace.
+                var whole = GeometryCalculations.DouglasPeucker(dense, Context.SimplifyEpsilon);
+                if (whole == null) return null;
+                result = ToCanvas(whole, stroke);
             }
             else
             {
-                // The brush hit an edge between vertices: anchor the splice to the
-                // nearest edge instead.
-                int bestEdge = -1;
-                double bestDist = double.MaxValue;
+                // Replacement arcs must run around the traced loop the same way the
+                // old outline runs between its vertices.
+                bool forward = (SignedArea(oldLocal) >= 0) == (SignedArea(dense) >= 0);
 
-                for (int i = 0; i < n; i++)
+                result = new List<Point>(n + 16);
+                bool anyEdited = false;
+
+                for (int g = 0; g < m; g++)
                 {
-                    double d = PointToSegmentCanvasDist2(
-                        oldLocal[i], oldLocal[(i + 1) % n], stroke);
-                    if (d < bestDist) { bestDist = d; bestEdge = i; }
+                    int a = kept[g];
+                    int b = kept[(g + 1) % m];
+                    result.Add(oldCanvas[a]);
+
+                    // An untouched edge between two untouched vertices is kept as is.
+                    bool adjacent = m > 1 && (a + 1) % n == b;
+                    if (adjacent && !EdgeNearChange(oldLocal[a], oldLocal[b])) continue;
+
+                    anyEdited = true;
+
+                    int ja = PolylineGeometry.NearestIndex(dense, oldLocal[a]);
+                    int jb = PolylineGeometry.NearestIndex(dense, oldLocal[b]);
+                    if (ja < 0 || jb < 0) return null;
+
+                    List<Point> arc;
+                    if (ja != jb)
+                        arc = PolylineGeometry.ExtractArc(dense, ja, jb, forward);
+                    else if (m == 1)
+                        arc = ExtractFullLoop(dense, ja, forward);
+                    else
+                        continue; // both ends meet the trace at one point: a direct edge suffices
+
+                    var simplified = GeometryCalculations.DouglasPeucker(arc, Context.SimplifyEpsilon);
+                    if (simplified == null) return null;
+
+                    // The arc's own endpoints coincide with the untouched vertices on
+                    // either side, which are already part of the result.
+                    for (int k = 1; k < simplified.Count - 1; k++)
+                        result.Add(stroke.Transform.ImageToCanvas(simplified[k], stroke.OriginX, stroke.OriginY));
                 }
 
-                if (bestEdge < 0) return null;
-                aIdx = bestEdge;
-                bIdx = (bestEdge + 1) % n;
+                if (!anyEdited) return null;
             }
-
-            Point a = oldLocal[aIdx];
-            Point b = oldLocal[bIdx];
-
-            // Extract the two possible arcs on the traced boundary and keep the one
-            // actually under the brush.
-            int aJ = PolylineGeometry.NearestIndex(dense, a);
-            int bJ = PolylineGeometry.NearestIndex(dense, b);
-            if (aJ < 0 || bJ < 0 || aJ == bJ) return null;
-
-            List<Point> arc = ChooseUnderBrushArc(
-                PolylineGeometry.ExtractArc(dense, aJ, bJ, true),
-                PolylineGeometry.ExtractArc(dense, aJ, bJ, false),
-                UnderBrush);
-            if (arc == null) return null;
-
-            var arcSimpl = GeometryCalculations.DouglasPeucker(arc, Context.SimplifyEpsilon);
-            if (arcSimpl.Count < 2) return null;
-
-            // Keep the untouched portion B -> ... -> A, then insert the simplified
-            // replacement arc.
-            var result = new List<Point>(n + arcSimpl.Count);
-            for (int i = bIdx; ; i = (i + 1) % n)
-            {
-                result.Add(oldLocal[i]);
-                if (i == aIdx) break;
-            }
-
-            for (int k = 1; k < arcSimpl.Count - 1; k++)
-                result.Add(arcSimpl[k]);
 
             if (result.Count < 3) return null;
             if (PolylineGeometry.HasSelfIntersection(result)) return null;
@@ -349,43 +400,39 @@ namespace DinoLino.Utilities.Modes
             return result;
         }
 
-        /// <summary>Squared canvas-space distance from the brush centre to a segment.</summary>
-        private static double PointToSegmentCanvasDist2(Point p0, Point p1, BrushStroke stroke)
+        /// <summary>Maps crop-space points back to canvas space.</summary>
+        private static List<Point> ToCanvas(List<Point> local, BrushStroke stroke)
         {
-            Point a = stroke.Transform.ImageToCanvas(p0, stroke.OriginX, stroke.OriginY);
-            Point b = stroke.Transform.ImageToCanvas(p1, stroke.OriginX, stroke.OriginY);
-
-            double ax = a.X, ay = a.Y;
-            double vx = b.X - ax, vy = b.Y - ay;
-            double wx = stroke.MouseCanvas.X - ax, wy = stroke.MouseCanvas.Y - ay;
-
-            double len2 = vx * vx + vy * vy;
-            double tt = len2 > 1e-9 ? (wx * vx + wy * vy) / len2 : 0.0;
-            if (tt < 0.0) tt = 0.0; else if (tt > 1.0) tt = 1.0;
-
-            double cx = ax + tt * vx, cy = ay + tt * vy;
-            double dx = stroke.MouseCanvas.X - cx, dy = stroke.MouseCanvas.Y - cy;
-            return dx * dx + dy * dy;
+            var canvas = new List<Point>(local.Count);
+            foreach (var p in local)
+                canvas.Add(stroke.Transform.ImageToCanvas(p, stroke.OriginX, stroke.OriginY));
+            return canvas;
         }
 
-        /// <summary>Picks the arc whose interior is actually under the brush.</summary>
-        private static List<Point> ChooseUnderBrushArc(
-            List<Point> a, List<Point> b, Func<Point, bool> underBrush)
+        /// <summary>The whole traced loop, starting and ending at one index.</summary>
+        private static List<Point> ExtractFullLoop(List<Point> pts, int start, bool forward)
         {
-            double FracUnder(List<Point> arc)
+            int n = pts.Count;
+            var loop = new List<Point>(n + 1);
+            for (int s = 0; s <= n; s++)
             {
-                int under = 0, total = 0;
-                for (int k = 1; k < arc.Count - 1; k++)
-                {
-                    total++;
-                    if (underBrush(arc[k])) under++;
-                }
-                return total == 0 ? 0.0 : (double)under / total;
+                int idx = forward ? (start + s) % n : ((start - s) % n + n) % n;
+                loop.Add(pts[idx]);
             }
+            return loop;
+        }
 
-            double fa = FracUnder(a), fb = FracUnder(b);
-            if (Math.Max(fa, fb) <= 0.0) return null;
-            return fa >= fb ? a : b;
+        /// <summary>Shoelace area of a closed ring; the sign encodes winding direction.</summary>
+        private static double SignedArea(IList<Point> pts)
+        {
+            double sum = 0;
+            int n = pts.Count;
+            for (int i = 0; i < n; i++)
+            {
+                Point p = pts[i], q = pts[(i + 1) % n];
+                sum += p.X * q.Y - q.X * p.Y;
+            }
+            return 0.5 * sum;
         }
     }
 
@@ -476,8 +523,7 @@ namespace DinoLino.Utilities.Modes
 
             // Nothing changed, or the brush isn't touching the shape at all: a
             // detached brush disc must never replace the outline (it could win
-            // KeepLargestComponent on a small outline) or trigger the full
-            // re-simplification fallback on untouched geometry.
+            // KeepLargestComponent on a small outline).
             return anyAdded && touchesOutline;
         }
     }
