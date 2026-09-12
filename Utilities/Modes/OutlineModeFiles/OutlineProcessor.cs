@@ -468,6 +468,78 @@ namespace DinoLino.Utilities
             return result;
         }
 
+        /// Mean gradient in a box around every pixel: how busy each neighbourhood is
+        /// on its own terms. A single percentile taken over the whole frame answers a
+        /// different question — on a picture with a textured background it reports how
+        /// busy the TEXTURE is, and an object boundary elsewhere is then measured
+        /// against a bar the sand set. This is the local answer, so a rim pixel can be
+        /// judged against its own surroundings.
+        internal static int[] ComputeLocalGradientLevel(int[] gradient, int w, int h, int radius = 15)
+        {
+            int total = w * h;
+            var level = new int[total];
+            if (gradient == null || gradient.Length < total || total == 0) return level;
+
+            // Long sums throughout: gradient values are already squared, so a box of
+            // them overflows int by orders of magnitude.
+            var hSum = new long[total];
+
+            // Pass 1: horizontal running sum per row.
+            for (int y = 0; y < h; y++)
+            {
+                int row = y * w;
+                long sum = 0;
+                int seed = Math.Min(w - 1, radius);
+                for (int x = 0; x <= seed; x++) sum += gradient[row + x];
+
+                for (int x = 0; x < w; x++)
+                {
+                    hSum[row + x] = sum;
+                    int add = x + radius + 1, sub = x - radius;
+                    if (add < w) sum += gradient[row + add];
+                    if (sub >= 0) sum -= gradient[row + sub];
+                }
+            }
+
+            // Pass 2: vertical running sum over those, divided by the exact number of
+            // pixels the window actually covers at each position.
+            var colSum = new long[w];
+            int ySeed = Math.Min(h - 1, radius);
+            for (int y = 0; y <= ySeed; y++)
+            {
+                int row = y * w;
+                for (int x = 0; x < w; x++) colSum[x] += hSum[row + x];
+            }
+
+            for (int y = 0; y < h; y++)
+            {
+                int row = y * w;
+                int rows = Math.Min(h - 1, y + radius) - Math.Max(0, y - radius) + 1;
+
+                for (int x = 0; x < w; x++)
+                {
+                    int cols = Math.Min(w - 1, x + radius) - Math.Max(0, x - radius) + 1;
+                    long count = (long)rows * cols;
+                    long mean = count > 0 ? colSum[x] / count : 0;
+                    level[row + x] = mean > int.MaxValue ? int.MaxValue : (int)mean;
+                }
+
+                int addRow = y + radius + 1, subRow = y - radius;
+                if (addRow < h)
+                {
+                    int r = addRow * w;
+                    for (int x = 0; x < w; x++) colSum[x] += hSum[r + x];
+                }
+                if (subRow >= 0)
+                {
+                    int r = subRow * w;
+                    for (int x = 0; x < w; x++) colSum[x] -= hSum[r + x];
+                }
+            }
+
+            return level;
+        }
+
         /// Percentile of the gradient distribution via a coarse sqrt(gradient)
         /// histogram. Computed once per image to calibrate the edge cutoff.
         internal static int GradientPercentileThreshold(int[] gradient, double percentile)

@@ -32,7 +32,8 @@ namespace DinoLino.Utilities
         public bool[] BackgroundMask;
         public int[] Gradient;             // squared weighted-Sobel magnitude
         public int[] DistToBackground;     // BFS distance to border/background
-        public int GradientEdgeThreshold;  // "counts as an edge" cutoff for mask scoring
+        public int GradientEdgeThreshold;  // frame-wide "counts as an edge" cutoff, used for boundary snapping
+        public int[] LocalGradientLevel;   // mean gradient around each pixel — the local bar mask scoring uses
         public float[] TextureMap;         // per-pixel local luma std-dev, PerceptualDistance scale (adaptive flood)
         public byte[] FlattenedPixels;     // illumination-normalized copy (poor-man's retinex), same stride/bpp
         public bool[] FlattenedBackgroundMask; // background model REBUILT on the flattened copy
@@ -83,6 +84,11 @@ namespace DinoLino.Utilities
             int edgeThreshold = Math.Max(
                 OutlineProcessor.GradientPercentileThreshold(gradient, 0.90), 120_000);
 
+            // The same question asked locally, which is what mask scoring uses. On a
+            // textured background the frame-wide percentile is set by the texture, and
+            // a real boundary is then held to a bar the background chose for it.
+            int[] localGradientLevel = OutlineProcessor.ComputeLocalGradientLevel(gradient, w, h);
+
             // Per-pixel local texture (luma std-dev over 7×7). Lets the adaptive
             // flood match on texture and self-tune tolerance from the seed.
             float[] textureMap = proc.ComputeTextureMap(snap);
@@ -122,6 +128,7 @@ namespace DinoLino.Utilities
                 Gradient = gradient,
                 DistToBackground = distToBackground,
                 GradientEdgeThreshold = edgeThreshold,
+                LocalGradientLevel = localGradientLevel,
                 TextureMap = textureMap,
                 FlattenedPixels = flattened,
                 FlattenedBackgroundMask = flatBgMask,
@@ -162,7 +169,31 @@ namespace DinoLino.Utilities
     {
         // A candidate mask scoring at or above this is accepted immediately and the
         // portfolio stops; below it, the next candidate runs and the highest score wins.
-        private const double AcceptableMaskScore = 0.5;
+        // Scores carry the band-contrast factor, which is well under 1 on a genuinely
+        // low-contrast subject, so the bar sits below where a clean edge-only score
+        // would have put it.
+        private const double AcceptableMaskScore = 0.45;
+
+        // A rim pixel counts as sitting on an edge when its gradient beats the mean
+        // gradient of its own neighbourhood by this much.
+        private const double LocalEdgeMultiple = 2.0;
+
+        // Absolute floor under the local bar, so a perfectly flat region cannot make
+        // every faint ripple in it read as a boundary. ~9 luma levels.
+        private const int MinEdgeGradient = 120_000;
+
+        // How far either side of the boundary the two sides are sampled, and the
+        // smallest usable number of samples per side.
+        private const int BandSampleRadius = 6;
+        private const int BandMinSamples = 24;
+
+        // Colour difference across the boundary, in PerceptualDistance units, that
+        // earns half marks. Sets where "these are two different materials" starts.
+        private const double BandContrastHalf = 30.0;
+
+        // Compass offsets used to sample either side of a rim pixel.
+        private static readonly int[] BandDx = { 1, -1, 0, 0, 1, 1, -1, -1 };
+        private static readonly int[] BandDy = { 0, 0, 1, -1, 1, -1, 1, -1 };
 
         // Masks at or above this already hug the image edges, so GmmRefine is skipped.
         private const double RefinementSkipScore = 0.72;
@@ -177,13 +208,29 @@ namespace DinoLino.Utilities
         // ---- MASK SCORING ----
 
         /// Heuristic quality score in [0,1] for a raw mask: * edge alignment — fraction
-        /// of the rim on strong gradient (±2 px tolerance, so masks near but not
-        /// exactly on the edge aren't penalized), * border leak — foreground in the
-        /// border band is punished, * size sanity — near-full-frame masks are almost
-        /// certainly leaks.
-        private static double ScoreMask(bool[] mask, int w, int h, int[] gradient, int edgeGradThreshold)
+        /// of the rim whose gradient stands out from its OWN neighbourhood (±2 px
+        /// tolerance, so masks near but not exactly on the edge aren't penalized),
+        /// * band contrast — whether the two sides of the boundary are actually made of
+        /// different stuff, * border leak — foreground in the border band is punished,
+        /// * size sanity — near-full-frame masks are almost certainly leaks.
+        /// <para>
+        /// Edge alignment alone cannot rank masks on a textured background: where every
+        /// square inch of sand is full of gradient, a rim drawn anywhere sits on an
+        /// "edge", so a leaked mask and a correct one score alike. Band contrast is the
+        /// term that still separates them, because sand on both sides of a boundary
+        /// looks like sand however busy it is.
+        /// </para>
+        private static double ScoreMask(bool[] mask, ImageSnapshot snap, int[] gradient,
+            int[] localGradientLevel)
         {
+            int w = snap.Width, h = snap.Height;
             long rim = 0, rimOnEdge = 0, area = 0, borderFg = 0, borderTotal = 0;
+
+            // Colour accumulated either side of the boundary, sampled as the rim is
+            // walked so no second pass over the image is needed.
+            long inR = 0, inG = 0, inB = 0, inCount = 0;
+            long outR = 0, outG = 0, outB = 0, outCount = 0;
+
             for (int y = 0; y < h; y++)
             {
                 int row = y * w;
@@ -213,7 +260,30 @@ namespace DinoLino.Utilities
                         for (int xx = nx0; xx <= nx1; xx++)
                             if (gradient[rr + xx] > g) g = gradient[rr + xx];
                     }
-                    if (g >= edgeGradThreshold) rimOnEdge++;
+
+                    // The bar is set by this pixel's own surroundings, so a boundary in
+                    // a busy corner is asked to stand out from that busyness rather
+                    // than from the calmest part of the picture.
+                    long localLevel = localGradientLevel != null ? localGradientLevel[i] : 0;
+                    long bar = Math.Max((long)(localLevel * LocalEdgeMultiple), MinEdgeGradient);
+                    if (g >= bar) rimOnEdge++;
+
+                    // Step out along each compass direction and let the mask say which
+                    // side that sample landed on.
+                    for (int d = 0; d < BandDx.Length; d++)
+                    {
+                        int sx = x + BandDx[d] * BandSampleRadius;
+                        int sy = y + BandDy[d] * BandSampleRadius;
+                        if (sx < 0 || sx >= w || sy < 0 || sy >= h) continue;
+
+                        int pi = sy * snap.Stride + sx * snap.Bpp;
+                        int pr, pg, pb;
+                        if (snap.Bpp == 1) { pr = pg = pb = snap.Pixels[pi]; }
+                        else { pb = snap.Pixels[pi]; pg = snap.Pixels[pi + 1]; pr = snap.Pixels[pi + 2]; }
+
+                        if (mask[sy * w + sx]) { inR += pr; inG += pg; inB += pb; inCount++; }
+                        else { outR += pr; outG += pg; outB += pb; outCount++; }
+                    }
                 }
             }
             if (area == 0 || rim == 0) return 0;
@@ -223,7 +293,20 @@ namespace DinoLino.Utilities
             double areaFraction = (double)area / ((long)w * h);
             double sizeFactor = areaFraction > 0.9 ? 0.1 : 1.0;
 
-            return edgeAlignment * (1.0 - Math.Min(1.0, borderLeak * 3.0)) * sizeFactor;
+            // A mask too thin to have an inside worth sampling gets a neutral factor
+            // rather than a zero: the term could not be measured, which is not evidence
+            // against the mask.
+            double bandContrast = 1.0;
+            if (inCount >= BandMinSamples && outCount >= BandMinSamples)
+            {
+                double d = OutlineProcessor.PerceptualDistance(
+                    (double)inR / inCount, (double)inG / inCount, (double)inB / inCount,
+                    (double)outR / outCount, (double)outG / outCount, (double)outB / outCount);
+                bandContrast = d / (d + BandContrastHalf);
+            }
+
+            return edgeAlignment * bandContrast
+                   * (1.0 - Math.Min(1.0, borderLeak * 3.0)) * sizeFactor;
         }
 
         // ---- CANDIDATE PORTFOLIO ----
@@ -290,7 +373,7 @@ namespace DinoLino.Utilities
             {
                 if (m == null) return 0;
                 if (!_proc.HasMinimumPixels(m, minPlausibleArea)) return 0; // size veto
-                return ScoreMask(m, a.Width, a.Height, a.Gradient, a.GradientEdgeThreshold);
+                return ScoreMask(m, snap, a.Gradient, a.LocalGradientLevel);
             }
 
             bool Consider(string name, bool[] m)
