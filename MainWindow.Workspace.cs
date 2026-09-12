@@ -25,10 +25,10 @@ namespace DinoLino
 
         private ImageAdjuster _imageAdjuster = new ImageAdjuster();
 
-        // Current adjustment values, stored so the dialog can reopen with the last settings.
-        private double _currentContrast = 0;
-        private double _currentBrightness = 0;
-        private double _currentSaturation = 0;
+        // The loaded specimen's correction values, which the dialog reopens with. They
+        // live on the specimen, so opening another image starts from zero and coming
+        // back to this one restores what it was last set to.
+        public PictureCorrections PictureCorrections = new PictureCorrections();
 
         // =====================
         // Scale capture
@@ -176,16 +176,21 @@ namespace DinoLino
         /// </summary>
         private void SetWorkspaceImage(BitmapSource bmp, string specimenName, bool registerAsNewSpecimen)
         {
+            // Before the specimen changes underneath it.
+            CloseAdjustmentWindow();
+
             WorkingImage = bmp;
             UI_WorkImage.Source = WorkingImage;
 
             if (registerAsNewSpecimen)
                 SpecimenManager.OnImageOpened(bmp, specimenName);
 
-            // Scale and alignment both belong to the specimen and come back with it.
+            // Scale, alignment and picture corrections all belong to the specimen and
+            // come back with it.
             ScaleCalibration.BindTo(SpecimenManager.CurrentSpecimen);
             ImageAlignment.BindTo(SpecimenManager.CurrentSpecimen);
             ActiveAlignment.Bind(ImageAlignment);
+            PictureCorrections.BindTo(SpecimenManager.CurrentSpecimen);
 
             ResetWorkSpaceZoom();
             ClearWorkspace();
@@ -194,6 +199,11 @@ namespace DinoLino
             _imageAdjuster.CacheImage(WorkingImage);
             SetImageToolsEnabled(true);
             OutlineMode.SourceImage = WorkingImage;
+
+            // After the outline source is set, since rendering corrections replaces it
+            // with the corrected pixels. Bound above, so this brings back the arriving
+            // specimen's own corrections, and does nothing for one that has none.
+            ReapplyImageAdjustments();
 
             Dispatcher.BeginInvoke(
                 System.Windows.Threading.DispatcherPriority.Loaded,
@@ -204,11 +214,14 @@ namespace DinoLino
         /// no other specimen still holds an image to fall back to.
         internal void ClearWorkspaceImage()
         {
+            CloseAdjustmentWindow();
+
             WorkingImage = null;
             UI_WorkImage.Source = null;
 
             ScaleCalibration.BindTo(null);
             ImageAlignment.BindTo(null);
+            PictureCorrections.BindTo(null);
             SetImageToolsEnabled(false);
             ResetWorkSpaceZoom();
             ClearWorkspace();
@@ -293,6 +306,13 @@ namespace DinoLino
             WorkingImage = bmi;
             UI_WorkImage.Source = WorkingImage;
 
+            // The turn belongs to the specimen rather than to this visit, so it is what
+            // the specimen is from now on and what a later visit loads. The turned
+            // pixels carry no corrections: those are stored separately and rendered
+            // onto whatever the specimen holds, which is what keeps a return trip from
+            // applying them twice.
+            SpecimenManager.ReplaceImage(SpecimenManager.CurrentSpecimen, bmi);
+
             // A flip or rotation changes the image geometry, so existing overlays and scale calibration
             // must be rebuilt against the new image.
             ResetWorkSpaceZoom();
@@ -301,7 +321,29 @@ namespace DinoLino
             RefreshAllScalePlaceholders();
 
             OutlineMode.SourceImage = WorkingImage;
+
+            // WorkingImage carries the geometry only, so the adjuster is re-pointed at
+            // the turned pixels and the corrections in force are rendered onto them
+            // again. Without this the workspace falls back to the uncorrected image,
+            // and the adjuster keeps handing out the untransformed one the next time a
+            // slider moves.
+            _imageAdjuster.CacheImage(WorkingImage);
+            ReapplyImageAdjustments();
+
             Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(SyncOutlineImageTransform));
+        }
+
+        /// Renders the cached image with the correction values currently in force.
+        /// Values of zero leave the image as it is, which is already what they mean.
+        private void ReapplyImageAdjustments()
+        {
+            if (!_imageAdjuster.HasImage) return;
+            if (!PictureCorrections.IsSet) return;
+
+            _imageAdjuster.ApplyNow(
+                PictureCorrections.Contrast / 100.0,
+                PictureCorrections.Brightness / 100.0,
+                PictureCorrections.Saturation / 100.0);
         }
 
         // =====================
@@ -394,6 +436,20 @@ namespace DinoLino
         // Picture adjustment
         // =====================
 
+        // The open adjustment dialog, whose sliders belong to whichever specimen was
+        // loaded when it opened.
+        private PictureAdjustmentWindow _adjustWindow;
+
+        /// Closes the adjustment dialog. Its sliders speak for one specimen, so a
+        /// dialog left open over a specimen switch would write the departing
+        /// specimen's numbers into the arriving one at the next nudge of a slider.
+        private void CloseAdjustmentWindow()
+        {
+            var open = _adjustWindow;
+            _adjustWindow = null;
+            open?.Close();
+        }
+
         private void Menu_PictureAdjustment(object sender, RoutedEventArgs e)
         {
             if (WorkingImage == null)
@@ -402,15 +458,27 @@ namespace DinoLino
                 return;
             }
 
-            PictureAdjustmentWindow adjustWindow = new PictureAdjustmentWindow(_currentContrast, _currentBrightness, _currentSaturation);
+            // One dialog at a time: a second opened over the first would leave two sets
+            // of sliders claiming to hold the specimen's values.
+            if (_adjustWindow != null)
+            {
+                _adjustWindow.Activate();
+                return;
+            }
+
+            PictureAdjustmentWindow adjustWindow = new PictureAdjustmentWindow(
+                PictureCorrections.Contrast,
+                PictureCorrections.Brightness,
+                PictureCorrections.Saturation);
+
             adjustWindow.FontSize = _currentFontSize;
             adjustWindow.FontFamily = _currentFont;
 
             adjustWindow.OnAdjustmentChanged = (contrast, brightness, saturation) =>
             {
-                _currentContrast = contrast;
-                _currentBrightness = brightness;
-                _currentSaturation = saturation;
+                // Written through to the loaded specimen, so the dialog opens on these
+                // values again whenever that specimen is the one on screen.
+                PictureCorrections.Set(contrast, brightness, saturation);
 
                 // Values are stored as percentages in the dialog and converted to normalized adjustments here.
                 _imageAdjuster.RequestAdjustment(
@@ -419,6 +487,15 @@ namespace DinoLino
                     saturation / 100.0);
             };
 
+            // Closing by any route — the title bar, or a specimen switch — leaves the
+            // menu able to open a fresh one.
+            adjustWindow.Closed += (s, args) =>
+            {
+                if (ReferenceEquals(_adjustWindow, adjustWindow))
+                    _adjustWindow = null;
+            };
+
+            _adjustWindow = adjustWindow;
             adjustWindow.Show();
         }
 
@@ -523,10 +600,10 @@ namespace DinoLino
             ClearWorkspaceImage();
             _activeModelPath = null;
 
-            // Picture corrections are per-image, so they start from zero again.
-            _currentContrast = 0;
-            _currentBrightness = 0;
-            _currentSaturation = 0;
+            // Picture corrections belong to the specimens that have just gone, and
+            // ClearWorkspaceImage has already unbound them, so the live values are
+            // dropped rather than written anywhere.
+            PictureCorrections.Clear();
 
             ClearPcaAnalysis();
 

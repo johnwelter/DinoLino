@@ -347,12 +347,24 @@ namespace DinoLino
             }
         }
 
+        /// The menu names one drawing color for the whole workspace, so the brush goes
+        /// to every work mode rather than only the tab that happens to be open. A mode
+        /// that never heard the choice would otherwise keep drawing in the color it
+        /// started with, which is what a tab switched to after picking a color did.
         private void Menu_Color_Click(object sender, RoutedEventArgs e)
         {
             if (sender is RadioButton rb && rb.Tag != null)
             {
                 var brush = (Brush)new BrushConverter().ConvertFromString(rb.Tag.ToString());
-                CurrentWorkMode.LineColor = brush;
+
+                if (AllWorkModes == null)
+                {
+                    CurrentWorkMode.LineColor = brush;
+                    return;
+                }
+
+                foreach (var mode in AllWorkModes)
+                    mode.LineColor = brush;
             }
         }
 

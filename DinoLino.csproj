@@ -138,6 +138,7 @@
     <Compile Include="Utilities\Geometry\GeometryCalculations.cs" />
     <Compile Include="Utilities\HistoryFiles\GeomOpHistoryWindow.cs" />
     <Compile Include="Utilities\ImageAdjustments\ImageAdjuster.cs" />
+    <Compile Include="Utilities\ImageAdjustments\PictureCorrections.cs" />
     <Compile Include="Utilities\Modes\DrawModeFiles\DrawMode.cs" />
     <Compile Include="Utilities\Modes\GetAngleModeFiles\GetAngleMode.cs" />
     <Compile Include="Utilities\Modes\CurvatureModeFiles\CurvatureMode.cs" />

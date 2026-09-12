@@ -91,6 +91,24 @@ namespace DinoLino
             _adjustmentTimer.Start();
         }
 
+        /// Renders an adjustment straight away instead of waiting for the coalescing
+        /// timer. Used when the cached image itself has just been replaced, where the
+        /// delay would leave the unadjusted pixels on screen in the meantime.
+        public void ApplyNow(double contrast, double brightness, double saturation)
+        {
+            _pendingContrast = contrast;
+            _pendingBrightness = brightness;
+            _pendingSaturation = saturation;
+
+            // Any queued render would work from these same values, so it has nothing
+            // left to do.
+            _adjustmentTimer.Stop();
+
+            var result = Apply(contrast, brightness, saturation);
+            if (result != null)
+                OnAdjustmentApplied?.Invoke(result);
+        }
+
         // =====================
         // Adjustment pipeline
         // =====================

@@ -47,6 +47,11 @@ namespace DinoLino.Utilities
         // Scale calibration for this specimen's image, set by Tools ▸ Set Scale.
         public ScaleState Calibration { get; set; } = ScaleState.None;
 
+        // Contrast, brightness and saturation for this specimen's image, set by
+        // Tools ▸ Picture Adjustment. A correction that suits one specimen's lighting
+        // rarely suits the next, so each keeps its own and starts uncorrected.
+        public CorrectionState Corrections { get; set; } = CorrectionState.None;
+
         // True while this specimen is a 3D model that still needs positioning.
         public bool NeedsPositioning => Image == null && PendingModelPath != null;
 
@@ -329,6 +334,20 @@ namespace DinoLino.Utilities
             specimen.PendingModelPath = null;
 
             RaiseCurrentChanged();
+        }
+
+        // Swaps in a re-oriented bitmap for a specimen that already holds one, so a
+        // flip or rotation is what the specimen comes back as. A specimen whose image
+        // has been released keeps none: the user asked for that memory back, and
+        // turning the workspace copy is no reason to hand them a new one. Says nothing
+        // about a pending model, unlike AttachCapturedImage, because turning an image
+        // does not finish a 3D capture.
+        public void ReplaceImage(Specimen specimen, BitmapSource image)
+        {
+            if (specimen == null || image == null) return;
+            if (specimen.Image == null) return;
+
+            specimen.Image = image;
         }
 
         //----- Duplication -----//
